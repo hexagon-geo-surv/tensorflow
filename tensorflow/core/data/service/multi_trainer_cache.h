@@ -198,8 +198,8 @@ StatusOr<std::shared_ptr<const ElementType>>
 MultiTrainerCache<ElementType>::Get(const std::string& trainer_id)
     TF_LOCKS_EXCLUDED(mu_) {
   if (trainer_id.empty()) {
-    return errors::InvalidArgument(
-        "tf.data service cross-trainer cache requires a non-empty trainer ID.");
+    return errors::Internal(
+        "tf.data service multi-trainer cache trainer ID must be non-empty.");
   }
 
   TF_ASSIGN_OR_RETURN(CacheQueryResult result, GetCacheQueryResult(trainer_id));
