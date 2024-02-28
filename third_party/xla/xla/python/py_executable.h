@@ -46,7 +46,7 @@ limitations under the License.
 #include "xla/python/py_array.h"
 #include "xla/python/py_client.h"
 #include "xla/python/traceback.h"
-#include "tsl/concurrency/ref_count.h"
+#include "xla/tsl/concurrency/ref_count.h"
 #include "tsl/platform/status.h"
 
 namespace xla {
