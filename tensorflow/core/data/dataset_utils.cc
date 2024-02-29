@@ -497,6 +497,8 @@ absl::flat_hash_set<string> GetExperiments(
     const string& job_name, int64_t task_id,
     std::function<uint64_t(const string&)> hash_func) {
   absl::flat_hash_set<string> experiments;
+  // DO NOT SUBMIT
+  // experiments.insert("data_service_nonblocking_requests");
   if (job_name.empty() || task_id < 0) {
     return experiments;
   }
@@ -1024,8 +1026,8 @@ REGISTER_DATASET_EXPERIMENT("inject_io_prefetch", RandomJobSamplePercentage<0>,
                             AllTasks);
 REGISTER_DATASET_EXPERIMENT("reduce_array_record_dataset_memory_usage",
                             RandomJobSamplePercentage<50>, AllTasks);
-REGISTER_DATASET_EXPERIMENT("map_fusion", RandomJobSamplePercentage<50>,
-                            AllTasks);
+REGISTER_DATASET_EXPERIMENT("map_fusion", RandomJobSamplePercentage<5>,
+                            IndependentHostTasks);
 }  // namespace
 }  // namespace data
 }  // namespace tensorflow
