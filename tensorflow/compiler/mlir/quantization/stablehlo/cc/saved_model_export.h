@@ -43,6 +43,10 @@ struct ExportOptions {
   // lowering to tf_executor dialect.
   bool duplicate_shape_determining_constants = true;
 
+  // If set to `true`, serializes the StableHLO module embedded in
+  // tf.XlaCallModule.
+  bool serialize_xla_call_module = false;
+
   // If set to `true`, unfreezes constants into variables and saves them to a
   // checkpoint file. Setting this to `true` is an experimental feature that has
   // no stability guarantees.
@@ -90,7 +94,7 @@ absl::StatusOr<std::optional<tensorflow::SaverDef>> CreateSaverDef(
 // affect the shape of a tensor to be placed in the TPU graph instead of in the
 // CPU graph, when the graph gets converted for TPU inference. This allows these
 // constants to be known at XLA compilation time.
-void AddExportPasses(mlir::PassManager& pm,
+void AddExportPasses(mlir::PassManager& pm, bool serialize_xla_call_module,
                      bool duplicate_shape_determining_constants);
 
 // Converts MLIR ModuleOp to `ExportedModel`. Returns `InternalError` status

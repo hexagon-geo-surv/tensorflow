@@ -49,9 +49,6 @@ void AddPreCalibrationPasses(OpPassManager& pm,
   pm.addNestedPass<func::FuncOp>(
       CreateInsertCustomAggregationOpsPass(calibration_options));
   pm.addPass(CreateIssueIDsOfCustomAggregationOpsPass());
-  // StableHLO Quantizer currently uses TF's calibration passes. Serialize
-  // the StableHLO module as tf.XlaCallModule to run calibration.
-  AddCallModuleSerializationPasses(pm);
 }
 
 void AddPostCalibrationPasses(
@@ -68,7 +65,6 @@ void AddPostCalibrationPasses(
   if (pipeline_config.unpack_quantized_types()) {
     AddStablehloQuantToIntPasses(pm);
   }
-  AddCallModuleSerializationPasses(pm);
 }
 
 void AddXlaCallModuleOpDeserializationPasses(OpPassManager& pm) {

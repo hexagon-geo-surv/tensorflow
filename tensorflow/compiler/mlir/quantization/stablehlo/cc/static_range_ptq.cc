@@ -108,8 +108,11 @@ absl::StatusOr<SmallVector<AssetFileDef>> RunExportPasses(
           /*name=*/
           export_opts.debug_name,
           /*add_passes_func=*/
-          [dup_constants = export_opts.duplicate_shape_determining_constants](
-              PassManager& pm) { AddExportPasses(pm, dup_constants); },
+          [dup_constants = export_opts.duplicate_shape_determining_constants,
+           serialize_xla =
+               export_opts.serialize_xla_call_module](PassManager& pm) {
+            AddExportPasses(pm, serialize_xla, dup_constants);
+          },
           ctx, module_op);
       !pass_run_status.ok()) {
     return pass_run_status;
@@ -204,6 +207,7 @@ absl::StatusOr<ExportedModel> CreateExportedModel(
   TF_ASSIGN_OR_RETURN(const std::string checkpoint_dir, GetLocalTmpFileName());
   const ExportOptions export_opts = {
       /*duplicate_shape_determining_constants=*/true,
+      /*serialize_xla_call_module=*/true,
       /*unfreeze_constants=*/false, checkpoint_dir,
       /*debug_name=*/
       absl::StrCat(PostCalibrationComponent::kName, kExportStepSuffix)};

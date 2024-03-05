@@ -154,8 +154,11 @@ absl::StatusOr<llvm::SmallVector<AssetFileDef>> RunExportPasses(
           /*name=*/
           export_opts.debug_name,
           /*add_passes_func=*/
-          [dup_constants = export_opts.duplicate_shape_determining_constants](
-              mlir::PassManager &pm) { AddExportPasses(pm, dup_constants); },
+          [dup_constants = export_opts.duplicate_shape_determining_constants,
+           serialize_xla =
+               export_opts.serialize_xla_call_module](mlir::PassManager &pm) {
+            AddExportPasses(pm, serialize_xla, dup_constants);
+          },
           ctx, module_op);
       !pass_run_status.ok()) {
     return pass_run_status;
@@ -172,14 +175,15 @@ absl::StatusOr<llvm::SmallVector<AssetFileDef>> RunExportPasses(
 
 absl::StatusOr<ExportedModel> ModuleOpToExportedModel(
     mlir::ModuleOp module_op, mlir::MLIRContext *ctx,
-    absl::string_view step_name, const bool unfreeze_constants,
+    absl::string_view step_name, const bool serialize_xla_call_module,
+    const bool unfreeze_constants,
     const absl::flat_hash_map<std::string, std::string> &function_aliases) {
   TF_ASSIGN_OR_RETURN(const std::string checkpoint_dir, GetLocalTmpFileName());
 
-  const auto export_opts =
-      ExportOptions{/*duplicate_shape_determining_constants=*/true,
-                    unfreeze_constants, checkpoint_dir,
-                    /*debug_name=*/absl::StrCat(step_name, kExportStepSuffix)};
+  const auto export_opts = ExportOptions{
+      /*duplicate_shape_determining_constants=*/true, serialize_xla_call_module,
+      unfreeze_constants, checkpoint_dir,
+      /*debug_name=*/absl::StrCat(step_name, kExportStepSuffix)};
 
   TF_ASSIGN_OR_RETURN(const llvm::SmallVector<AssetFileDef> asset_file_defs,
                       RunExportPasses(export_opts, *ctx, module_op));
@@ -230,6 +234,7 @@ absl::StatusOr<ExportedModel> QuantizeQatModel(
 
   return ModuleOpToExportedModel(
       *module_ref, context.get(), kTfQuantQatStepName,
+      /*serialize_xla_call_module=*/false,
       /*unfreeze_constants=*/!quantization_options.freeze_all_variables(),
       *function_aliases);
 }
@@ -286,6 +291,7 @@ absl::StatusOr<ExportedModel> QuantizePtqModelPreCalibration(
 
   return ModuleOpToExportedModel(
       *module_ref, context.get(), kTfQuantPtqPreCalibrationStepName,
+      /*serialize_xla_call_module=*/is_stablehlo,
       /*unfreeze_constants=*/!quantization_options.freeze_all_variables(),
       *function_aliases);
 }
@@ -349,6 +355,7 @@ absl::StatusOr<ExportedModel> QuantizePtqModelPostCalibration(
 
   return ModuleOpToExportedModel(
       *module_ref, context.get(), kTfQuantPtqPostCalibrationStepName,
+      /*serialize_xla_call_module=*/is_stablehlo,
       /*unfreeze_constants=*/!quantization_options.freeze_all_variables(),
       *function_aliases);
 }
@@ -394,6 +401,7 @@ absl::StatusOr<ExportedModel> QuantizePtqDynamicRange(
 
   return ModuleOpToExportedModel(
       *module_ref, context.get(), kTfQuantPtqDynamicRangeStepName,
+      /*serialize_xla_call_module=*/false,
       /*unfreeze_constants=*/!quantization_options.freeze_all_variables(),
       *function_aliases);
 }
@@ -444,6 +452,7 @@ absl::StatusOr<ExportedModel> QuantizeWeightOnly(
 
   return ModuleOpToExportedModel(
       *module_ref, context.get(), kTfQuantWeightOnlyStepName,
+      /*serialize_xla_call_module=*/false,
       /*unfreeze_constants=*/!quantization_options.freeze_all_variables(),
       *function_aliases);
 }
