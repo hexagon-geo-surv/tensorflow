@@ -554,6 +554,7 @@ cc_library(
         "@triton//:TritonNvidiaGPUTransforms",
         "@triton//:TritonLLVMIR",
         "@triton//:TritonToTritonGPU",
+        "@triton//:TritonGPUToLLVM",
     ]),
 )
 
