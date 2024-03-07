@@ -121,8 +121,10 @@ class ExtractImagePatchesOp : public XlaOpKernel {
         xla::ShapeUtil::MakeShape(xla::S32, {kernel_size, depth, kernel_size});
     xla::XlaOp filter =
         xla::Reshape(xla::ConvertElementType(
-                         xla::Eq(xla::Iota(builder, iota_kernel_shape, 0),
-                                 xla::Iota(builder, iota_kernel_shape, 2)),
+                         xla::ConvertElementType(
+                             xla::Eq(xla::Iota(builder, iota_kernel_shape, 0),
+                                     xla::Iota(builder, iota_kernel_shape, 2)),
+                             xla::S32),
                          type),
                      kernel_shape);
 
