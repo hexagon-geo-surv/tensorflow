@@ -466,60 +466,6 @@ absl::StatusOr<std::optional<int64_t>> GetOverriddenPreferredPrefetchTime(
   return static_cast<StatusOr<std::optional<int64_t>>>(std::nullopt);
 }
 
-bool DoesResultMatchFilter(const HloPositionMatcher& filter,
-                           const BufferInterval& buffer_interval) {
-  HloInstruction* instruction = buffer_interval.buffer->instruction();
-  if (filter.has_instruction_regex() &&
-      !RE2::FullMatch(instruction->ToString(), filter.instruction_regex())) {
-    return false;
-  }
-  if (filter.has_instruction_name_regex() &&
-      !RE2::FullMatch(instruction->name(), filter.instruction_name_regex())) {
-    return false;
-  }
-  if (filter.has_tuple_index() &&
-      buffer_interval.buffer->index() !=
-          ShapeIndex(filter.tuple_index().index().begin(),
-                     filter.tuple_index().index().end())) {
-    return false;
-  }
-  if (filter.has_size_gte() && filter.size_gte() > buffer_interval.size) {
-    return false;
-  }
-  if (filter.has_size_lte() && filter.size_lte() < buffer_interval.size) {
-    return false;
-  }
-  return true;
-}
-
-// Returns an integer representing the priority of a BufferInterval during
-// assignment, a smaller number indicates a higher priority.
-int64_t GetBufferIntervalOverridePriority(
-    const MsaSortOrderOverrides& msa_sort_order_overrides,
-    const BufferInterval& buffer_interval) {
-  if (msa_sort_order_overrides.overrides_size() == 0) {
-    return 0;
-  }
-  for (int64_t i = 0; i < msa_sort_order_overrides.overrides_size(); ++i) {
-    const auto& override = msa_sort_order_overrides.overrides(i);
-    if (!DoesResultMatchFilter(override.hlo_position_matcher(),
-                               buffer_interval)) {
-      continue;
-    }
-    LOG(INFO) << "Override Sort Order Config " << i << " matches "
-              << buffer_interval.buffer->instruction()->ToString();
-    switch (override.override_options().options_case()) {
-      case MsaSortOrderOverrideOptions::kAssignFirst:
-        return std::numeric_limits<int64_t>::lowest() + i;
-      case MsaSortOrderOverrideOptions::kAssignLast:
-        return std::numeric_limits<int64_t>::max() - i;
-      case MsaSortOrderOverrideOptions::OPTIONS_NOT_SET:
-        continue;
-    }
-  }
-  return 0;
-}
-
 std::tuple<int64_t, bool, int64_t> GetAllocationSortTuple(
     const std::unique_ptr<Allocation>& allocation) {
   int64_t scheduled_on_or_before = allocation->start_time();
@@ -757,7 +703,7 @@ std::string MemorySpaceAssignment::AllocationValue::ToShortString() const {
 }
 
 bool AlternateMemoryBestFitHeap::IsIntervalPinnedToAlternateMemory(
-    const AlternateMemoryBestFitHeap::BufferInterval& interval) const {
+    const MsaBufferInterval& interval) const {
   const Shape& shape = interval.buffer->shape();
   return shape.has_layout() &&
          shape.layout().memory_space() == options_.alternate_memory_space;
@@ -842,7 +788,7 @@ AlternateMemoryBestFitHeap::AlternateMemoryBestFitHeap(
 }
 
 void AlternateMemoryBestFitHeap::CreateAllocationValues(
-    const AlternateMemoryBestFitHeap::BufferInterval& buffer_interval,
+    const MsaBufferInterval& buffer_interval,
     std::vector<AllocationValue>& allocation_values) const {
   const HloValue* value = buffer_interval.buffer;
   VLOG(3) << "Creating AllocationValues for: " << value->ToString();
@@ -988,9 +934,9 @@ void AlternateMemoryBestFitHeap::FindAliases(
   }
 }
 
-std::vector<const AlternateMemoryBestFitHeap::BufferInterval*>
+std::vector<const MsaBufferInterval*>
 AlternateMemoryBestFitHeap::GetSortedColocatedIntervals(
-    const AlternateMemoryBestFitHeap::BufferInterval& interval) const {
+    const MsaBufferInterval& interval) const {
   std::vector<const BufferInterval*> colocated_intervals;
   std::vector<const BufferInterval*> worklist = {&interval};
   while (!worklist.empty()) {
@@ -1143,8 +1089,7 @@ constexpr absl::string_view kBufferInfoColumnNames =
 }  // namespace
 
 void AlternateMemoryBestFitHeap::AppendBufferInfoDebugString(
-    const AlternateMemoryBestFitHeap::BufferInterval& interval,
-    std::string* debug_str) const {
+    const MsaBufferInterval& interval, std::string* debug_str) const {
   if (debug_str->empty()) {
     // Append the column names.
     absl::StrAppend(debug_str, kBufferInfoColumnNames, "\n");
@@ -1626,9 +1571,9 @@ AlternateMemoryBestFitHeap::Finish() {
   VLOG(1) << "Memory pressure = " << memory_pressure_;
 
   if (options_.enable_cross_program_prefetch) {
-    std::vector<AlternateMemoryBestFitHeap::BufferInterval>
-        prefetch_candidates = FindCrossProgramPrefetchCandidates(
-            alias_analysis_, hlo_live_range_, options_);
+    std::vector<MsaBufferInterval> prefetch_candidates =
+        FindCrossProgramPrefetchCandidates(alias_analysis_, hlo_live_range_,
+                                           options_);
     for (auto& prefetch_candidate : prefetch_candidates) {
       HloModule* module = prefetch_candidate.buffer->instruction()->GetModule();
       if (0 <= options().max_cross_program_prefetches &&
@@ -2086,8 +2031,7 @@ AlternateMemoryBestFitHeap::GetInefficientAllocationSites(
 }
 
 void AlternateMemoryBestFitHeap::AddRequiredAssignmentsForColocatedIntervals(
-    absl::Span<const AlternateMemoryBestFitHeap::BufferInterval* const>
-        colocated_intervals) {
+    absl::Span<const MsaBufferInterval* const> colocated_intervals) {
   // TODO(berkin): For now, place the phi values due to conditionals in
   // default memory.
   for (const BufferInterval* colocated_interval : colocated_intervals) {
@@ -2109,8 +2053,7 @@ void AlternateMemoryBestFitHeap::AddRequiredAssignmentsForColocatedIntervals(
 }
 
 void AlternateMemoryBestFitHeap::CreateAllocationValuesFromColocatedIntervals(
-    absl::Span<const AlternateMemoryBestFitHeap::BufferInterval* const>
-        colocated_intervals,
+    absl::Span<const MsaBufferInterval* const> colocated_intervals,
     std::vector<MemorySpaceAssignment::AllocationValue>& allocation_values) {
   // Create AllocationValues for all the colocated intervals.
   for (const auto& colocated_interval : colocated_intervals) {
@@ -5146,71 +5089,6 @@ AlternateMemoryBestFitHeap::Result AlternateMemoryBestFitHeap::CheckPrefetchFit(
   return Result::kFailOutOfMemory;
 }
 
-std::vector<int64_t> SlicedPrefetchStartTimePicker::Pick(
-    int64_t num_slices, int64_t exclusive_prefetch_start_time,
-    int64_t prefetch_end_time, absl::AnyInvocable<ElapsedTimeFn> elapsed_fn,
-    absl::AnyInvocable<SameComputationParentFn> has_same_parent_fn) {
-  CHECK_LE(exclusive_prefetch_start_time, prefetch_end_time);
-  VLOG(5) << "Picking slice start times. num_slices = " << num_slices
-          << "; exclusive_prefetch_start_time = "
-          << exclusive_prefetch_start_time
-          << "; prefetch_end_time = " << prefetch_end_time;
-
-  // Prefetching starts after the selected start instruction and ends
-  // before the selected end instruction. Thus, we have (end - (start + 1)) HLO
-  // instructions worth of time to perform all of the sliced copies. So, the
-  // only choices for start times that give us time to copy are <=
-  // prefetch_end_time - 2.
-  if (exclusive_prefetch_start_time >= prefetch_end_time - 2 ||
-      num_slices == 1) {
-    return std::vector<int64_t>(num_slices, exclusive_prefetch_start_time);
-  }
-
-  float total_elapsed =
-      elapsed_fn(exclusive_prefetch_start_time, prefetch_end_time);
-  if (total_elapsed <= 0.0) {
-    return std::vector<int64_t>(num_slices, exclusive_prefetch_start_time);
-  }
-
-  std::vector<int64_t> start_times;
-  start_times.reserve(num_slices);
-  start_times.push_back(exclusive_prefetch_start_time);
-  int64_t last_valid_candidate = exclusive_prefetch_start_time;
-  int64_t candidate = exclusive_prefetch_start_time;
-  while (candidate < prefetch_end_time - 1 && start_times.size() < num_slices) {
-    float target_elapsed = total_elapsed *
-                           static_cast<float>(num_slices - start_times.size()) /
-                           static_cast<float>(num_slices);
-    float elapsed = elapsed_fn(candidate, prefetch_end_time);
-    if (elapsed < target_elapsed) {
-      // We've gone past our target, so use the last valid candidate.
-      start_times.push_back(last_valid_candidate);
-      continue;
-    }
-    bool updating_candidate_impacts_elapsed =
-        last_valid_candidate != candidate &&
-        elapsed_fn(last_valid_candidate,
-                   ExclusiveToInclusiveStartTime(candidate)) > 0.0;
-    // has_same_parent_fn will look up the computation parent of the
-    // instructions at prefetch_start_time and prefetch_end_time. If
-    // prefetch_start_time is -1, no such instruction will exist. However, if we
-    // want to insert an instruction after the -1 schedule position, we can
-    // use the parent of the instruction at index 0 instead. Thus, we use
-    // std::max below.
-    if (has_same_parent_fn(std::max<int64_t>(0, exclusive_prefetch_start_time),
-                           std::max<int64_t>(0, candidate)) &&
-        updating_candidate_impacts_elapsed) {
-      last_valid_candidate = candidate;
-    }
-    ++candidate;
-  }
-  while (start_times.size() < num_slices) {
-    start_times.push_back(last_valid_candidate);
-  }
-
-  return start_times;
-}
-
 std::string
 AlternateMemoryBestFitHeap::AlternateMemoryAllocationAttemptToString(
     bool for_sliced_solution, const PrefetchContext& context) const {
@@ -6301,126 +6179,6 @@ Status MemorySpaceAssignment::VerifyAndExportHeapSimulatorTrace() {
   VLOG(1) << "Max memory usage ignoring fragmentation: " << max_memory_usage;
 
   return OkStatus();
-}
-
-DefaultCrossProgramPrefetchBufferIntervalComparator::
-    DefaultCrossProgramPrefetchBufferIntervalComparator(
-        const HloLiveRange& hlo_live_range)
-    : BufferIntervalComparator(), hlo_live_range_(hlo_live_range) {}
-
-std::string DefaultCrossProgramPrefetchBufferIntervalComparator::
-    DescribeComparisonCriteria() const {
-  return "[ -size, -cumulative use size, latest use, instruction id]";
-}
-
-std::string
-DefaultCrossProgramPrefetchBufferIntervalComparator::CriteriaToString(
-    const MsaBufferInterval& buffer_interval) {
-  return absl::StrCat("[ ", absl::StrJoin(GetTuple(buffer_interval), ", "),
-                      " ]");
-}
-
-bool DefaultCrossProgramPrefetchBufferIntervalComparator::LessThan(
-    const MsaBufferInterval& lhs, const MsaBufferInterval& rhs) {
-  return GetTuple(lhs) < GetTuple(rhs);
-}
-
-DefaultCrossProgramPrefetchBufferIntervalComparator::ComparisonTuple
-DefaultCrossProgramPrefetchBufferIntervalComparator::GetTuple(
-    const MsaBufferInterval& buffer_interval) {
-  auto sort_data_it = additional_sort_data_.find(buffer_interval.buffer);
-  if (sort_data_it == additional_sort_data_.end()) {
-    AdditionalSortData sort_data;
-    absl::c_for_each(buffer_interval.buffer->GetUses(), [&](const HloUse& use) {
-      auto it = hlo_live_range_.instruction_schedule().find(use.instruction);
-      if (it == hlo_live_range_.instruction_schedule().end()) {
-        return;
-      }
-      sort_data.latest_use = std::max(sort_data.latest_use, it->second);
-      sort_data.cumulative_use_size +=
-          ShapeUtil::ElementsInRecursive(use.instruction->shape());
-    });
-    sort_data_it =
-        additional_sort_data_.try_emplace(buffer_interval.buffer, sort_data)
-            .first;
-  }
-
-  return std::make_tuple(
-      -1 * buffer_interval.size, -1 * sort_data_it->second.cumulative_use_size,
-      sort_data_it->second.latest_use, buffer_interval.buffer->id());
-}
-
-MemoryBoundednessBufferIntervalComparator::
-    MemoryBoundednessBufferIntervalComparator(
-        const CostAnalysis& cost_analysis,
-        CostAnalysis::Cache* cost_analysis_cache)
-    : BufferIntervalComparator(),
-      cost_analysis_(cost_analysis),
-      cost_analysis_cache_(cost_analysis_cache) {}
-
-MemoryBoundednessBufferIntervalComparator::
-    MemoryBoundednessBufferIntervalComparator(
-        const CostAnalysis& cost_analysis,
-        CostAnalysis::Cache* cost_analysis_cache,
-        MsaSortOrderOverrides msa_sort_order_overrides)
-    : BufferIntervalComparator(),
-      cost_analysis_(cost_analysis),
-      cost_analysis_cache_(cost_analysis_cache),
-      msa_sort_order_overrides_(msa_sort_order_overrides) {}
-
-std::string
-MemoryBoundednessBufferIntervalComparator::DescribeComparisonCriteria() const {
-  return "[override priority, -memory boundedness, -size, -buffer duration, "
-         "latest use time, (inclusive) start time, instruction id ]";
-}
-
-std::string MemoryBoundednessBufferIntervalComparator::CriteriaToString(
-    const MsaBufferInterval& buffer_interval) {
-  return absl::StrCat("[ ", absl::StrJoin(GetTuple(buffer_interval), ", "),
-                      " ]");
-}
-
-bool MemoryBoundednessBufferIntervalComparator::LessThan(
-    const MsaBufferInterval& lhs, const MsaBufferInterval& rhs) {
-  return GetTuple(lhs) < GetTuple(rhs);
-}
-
-int64_t MemoryBoundednessBufferIntervalComparator::GetLatestUseTime(
-    const MsaBufferInterval& buffer_interval) {
-  auto latest_use_it = buffer_to_latest_use_.find(buffer_interval.buffer);
-  if (latest_use_it == buffer_to_latest_use_.end()) {
-    int64_t latest_use_time = 0;
-    for (const HloUse& use : buffer_interval.buffer->GetUses()) {
-      auto it = cost_analysis_.hlo_live_range().instruction_schedule().find(
-          use.instruction);
-      if (it != cost_analysis_.hlo_live_range().instruction_schedule().end()) {
-        latest_use_time = std::max(latest_use_time, it->second);
-      }
-    }
-    latest_use_it =
-        buffer_to_latest_use_
-            .insert(std::make_pair(buffer_interval.buffer, latest_use_time))
-            .first;
-  }
-  return latest_use_it->second;
-}
-
-MemoryBoundednessBufferIntervalComparator::ComparisonTuple
-MemoryBoundednessBufferIntervalComparator::GetTuple(
-    const MsaBufferInterval& buffer_interval) {
-  int64_t priority = GetBufferIntervalOverridePriority(
-      msa_sort_order_overrides_, buffer_interval);
-  float inverse_memory_boundedness =
-      -1.0 * cost_analysis_.GetMemoryBoundedness(buffer_interval,
-                                                 cost_analysis_cache_);
-  int64_t inverse_buffer_size = -1 * buffer_interval.size;
-  int64_t inverse_buffer_duration = buffer_interval.start - buffer_interval.end;
-  int64_t latest_use_time = GetLatestUseTime(buffer_interval);
-  int64_t buffer_start_time = buffer_interval.start;
-  auto buffer_id = buffer_interval.buffer->id();
-  return std::make_tuple(priority, inverse_memory_boundedness,
-                         inverse_buffer_size, inverse_buffer_duration,
-                         latest_use_time, buffer_start_time, buffer_id);
 }
 
 }  // namespace memory_space_assignment
