@@ -260,7 +260,7 @@ class TfrtCpuClient final : public PjRtClient {
   TfrtCpuClient(int process_index,
                 std::vector<std::unique_ptr<TfrtCpuDevice>> devices,
                 std::shared_ptr<cpu::CollectivesInterface> collectives,
-                size_t num_threads);
+                size_t num_threads, bool asynchronous);
   ~TfrtCpuClient() override;
 
   int process_index() const override { return process_index_; }
@@ -453,6 +453,10 @@ class TfrtCpuClient final : public PjRtClient {
   std::shared_ptr<cpu::CollectivesInterface> collectives_;
 
   xla::TfrtCpuTopologyDescription topology_;
+
+  // Used to control whether asynchronous computation dispatch is available for
+  // this client. Only effective when cpu device count is 1.
+  bool asynchronous_;
 };
 
 class TfrtCpuBuffer final : public AbstractTfrtCpuBuffer {
@@ -654,7 +658,11 @@ class TfrtCpuExecutable final : public PjRtLoadedExecutable {
 };
 
 struct CpuClientOptions {
-  // Does nothing at the moment. Ignored.
+  // Used to control whether asynchronous computation dispatch is available for
+  // this client. Only effective when cpu device count is 1, because collectives
+  // may exist when there are multiple cpu devices and we need to do async
+  // dispatch in that case. If it is set to be `false`, we will always run
+  // computations inline.
   bool asynchronous = true;
 
   // Number of CPU devices. If not provided, the value of
