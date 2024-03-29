@@ -468,13 +468,13 @@ PjRtCApiClient::BufferFromHostBufferInternalImpl(
     std::variant<PjRtDevice*, PjRtMemorySpace*> device_or_memory,
     const Layout* device_layout) {
   if (host_buffer_semantics != HostBufferSemantics::kImmutableOnlyDuringCall &&
-      host_buffer_semantics != HostBufferSemantics::kZeroCopy &&
+      host_buffer_semantics != HostBufferSemantics::kImmutableZeroCopy &&
       host_buffer_semantics !=
           HostBufferSemantics::kImmutableUntilTransferCompletes) {
     return Unimplemented(
         "PJRT C API does not support HostBufferSemantics other than "
         "HostBufferSemantics::kImmutableOnlyDuringCall, "
-        "HostBufferSemantics::kZeroCopy and "
+        "HostBufferSemantics::kImmutableZeroCopy and "
         "HostBufferSemantics::kImmutableUntilTransferCompletes.");
   }
 
@@ -1927,7 +1927,7 @@ StatusOr<std::unique_ptr<PjRtBuffer>> PjRtCApiBuffer::CopyToDevice(
         literal_pointer->untyped_data(),
         literal_pointer->shape().element_type(),
         literal_pointer->shape().dimensions(), byte_strides,
-        PjRtClient::HostBufferSemantics::kZeroCopy,
+        PjRtClient::HostBufferSemantics::kImmutableZeroCopy,
         [literal{std::move(literal)}]() { /* frees literal */ }, dst_device);
   }
 }
@@ -1959,7 +1959,7 @@ StatusOr<std::unique_ptr<PjRtBuffer>> PjRtCApiBuffer::CopyToMemorySpace(
         literal_pointer->untyped_data(),
         literal_pointer->shape().element_type(),
         literal_pointer->shape().dimensions(), byte_strides,
-        PjRtClient::HostBufferSemantics::kZeroCopy,
+        PjRtClient::HostBufferSemantics::kImmutableZeroCopy,
         [literal{std::move(literal)}]() { /* frees literal */ }, dst_memory,
         /*device_layout=*/nullptr);
   }
