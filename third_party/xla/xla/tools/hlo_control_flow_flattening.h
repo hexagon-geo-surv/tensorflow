@@ -89,8 +89,8 @@ class HloControlFlowFlattening : public HloModulePass {
   bool remove_host_transfer_;
 
  protected:
-  // Replaces a collective op with a custom call.
-  Status RemoveCollective(HloInstruction* hlo) const;
+  // Replaces a collective op with a custom call and returns the custom call.
+  virtual StatusOr<HloInstruction*> RemoveCollective(HloInstruction* hlo) const;
 
   bool remove_comm_;
 };

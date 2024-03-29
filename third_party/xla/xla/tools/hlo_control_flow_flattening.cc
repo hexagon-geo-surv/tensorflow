@@ -371,7 +371,8 @@ Status HloControlFlowFlattening::RemoveSendDone(
   return OkStatus();
 }
 
-Status HloControlFlowFlattening::RemoveCollective(HloInstruction* hlo) const {
+StatusOr<HloInstruction*> HloControlFlowFlattening::RemoveCollective(
+    HloInstruction* hlo) const {
   HloComputation* computation = hlo->parent();
   HloInstruction* custom_call =
       computation->AddInstruction(HloInstruction::CreateCustomCall(
@@ -387,7 +388,7 @@ Status HloControlFlowFlattening::RemoveCollective(HloInstruction* hlo) const {
   std::string original_op_name(hlo->name());
   TF_RETURN_IF_ERROR(computation->ReplaceInstruction(hlo, custom_call));
   custom_call->SetAndSanitizeName(original_op_name);
-  return OkStatus();
+  return custom_call;
 }
 
 Status HloControlFlowFlattening::RemoveId(HloInstruction* hlo) const {
@@ -467,12 +468,12 @@ absl::StatusOr<bool> HloControlFlowFlattening::Run(
                  instruction->opcode() == HloOpcode::kAsyncStart) {
             HloInstruction* operand = instruction->mutable_operand(0);
             VLOG(1) << "Remove " << instruction->name();
-            TF_RETURN_IF_ERROR(RemoveCollective(instruction));
+            TF_RETURN_IF_ERROR(RemoveCollective(instruction).status());
             instruction = operand;
           }
         } else {
           VLOG(1) << "Remove " << instruction->name();
-          TF_RETURN_IF_ERROR(RemoveCollective(instruction));
+          TF_RETURN_IF_ERROR(RemoveCollective(instruction).status());
         }
         changed = true;
       } else if (remove_comm_ &&
