@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "xla/service/gpu/nccl_api.h"
+#include "xla/service/gpu/runtime/nccl_api.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -51,7 +51,7 @@ limitations under the License.
 #include "rocm/include/rccl.h"
 #endif  // TF_ROCM_VERSION >= 50200
 #else
-#include "third_party/nccl/nccl.h"
+#include "third_party/gpus/nccl/nccl.h"
 #endif  // TENSORFLOW_USE_ROCM
 
 namespace xla::gpu {
