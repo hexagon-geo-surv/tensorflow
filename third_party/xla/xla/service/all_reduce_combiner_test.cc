@@ -71,7 +71,7 @@ HloInstruction* MakeCrossReplicaReductions(
         b->AddInstruction(HloInstruction::CreateBroadcast(shape, constant, {}));
     inputs->push_back(input);
     all_reduces.push_back(b->AddInstruction(HloInstruction::CreateAllReduce(
-        shape, {input}, reduction, /*replica_groups=*/{},
+        shape, {input}, reduction, /*device_list=*/CollectiveDeviceList({}),
         /*constrain_layout=*/false, /*channel_id=*/nullopt,
         /*use_global_device_ids=*/false)));
   }
@@ -215,12 +215,13 @@ TEST_F(AllReduceCombinerTest, NoDependentCombination) {
   auto constant = b.AddInstruction(
       HloInstruction::CreateConstant(LiteralUtil::CreateR0(42.3)));
   auto all_reduce = b.AddInstruction(HloInstruction::CreateAllReduce(
-      constant->shape(), {constant}, reduction, /*replica_groups=*/{},
+      constant->shape(), {constant}, reduction,
+      /*device_list=*/CollectiveDeviceList({}),
       /*constrain_layout=*/false, /*channel_id=*/nullopt,
       /*use_global_device_ids=*/false));
   b.AddInstruction(HloInstruction::CreateAllReduce(
       constant->shape(), {all_reduce}, reduction,
-      /*replica_groups=*/{}, /*constrain_layout=*/false,
+      /*device_list=*/CollectiveDeviceList({}), /*constrain_layout=*/false,
       /*channel_id=*/nullopt, /*use_global_device_ids=*/false));
 
   module->AddEntryComputation(b.Build());
@@ -242,12 +243,12 @@ TEST_F(AllReduceCombinerTest, GroupAllReduce) {
       HloInstruction::CreateConstant(LiteralUtil::CreateR0(42.3)));
   auto crs0 = b.AddInstruction(HloInstruction::CreateAllReduce(
       constant->shape(), {constant}, reduction,
-      CreateReplicaGroups({{0, 1}, {2, 3}}),
+      CollectiveDeviceList(CreateReplicaGroups({{0, 1}, {2, 3}})),
       /*constrain_layout=*/false,
       /*channel_id=*/nullopt, /*use_global_device_ids=*/false));
   auto crs1 = b.AddInstruction(HloInstruction::CreateAllReduce(
       constant->shape(), {constant}, reduction,
-      CreateReplicaGroups({{0, 2}, {1, 3}}),
+      CollectiveDeviceList(CreateReplicaGroups({{0, 2}, {1, 3}})),
       /*constrain_layout=*/false,
       /*channel_id=*/nullopt, /*use_global_device_ids=*/false));
   b.AddInstruction(HloInstruction::CreateTuple({crs0, crs1}));
