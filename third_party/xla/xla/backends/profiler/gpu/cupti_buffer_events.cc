@@ -438,33 +438,30 @@ static absl::Status ConvertActivityBuffer(
 
 }  // namespace
 
-void AnnotationMap::Add(uint32_t device_id, uint32_t correlation_id,
-                        const absl::string_view annotation,
-                        const absl::string_view nvtx_range) {
-  if (annotation.empty() && nvtx_range.empty()) return;
-  VLOG(3) << "Add annotation: device_id: " << device_id
-          << " correlation_id: " << correlation_id
-          << " annotation: " << annotation;
-  if (device_id >= per_device_map_.size()) return;
-  auto &per_device_map = per_device_map_[device_id];
-  tsl::mutex_lock lock(per_device_map.mutex);
-  if (per_device_map.annotations.size() < max_size_) {
-    AnnotationInfo info;
-    info.annotation = *per_device_map.annotations.emplace(annotation).first;
-    if (!nvtx_range.empty())
-      info.nvtx_range = *per_device_map.nvtx_ranges.emplace(nvtx_range).first;
-    per_device_map.correlation_map.emplace(correlation_id, info);
-  }
+absl::string_view StringDeduper::Dedup(absl::string_view str,
+                                       size_t max_unique_count) {
+  if (str.empty()) return absl::string_view();
+  auto it = strings_.find(str);
+  if (it != strings_.end()) return *it;
+  if (max_unique_count == 0 || strings_.size() < max_unique_count)
+    return *strings_.emplace(str).first;
+  return absl::string_view();
 }
 
-AnnotationMap::AnnotationInfo AnnotationMap::LookUp(uint32_t device_id,
-                                                    uint32_t correlation_id) {
-  if (device_id >= per_device_map_.size()) return AnnotationInfo();
-  auto &per_device_map = per_device_map_[device_id];
-  tsl::mutex_lock lock(per_device_map.mutex);
-  auto it = per_device_map.correlation_map.find(correlation_id);
-  return it != per_device_map.correlation_map.end() ? it->second
-                                                    : AnnotationInfo();
+void AnnotationMap::AddAnnotation(uint32_t correlation_id,
+                                  absl::string_view annotation,
+                                  absl::string_view nvtx_range) {
+  auto annotation_view = string_deduper_.Dedup(annotation);
+  auto nvtx_range_view = string_deduper_.Dedup(nvtx_range);
+  if (annotation_view.empty() && nvtx_range_view.empty()) return;
+  map_.emplace(correlation_id,
+               AnnotationInfo{annotation_view, nvtx_range_view});
+}
+
+AnnotationMap::AnnotationInfo AnnotationMap::LookUp(
+    uint32_t device_id, uint32_t correlation_id) const {
+  const auto it = map_.find(correlation_id);
+  return it != map_.end() ? it->second : AnnotationInfo();
 }
 
 CuptiActivityBufferManager::ActivityBufferAndSize::ActivityBufferAndSize(
@@ -491,6 +488,28 @@ void CuptiActivityBufferManager::AddCachedActivityEventsTo(
                           dropped_activity_event_count)
         .IgnoreError();
   }
+}
+
+CallbackAnnotationsAndEvents::CallbackAnnotationsAndEvents(
+    CallbackAnnotationsAndEvents &&another) {
+  *this = std::move(another);
+}
+
+CallbackAnnotationsAndEvents &CallbackAnnotationsAndEvents::operator=(
+    CallbackAnnotationsAndEvents &&another) {
+  annotations_ = std::move(another.annotations_);
+  nvtx_ranges_ = std::move(another.nvtx_ranges_);
+  num_dropped_events_ = another.num_dropped_events_;
+  event_queue_ = std::move(another.event_queue_);
+  another.Clear();
+  return *this;
+}
+
+void CallbackAnnotationsAndEvents::Clear() {
+  annotations_.Clear();
+  nvtx_ranges_.Clear();
+  num_dropped_events_ = 0;
+  event_queue_.Clear();
 }
 
 }  // namespace profiler
