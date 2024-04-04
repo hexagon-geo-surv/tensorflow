@@ -617,6 +617,10 @@ class XlaCallModuleOpToCallOp : public OpRewritePattern<TF::XlaCallModuleOp> {
     ModuleOp module_op = op->getParentOfType<ModuleOp>();
     SymbolTable symbol_table(module_op);
 
+    // Ignore ops without quantization method.
+    auto quantization_method = op->getAttr("_quantization_method");
+    if (quantization_method == nullptr) return failure();
+
     // Ignore unquantized ops.
     if (!IsQuantizedXlaCallModuleOp(op)) return failure();
 
