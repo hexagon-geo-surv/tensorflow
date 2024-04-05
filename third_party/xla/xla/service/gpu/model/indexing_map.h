@@ -169,6 +169,10 @@ H AbslHashValue(H h, const RangeVar& range_var) {
 struct RTVar {
   Interval feasible_values;
   const HloInstruction* hlo;
+  // This is a map from the iteration space of the output tensor to the
+  // iteration space of `hlo`. It shows which element of `hlo` do we need for
+  // the calculation of the offset that we possibly apply to the input indices
+  // if we want to calculate the given output element.
   mlir::AffineMap map;
 };
 bool operator==(const RTVar& lhs, const RTVar& rhs);
@@ -359,6 +363,19 @@ IndexingMap operator*(const IndexingMap& lhs, const IndexingMap& rhs);
 // Composes affine maps, i.e. second ∘ first.
 IndexingMap ComposeIndexingMaps(const IndexingMap& first,
                                 const IndexingMap& second);
+
+// Print the RTVars.
+//
+// This is exposed to allow SymbolicTile to reuse it.
+//
+// `first_rt_var_symbol_index`: The index of the symbol associated with the
+// first RTVar. The RTVars will be printed with consequent symbol indices
+// starting with `first_rt_var_symbol_index`. For example, if `rt_vars.size()
+// == 3` and `first_rt_var_symbol_index == 4`, then the symbol names "s4",
+// "s5" and "s6" will be used.
+void PrintRtVars(const std::vector<RTVar>& rt_vars,
+                 int first_rt_var_symbol_index, std::ostream& out,
+                 const AffineMapPrinter& printer);
 
 template <typename H>
 H AbslHashValue(H h, const IndexingMap& indexing_map) {

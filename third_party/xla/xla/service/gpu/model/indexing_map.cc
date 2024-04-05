@@ -878,6 +878,21 @@ std::string IndexingMap::ToString(const AffineMapPrinter& printer) const {
   return ss.str();
 }
 
+void PrintRtVars(const std::vector<RTVar>& rt_vars,
+                 int first_rt_var_symbol_index, std::ostream& out,
+                 const AffineMapPrinter& printer) {
+  for (const auto& [index, rt_var] : llvm::enumerate(rt_vars)) {
+    out << printer.GetSymbolName(
+               static_cast<int64_t>(first_rt_var_symbol_index + index))
+        << " in ";
+    rt_var.feasible_values.Print(out);
+    out << "\n  hlo: "
+        << (rt_var.hlo == nullptr ? "NULL" : rt_var.hlo->ToString()) << "\n  ";
+    printer.Print(out, rt_var.map);
+    out << '\n';
+  }
+}
+
 void IndexingMap::Print(std::ostream& out,
                         const AffineMapPrinter& printer) const {
   printer.Print(out, affine_map_);
@@ -893,15 +908,8 @@ void IndexingMap::Print(std::ostream& out,
     out << '\n';
   }
   int64_t range_vars_count = GetRangeVarsCount();
-  for (const auto& [index, rt_var] : llvm::enumerate(rt_vars_)) {
-    out << printer.GetSymbolName(static_cast<int64_t>(range_vars_count + index))
-        << " in ";
-    rt_var.feasible_values.Print(out);
-    out << "\n  hlo: "
-        << (rt_var.hlo == nullptr ? "NULL" : rt_var.hlo->ToString()) << "\n  ";
-    printer.Print(out, rt_var.map);
-    out << '\n';
-  }
+  PrintRtVars(rt_vars_, /*first_rt_var_symbol_index=*/range_vars_count, out,
+              printer);
   std::vector<std::string> expr_range_strings;
   expr_range_strings.reserve(constraints_.size());
   for (const auto& [expr, range] : constraints_) {

@@ -19,6 +19,7 @@ limitations under the License.
 #include <optional>
 #include <ostream>
 #include <string>
+#include <vector>
 
 #include "mlir/IR/AffineMap.h"  // from @llvm-project
 #include "xla/service/gpu/model/affine_map_printer.h"
@@ -34,9 +35,12 @@ namespace gpu {
 // with offset, stride, and size three integers, and iota the usual range
 // function. These values may never be negative.
 //
-// A N-dimensional symbolic tile is a function from offsets, strides, and sizes
-// to a N-dimensional tile. It can be represented as three affine maps with
-// domain
+// `offset` can depend on `RTVar`s (dynamic offsets). `RTVar`s may produce a
+// different value per output index.
+//
+// A N-dimensional symbolic tile is a function from an N-dimensional tile
+// to another N-dimensional tile. It can be represented as three affine maps
+// with domain
 //     ()[size0, ..., size{M-1}]
 // and respective co-domains
 //     (offset0, ..., offset{N-1})     (offset_map())
@@ -56,6 +60,9 @@ class SymbolicTile {
   static std::optional<SymbolicTile> FromIndexingMap(
       const IndexingMap& indexing_map);
 
+  // For printing in tests.
+  std::string RtVarsToString(
+      const AffineMapPrinter& printer = AffineMapPrinter()) const;
   std::string ToString(
       const AffineMapPrinter& printer = AffineMapPrinter()) const;
 
@@ -64,15 +71,26 @@ class SymbolicTile {
   mlir::AffineMap offset_map() const { return offset_map_; }
   mlir::AffineMap size_map() const { return size_map_; }
   mlir::AffineMap stride_map() const { return stride_map_; }
+  const std::vector<RTVar>& rt_vars() const { return rt_vars_; }
+
+  // This allows GUnit to print the tile.
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SymbolicTile& tile) {
+    sink.Append(tile.ToString());
+  }
 
  private:
   mlir::AffineMap offset_map_;
   mlir::AffineMap size_map_;
   mlir::AffineMap stride_map_;
+  std::vector<RTVar> rt_vars_;
 
   SymbolicTile(mlir::AffineMap offset_map, mlir::AffineMap size_map,
-               mlir::AffineMap stride_map)
-      : offset_map_(offset_map), size_map_(size_map), stride_map_(stride_map) {}
+               mlir::AffineMap stride_map, std::vector<RTVar> rt_vars)
+      : offset_map_(offset_map),
+        size_map_(size_map),
+        stride_map_(stride_map),
+        rt_vars_(rt_vars) {}
 };
 
 }  // namespace gpu
