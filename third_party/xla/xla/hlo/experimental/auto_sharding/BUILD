@@ -253,6 +253,7 @@ cc_library(
     compatible_with = get_compatible_with_libtpu_portable(),
     deps = [
         ":auto_sharding_strategy",
+        "//third_party/jsoncpp:json",
         "//xla:array",
         "//xla:shape_tree",
         "//xla:shape_util",
