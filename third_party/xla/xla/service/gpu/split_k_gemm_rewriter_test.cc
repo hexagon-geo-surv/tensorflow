@@ -792,6 +792,37 @@ ENTRY e {
   EXPECT_THAT(transpose->dimensions(), ElementsAre(0, 2, 1, 3));
 }
 
+TEST_F(SplitKTest, MakeSplitKWithTrivialDimension) {
+  const std::string hlo_text = R"(
+triton_gemm_dot {
+  %parameter_0 = f32[1001,1]{1,0} parameter(0)
+  %bitcast.0 = f32[1001]{0} bitcast(f32[1001,1]{1,0} %parameter_0)
+  %bitcast.1 = f32[1001,1]{1,0} bitcast(f32[1001]{0} %bitcast.0)
+  %parameter_1 = f32[2048,1001]{1,0} parameter(1)
+  %bitcast.2 = f32[1001,2048]{0,1} bitcast(f32[2048,1001]{1,0} %parameter_1)
+  %dot = f32[1,2048]{1,0} dot(f32[1001,1]{1,0} %bitcast.1, f32[1001,2048]{0,1} %bitcast.2), lhs_contracting_dims={0}, rhs_contracting_dims={0}
+  %bitcast.3 = f32[2048]{0} bitcast(f32[1,2048]{1,0} %dot)
+  %constant = f32[] constant(1.25)
+  %broadcast = f32[2048]{0} broadcast(f32[] %constant), dimensions={}
+  %multiply = f32[2048]{0} multiply(f32[2048]{0} %bitcast.3, f32[2048]{0} %broadcast)
+  ROOT %bitcast.4 = f32[1,2048,1,1]{3,2,1,0} bitcast(f32[2048]{0} %multiply)
+}
+
+ENTRY %entry_computation {
+  p0 = f32[1001,1]{1,0} parameter(0)
+  p1 = f32[2048,1001]{1,0} parameter(1)
+  ROOT fusion = f32[1,2048,1,1]{3,2,1,0} fusion(f32[1001,1]{1,0} p0, f32[2048,1001]{1,0} p1),
+    kind=kCustom, calls=triton_gemm_dot
+})";
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                          ParseAndReturnVerifiedModule(hlo_text));
+  TritonGemmConfig config(16, 128, 64, 4, 1, 4);
+  EXPECT_OK(MakeDotSplitKBatch(module->entry_computation()->root_instruction(),
+                               config));
+  EXPECT_THAT(module->entry_computation()->root_instruction(),
+              GmockMatch(m::Reduce(m::Fusion(), m::Constant())));
+}
+
 }  // namespace
 }  // namespace gpu
 }  // namespace xla
