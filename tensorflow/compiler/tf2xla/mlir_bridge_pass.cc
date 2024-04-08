@@ -208,9 +208,17 @@ MlirOptimizationPassState MlirBridgePass::GetPassState(
     return MlirOptimizationPassState::Disabled;
   }
 
+  // TODO(b/328084279): HasTPUDevice(*device_set) is required for some graphs
+  // that target TPU but without replication as they depend on the
+  // Graph->MLIR::Module->Graph round trip (which does not always produce the
+  // same graph or function library). The round trip only runs when this
+  // funciton returns MlirOptimizationPassState::FallbackEnabled. Note
+  // MlirBridgePass::Run does not check for device type so such graphs still do
+  // not run through the Phase 1 Bridge.
   return GetPassStateImpl(
       /*is_supported_by_replicated_brige*/ IsSupportedByReplicatedBridge(
-          graph, &function_library),
+          graph, &function_library) ||
+          HasTPUDevice(*device_set),
       config_proto, graph, function_library);
 }
 
