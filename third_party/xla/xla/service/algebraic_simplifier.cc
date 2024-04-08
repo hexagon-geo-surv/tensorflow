@@ -474,16 +474,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> ConstructFromDotMaps(
   return {map_ab_a, map_ab_b};
 }
 
-bool DotHasOnlyBatchAndContractingOnOneOperand(
-    int64_t lhs_rank, int64_t rhs_rank, const DotDimensionNumbers dnums) {
-  return (dnums.lhs_batch_dimensions_size() +
-              dnums.lhs_contracting_dimensions_size() ==
-          lhs_rank) ||
-         (dnums.rhs_contracting_dimensions_size() +
-              dnums.rhs_batch_dimensions_size() ==
-          rhs_rank);
-}
-
 // Estimates the number of flops a reduce requires
 int64_t GetReduceFlops(const HloInstruction* reduce) {
   int64_t reduce_product = 1;
@@ -495,6 +485,16 @@ int64_t GetReduceFlops(const HloInstruction* reduce) {
 }
 
 }  // namespace
+
+bool AlgebraicSimplifierVisitor::DotHasOnlyBatchAndContractingOnOneOperand(
+    int64_t lhs_rank, int64_t rhs_rank, const DotDimensionNumbers dnums) {
+  return (dnums.lhs_batch_dimensions_size() +
+              dnums.lhs_contracting_dimensions_size() ==
+          lhs_rank) ||
+         (dnums.rhs_contracting_dimensions_size() +
+              dnums.rhs_batch_dimensions_size() ==
+          rhs_rank);
+}
 
 void AlgebraicSimplifierVisitor::ResetState(HloComputation* computation) {
   ResetVisitStates();

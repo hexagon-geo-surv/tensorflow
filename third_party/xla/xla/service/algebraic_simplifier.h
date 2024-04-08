@@ -448,6 +448,8 @@ class AlgebraicSimplifierVisitor : public DfsHloRewriteVisitor {
  protected:
   // The backend-specific options selected for the algebraic simplifier.
   const AlgebraicSimplifierOptions& options_;
+  bool DotHasOnlyBatchAndContractingOnOneOperand(
+      int64_t lhs_rank, int64_t rhs_rank, const DotDimensionNumbers dnums);
 
  private:
   // Removes degenerate dimension from dot.
