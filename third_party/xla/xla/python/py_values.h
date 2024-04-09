@@ -24,6 +24,7 @@ limitations under the License.
 #include <utility>
 
 #include "absl/container/inlined_vector.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
 #include "third_party/nanobind/include/nanobind/nanobind.h"
@@ -42,6 +43,11 @@ struct DevicePutResult {
       : ifrt_array(std::move(ifrt_array)),
         weak_type(weak_type),
         owning_pybuffer(owning_pybuffer) {}
+
+  // Disallow copy since copying `DevicePutResult` without holding GIL may be
+  // dangerous due to `owning_pybuffer`.
+  DevicePutResult(DevicePutResult&&) = default;
+  DevicePutResult& operator=(DevicePutResult&&) = default;
 
   // Points to the on-device array. Not owned.
   tsl::RCReference<ifrt::Array> ifrt_array;
@@ -68,6 +74,16 @@ absl::StatusOr<DevicePutResult> DevicePut(nanobind::handle arg,
                                           ifrt::Device* to_device,
                                           const DevicePutOptions& options,
                                           ifrt::MemoryKind to_memory_kind);
+
+// Lazy version of `DevicePut` that performs Python work inline but postpones
+// C++ work until the returned function is called. The returned function must be
+// called after releasing GIL. Useful for batching GIL release when there are
+// many device_put to execute.
+using LazyDevicePutResult =
+    absl::AnyInvocable<absl::StatusOr<DevicePutResult>() &&>;
+absl::StatusOr<LazyDevicePutResult> LazyDevicePut(
+    nanobind::handle arg, ifrt::Client* client, ifrt::Device* to_device,
+    const DevicePutOptions& options, ifrt::MemoryKind to_memory_kind);
 
 // Returns `true` if `arg` is a JAX float0 array.
 bool IsFloat0(xla::nb_numpy_ndarray arg);

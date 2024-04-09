@@ -1085,6 +1085,8 @@ StatusOr<PyArray> PyArray::BatchedDevicePut(
 
   ifrt::MemoryKind dst_memory_kind = CreateIfRtMemoryKindFromSharding(sharding);
 
+  std::vector<LazyDevicePutResult> lazy_device_puts;
+  lazy_device_puts.reserve(xs.size());
   size_t i = 0;
   for (auto& x : xs) {
     if (PyArray::IsPyArray(x)) {
@@ -1095,16 +1097,27 @@ StatusOr<PyArray> PyArray::BatchedDevicePut(
           jax::ApplyTransferGuardToHostToDevice(transfer_guard_formatter));
     }
     TF_ASSIGN_OR_RETURN(
-        DevicePutResult on_device,
-        DevicePut(x, dst_devices[i]->client()->ifrt_client(),
-                  dst_devices[i]->device(), options, dst_memory_kind));
-    ifrt_arrays.push_back(std::move(on_device.ifrt_array));
+        lazy_device_puts.emplace_back(),
+        LazyDevicePut(x, dst_devices[i]->client()->ifrt_client(),
+                      dst_devices[i]->device(), options, dst_memory_kind));
+    ++i;
+  }
+  std::vector<DevicePutResult> device_puts;
+  device_puts.reserve(lazy_device_puts.size());
+  {
+    nb::gil_scoped_release gil_release;
+    for (auto& lazy_device_put : lazy_device_puts) {
+      TF_ASSIGN_OR_RETURN(auto device_put, std::move(lazy_device_put)());
+      device_puts.push_back(std::move(device_put));
+    }
+  }
+  for (auto& device_put : device_puts) {
+    ifrt_arrays.push_back(std::move(device_put.ifrt_array));
     devices.push_back(ifrt_arrays.back()->sharding().devices().front());
     shapes.push_back(ifrt_arrays.back()->shape());
-    if (on_device.owning_pybuffer) {
-      owning_pylist.append(on_device.owning_pybuffer);
+    if (device_put.owning_pybuffer) {
+      owning_pylist.append(device_put.owning_pybuffer);
     }
-    ++i;
   }
 
   // TODO(phawkins): it's highly suspicious to me that owning_pylist isn't
