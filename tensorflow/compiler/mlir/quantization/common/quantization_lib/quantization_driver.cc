@@ -26,6 +26,7 @@ limitations under the License.
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Casting.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"  // from @llvm-project
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/Dialect/Quant/QuantTypes.h"  // from @llvm-project
@@ -793,9 +794,25 @@ bool QuantizationDriver::PropagateParamsAndReturnIfChanged() {
       // shouldn't be used for both input and output quantization params.
       // E.g. TransposeOp's propagation is handled in
       // `PropagateTransposedQuantDim` in PrepareQuantize.
+      // Check if any of the operands has a per-axis quantized type param.
+      bool is_per_axis_qtype = false;
       if (is_qdq_conversion_ &&
           !scale_spec->required_same_quantized_axes_func()) {
-        continue;
+        for (int i = 0; i < op->getNumOperands(); ++i) {
+          if (auto dq_op = llvm::dyn_cast_or_null<quantfork::DequantizeCastOp>(
+                  op->getOperand(i).getDefiningOp())) {
+            auto qtype = dq_op.getArg()
+                             .getType()
+                             .cast<TensorType>()
+                             .getElementType()
+                             .dyn_cast<quant::QuantizedType>();
+            if (auto per_axis_qtype = qtype.dyn_cast_or_null<
+                                      quant::UniformQuantizedPerAxisType>()) {
+              is_per_axis_qtype = true;
+            }
+          }
+        }
+        if (is_per_axis_qtype) continue;
       }
 
       // Use the final state to set all the operands' parameters.
