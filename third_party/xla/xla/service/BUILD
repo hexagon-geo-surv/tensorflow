@@ -5950,6 +5950,7 @@ cc_library(
         "//xla:literal_util",
         "//xla:shape_util",
         "//xla:status",
+        "//xla:status_macros",
         "//xla:util",
         "//xla/hlo/ir:hlo",
         "@com_google_absl//absl/algorithm:container",
