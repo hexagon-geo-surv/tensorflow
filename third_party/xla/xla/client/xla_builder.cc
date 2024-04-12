@@ -1360,6 +1360,10 @@ XlaOp XlaBuilder::ConstantLiteral(const LiteralSlice& literal) {
   return ReportErrorOrReturn([&]() -> absl::StatusOr<XlaOp> {
     if (literal.shape().IsArray() && literal.element_count() > 1 &&
         literal.IsAllFirst()) {
+      // If the builder has a sharding, we store it so that it will only be
+      // added to the broadcast (and not the scalar constant).
+      std::optional<OpSharding> sharding = std::move(sharding_);
+      ClearSharding();
       Literal scalar = LiteralUtil::GetFirstScalarLiteral(literal);
       HloInstructionProto instr;
       *instr.mutable_shape() = scalar.shape().ToProto();
@@ -1367,6 +1371,7 @@ XlaOp XlaBuilder::ConstantLiteral(const LiteralSlice& literal) {
       TF_ASSIGN_OR_RETURN(
           XlaOp scalar_op,
           AddInstruction(std::move(instr), HloOpcode::kConstant));
+      XlaScopedShardingAssignment scoped_sharding(this, sharding);
       return Broadcast(scalar_op, literal.shape().dimensions());
     } else {
       HloInstructionProto instr;
