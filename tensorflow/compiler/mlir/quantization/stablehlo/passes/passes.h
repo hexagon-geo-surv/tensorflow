@@ -44,6 +44,10 @@ std::unique_ptr<OperationPass<ModuleOp>>
 CreateLiftQuantizableSpotsAsFunctionsPass(
     const ::stablehlo::quantization::QuantizationSpecs& quantization_specs);
 
+// Creates a pass that inserts CalibrationStatisticsSaverOp.
+std::unique_ptr<OperationPass<func::FuncOp>>
+createInsertCalibrationStatisticsSaverPass(StringRef output_file_path);
+
 // Adds generated pass default constructors or options definitions.
 #define GEN_PASS_DECL
 // Adds generated pass registration functions.
