@@ -546,23 +546,27 @@ build:rbe_linux_cuda_nvcc --config=rbe_linux_cuda
 build:rbe_linux_cuda_nvcc --config=nvcc_clang
 build:rbe_linux_cuda_nvcc --repo_env TF_NCCL_USE_STUB=1
 
+build:rbe_win_base --config=rbe_base
+build:rbe_win_base --shell_executable=C:\\tools\\msys64\\usr\\bin\\bash.exe
+# Don't build the python zip archive in the RBE build.
+build:rbe_win_base --remote_download_minimal
+build:rbe_win_base --enable_runfiles
+build:rbe_win_base --nobuild_python_zip
+
 # TODO(kanglan): Remove rbe_win and rbe_win_py3* after b/289091160 is fixed
-build:rbe_win --config=rbe_base
+build:rbe_win --config=rbe_win_base
 build:rbe_win --crosstool_top="//tensorflow/tools/toolchains/win/tf_win_05022023:toolchain"
 build:rbe_win --extra_toolchains="//tensorflow/tools/toolchains/win/tf_win_05022023:cc-toolchain-x64_windows"
 build:rbe_win --extra_execution_platforms="//tensorflow/tools/toolchains/win:rbe_windows_ltsc2019"
 build:rbe_win --host_platform="//tensorflow/tools/toolchains/win:rbe_windows_ltsc2019"
 build:rbe_win --platforms="//tensorflow/tools/toolchains/win:rbe_windows_ltsc2019"
-build:rbe_win --shell_executable=C:\\tools\\msys64\\usr\\bin\\bash.exe
-build:rbe_win --experimental_strict_action_env=true
 
-# TODO(gunan): Remove once we use MSVC 2019 with latest patches.
-build:rbe_win --define=override_eigen_strong_inline=true
-
-# Don't build the python zip archive in the RBE build.
-build:rbe_win --remote_download_minimal
-build:rbe_win --enable_runfiles
-build:rbe_win --nobuild_python_zip
+build:rbe_win_clang --config=rbe_win_base
+build:rbe_win_clang --crosstool_top="//tensorflow/tools/toolchains/win/tf_win_20240416:toolchain"
+build:rbe_win_clang --extra_toolchains="//tensorflow/tools/toolchains/win/tf_win_20240416:cc-toolchain-x64_windows"
+build:rbe_win_clang --extra_execution_platforms="//tensorflow/tools/toolchains/win:x64_windows-clang-cl"
+build:rbe_win_clang --host_platform="//tensorflow/tools/toolchains/win:x64_windows-clang-cl"
+build:rbe_win_clang --platforms="//tensorflow/tools/toolchains/win:x64_windows-clang-cl"
 
 build:rbe_win_py38 --config=rbe_base
 build:rbe_win_py38 --repo_env=PYTHON_BIN_PATH=C:\\Python38\\python.exe
