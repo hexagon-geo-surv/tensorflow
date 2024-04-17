@@ -171,7 +171,7 @@ TEST(ExpandPresetsTest, ExpandStaticRangePtqEnableFullIntquantization) {
   const StaticRangePtq& srq_spec = conv_spec.method().static_range_ptq();
   ASSERT_THAT(srq_spec.input_quantized_types(), SizeIs(1));
   ASSERT_TRUE(srq_spec.input_quantized_types().contains(1));
-
+  ASSERT_TRUE(srq_spec.input_quantized_types().at(1).has_dimension_specs());
   EXPECT_THAT(
       srq_spec.input_quantized_types().at(1).dimension_specs().dimension(),
       Eq(3));

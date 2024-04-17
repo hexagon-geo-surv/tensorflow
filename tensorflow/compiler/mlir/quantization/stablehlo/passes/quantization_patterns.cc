@@ -472,6 +472,9 @@ class QuantizeConvolutionOpPattern : public EntryFuncBodyQuantizationPattern {
       if (static_range_ptq_spec.input_quantized_types().contains(1)) {
         const QuantizedType& weight_quantized_type =
             static_range_ptq_spec.input_quantized_types().at(1);
+        if (weight_quantized_type.has_per_channel_default()) {
+          return true;
+        }
         return weight_quantized_type.dimension_specs().dimension() == 3;
       }
     }
