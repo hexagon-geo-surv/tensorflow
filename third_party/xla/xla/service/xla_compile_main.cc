@@ -64,6 +64,7 @@ int main(int argc, char* argv[]) {
   std::string autotune_results_path;
   std::string symbol_repository;
   std::string symbol_id;
+  std::string optimized_symbol_id;
   bool use_attached_device = false;
   bool wait_for_uploads = false;
   std::string result_output_file;
@@ -86,6 +87,11 @@ int main(int argc, char* argv[]) {
       tsl::Flag("symbol_reference", &symbol_id,
                 "Symbol ID to look up in a SymbolRepository. Overrides "
                 "--module_file."),
+      tsl::Flag(
+          "optimized_symbol_reference", &symbol_id,
+          "Optimized symbol ID to look up in a SymbolRepository. Overrides "
+          "--autotune_results_path."),
+
       tsl::Flag("use_attached_device", &use_attached_device,
                 "Whether to use the attached GPU or not. Overrides the "
                 "AOT-vs-device-backed inference based on the presence of "
@@ -110,10 +116,22 @@ int main(int argc, char* argv[]) {
 
   tsl::port::InitMain(usage.c_str(), &argc, &argv);
 
-  absl::Status result = xla::XlaCompileMain(
-      module_path, output_path, platform, gpu_target_config_path,
-      autotune_results_path, symbol_repository, symbol_id, use_attached_device,
-      wait_for_uploads, result_output_file);
+  xla::XlaCompileOptions options;
+  options.module_path = module_path;
+  options.output_path = output_path;
+  options.platform = platform;
+  options.result_output_file = result_output_file;
+
+  options.repo_options.symbol_repo = symbol_repository;
+  options.repo_options.symbol_id = symbol_id;
+  options.repo_options.optimized_symbol_id = optimized_symbol_id;
+  options.repo_options.wait_for_uploads = wait_for_uploads;
+
+  options.gpu_options.gpu_target_config_path = gpu_target_config_path;
+  options.gpu_options.use_attached_device = use_attached_device;
+  options.gpu_options.autotune_results_path = autotune_results_path;
+
+  absl::Status result = xla::XlaCompileMain(options);
   if (!result.ok()) {
     LOG(ERROR) << "Compilation failed: " << result;
     return 1;

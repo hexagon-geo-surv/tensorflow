@@ -176,13 +176,12 @@ TEST_F(XlaCompileLibTest, DISABLED_ON_GPU(MainForCpu)) {
   const std::string result_file =
       tsl::io::JoinPath(tsl::testing::TmpDir(), "result.pb");
 
-  TF_EXPECT_OK(XlaCompileMain(module_file, output_path, "cpu",
-                              /* gpu_target_config_path= */ "",
-                              /* autotune_results_path= */ "",
-                              /* symbol_repo= */ "", /* symbol_id= */ "",
-                              /* use_attached_device=*/false,
-                              /* wait_for_uploads */ false,
-                              /* result_output_file=*/result_file));
+  XlaCompileOptions options;
+  options.module_path = module_file;
+  options.output_path = output_path;
+  options.platform = "cpu";
+  options.result_output_file = result_file;
+  TF_EXPECT_OK(XlaCompileMain(options));
 }
 
 TEST_F(XlaCompileLibTest, DISABLED_ON_CPU(MainForGpu)) {
@@ -196,13 +195,13 @@ TEST_F(XlaCompileLibTest, DISABLED_ON_CPU(MainForGpu)) {
   const std::string result_file =
       tsl::io::JoinPath(tsl::testing::TmpDir(), "result.pb");
 
-  TF_EXPECT_OK(XlaCompileMain(module_file, output_path, "gpu",
-                              /* gpu_target_config_path= */ "",
-                              /* autotune_results_path= */ "",
-                              /* symbol_repo= */ "", /* symbol_id= */ "",
-                              /* use_attached_device=*/true,
-                              /* wait_for_uploads */ false,
-                              /* result_output_file=*/result_file));
+  XlaCompileOptions options;
+  options.module_path = module_file;
+  options.output_path = output_path;
+  options.platform = "gpu";
+  options.result_output_file = result_file;
+  options.gpu_options.use_attached_device = true;
+  TF_EXPECT_OK(XlaCompileMain(options));
 }
 
 }  // namespace

@@ -52,14 +52,36 @@ absl::Status WriteResultFile(absl::string_view result_output_file,
 absl::StatusOr<std::unique_ptr<HloModule>> LoadModule(
     absl::string_view module_path);
 
-// Full entry point if you want to wrap a binary around this functionality.
-// See flag definitions in ../service/xla_compile_main.cc for semantics.
-absl::Status XlaCompileMain(
-    absl::string_view module_path, absl::string_view output_path,
-    absl::string_view platform, absl::string_view gpu_target_config_path,
-    absl::string_view autotune_results_path, absl::string_view symbol_repo,
-    absl::string_view symbol_id, bool use_attached_device,
-    bool wait_for_uploads, absl::string_view result_output_file);
+struct XlaCompileOptions {
+  // Fully backend-independent options.
+  std::string module_path;
+  std::string output_path;
+  std::string platform;
+  std::string result_output_file;
+
+  // Options for SymbolRepository lookup.
+  struct SymbolRepoOptions {
+    std::string symbol_repo;
+    std::string symbol_id;
+    std::string optimized_symbol_id;
+    bool wait_for_uploads;
+  };
+
+  // GPU-specific options.
+  struct GpuOptions {
+    std::string gpu_target_config_path;
+    bool use_attached_device;
+    std::string autotune_results_path;
+  };
+
+  SymbolRepoOptions repo_options;
+  GpuOptions gpu_options;
+};
+
+// Full entry point if you want to wrap a binary around this functionality. See
+// flag definitions in ../service/xla_compile_main.cc for semantics, which
+// correspond to fields in XlaCompileOptions.
+absl::Status XlaCompileMain(const XlaCompileOptions& compile_options);
 
 }  // namespace xla
 
