@@ -17,6 +17,8 @@ limitations under the License.
 
 #include <algorithm>
 
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -642,5 +644,19 @@ bool IsRestoreGraph(ModuleOp module) {
       })
       .wasInterrupted();
 }
+
+absl::StatusOr<func::FuncOp> GetMainFunc(ModuleOp module) {
+  func::FuncOp main_func = nullptr;
+  for (auto func : module.getOps<func::FuncOp>()) {
+    if (func.isPublic()) {
+      if (main_func != nullptr) {
+        return absl::InternalError("Only one public function is allowed.");
+      }
+      main_func = func;
+    }
+  }
+  return main_func;
+}
+
 }  // namespace tf_saved_model
 }  // namespace mlir

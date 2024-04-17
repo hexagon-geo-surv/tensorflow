@@ -93,6 +93,12 @@ class ModelRuntimeContext {
     checkpoint_path_ = checkpoint_path;
   }
 
+  bool disable_backend_compile() const { return disable_backend_compile_; }
+
+  void set_disable_backend_compile(bool disable_backend_compile) {
+    disable_backend_compile_ = disable_backend_compile;
+  }
+
  private:
   const GraphExecutionOptions* graph_execution_options_ = nullptr;
 
@@ -105,6 +111,7 @@ class ModelRuntimeContext {
 
   bool is_local_session_ = false;
   std::string checkpoint_path_;
+  bool disable_backend_compile_ = false;
 };
 
 // This defines the runtime abstraction in tensorflow for TFRT. It is supposed

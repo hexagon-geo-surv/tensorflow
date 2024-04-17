@@ -177,8 +177,8 @@ Status ConvertTfMlirToRuntimeExecutable(
           "Failed to sinking assets into initialization graphs."));
     }
   }
-
-  if (options.backend_compiler != nullptr) {
+  if (options.backend_compiler != nullptr &&
+      !model_context.disable_backend_compile()) {
     if (VLOG_IS_ON(1)) {
       tensorflow::DumpMlirOpToFile("tf_dialect_before_backend_compile", module);
     }

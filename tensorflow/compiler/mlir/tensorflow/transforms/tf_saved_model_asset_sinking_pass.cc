@@ -39,6 +39,7 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_saved_model.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_types.h"
 #include "tsl/platform/path.h"
+#include "tsl/platform/statusor.h"
 
 namespace mlir {
 namespace tf_saved_model {
@@ -133,15 +134,8 @@ class AssetSinkingPass : public impl::AssetSinkingPassBase<AssetSinkingPass> {
 absl::Status AddSessionInitializerAndInlineCheckpoint(
     ModuleOp module, absl::string_view checkpoint_path) {
   // The main function should be the only public function.
-  func::FuncOp main_func = nullptr;
-  for (auto func : module.getOps<func::FuncOp>()) {
-    if (func.isPublic()) {
-      if (main_func != nullptr) {
-        return absl::InternalError("Only one public function is allowed.");
-      }
-      main_func = func;
-    }
-  }
+  TF_ASSIGN_OR_RETURN(func::FuncOp main_func,
+                      mlir::tf_saved_model::GetMainFunc(module));
   if (main_func.getNumArguments() != 1) {
     return absl::InternalError("Expected 1 argument for the main function.");
   }

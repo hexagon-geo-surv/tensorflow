@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef TENSORFLOW_COMPILER_MLIR_TENSORFLOW_IR_TF_SAVED_MODEL_H_
 #define TENSORFLOW_COMPILER_MLIR_TENSORFLOW_IR_TF_SAVED_MODEL_H_
 
+#include "absl/status/statusor.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/IR/Dialect.h"  // from @llvm-project
@@ -116,6 +117,9 @@ func::FuncOp GetInitializerFunction(ModuleOp module_op,
 
 // Checks if the module restores variables from a Checkpoint.
 bool IsRestoreGraph(ModuleOp module);
+
+// Retrieves the unique public function from the module.
+absl::StatusOr<func::FuncOp> GetMainFunc(ModuleOp module);
 
 }  // namespace tf_saved_model
 }  // namespace mlir

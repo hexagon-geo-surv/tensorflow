@@ -708,6 +708,13 @@ GraphExecutor::ImportAndCompileClientGraph(
     }
     checkpoint_path = input.scalar<tstring>()();
   }
+  // Disable backend compilation for host-asset initialization passes.
+  bool disable_backend_compile = false;
+  if (options_.compile_options.backend_compiler && checkpoint_path.empty()) {
+    TF_ASSIGN_OR_RETURN(mlir::func::FuncOp main_func,
+                        mlir::tf_saved_model::GetMainFunc(module.get()));
+    disable_backend_compile = main_func.getFunctionType().getNumResults() == 0;
+  }
 
   TF_ASSIGN_OR_RETURN(
       auto stream_callback_id,
@@ -739,6 +746,7 @@ GraphExecutor::ImportAndCompileClientGraph(
     model_context.set_function_library_definition(&flib_def);
   }
   model_context.set_checkpoint_path(checkpoint_path);
+  model_context.set_disable_backend_compile(disable_backend_compile);
 
   if (options_.compile_options.compile_to_sync_tfrt_dialect) {
     if (kernel_registry_ == nullptr) {
