@@ -67,7 +67,7 @@ def index_flat_map(  # pylint: disable=unused-private-name
   Args:
     input_dataset: The input dataset.
     map_func: A function mapping a dataset element to a Tensor of the mapped
-      elements.
+      elements. Each output element should be a list of scalars.
     index_map_func: Given an index in the flattened dataset, returns a
       (element index, offset) tuple that represents the index of the element in
       the unflattened dataset, and the offset in the unflattened element.
@@ -79,6 +79,11 @@ def index_flat_map(  # pylint: disable=unused-private-name
 
   Returns:
     A new `Dataset` with the transformation applied as described above.
+
+  Raises:
+    ValueError: If `map_func` does not return a list of scalars.
+    errors.InvalidArgumentError: If `index_map_func` does not return a tuple of
+      two integers, or the returned offset is out of range.
   """
   return _IndexFlatMapDataset(
       input_dataset, map_func, index_map_func, output_cardinality, name)
@@ -117,9 +122,14 @@ class _IndexFlatMapDataset(dataset_ops.UnaryDataset):
         **self._common_args)
     super().__init__(input_dataset, variant_tensor)
 
-  # TODO(b/325112575): Make sure this works if `map_func` returns lists.
   @property
   def element_spec(self) -> Any:
+    if not isinstance(self._map_func.output_structure, tensor_spec.TensorSpec):
+      raise ValueError(
+          "The `map_func` for `index_flat_map` is expected to return Tensors "
+          "of lists of scalars (i.e,: 1-dimensional arrays). Got nested arrays "
+          f"of shape {self._map_func.output_structure}.")
+
     return tensor_spec.TensorSpec(
         shape=[],
         dtype=self._map_func.output_structure.dtype)

@@ -98,6 +98,12 @@ absl::StatusOr<std::vector<Tensor>> GetSlice(const std::vector<Tensor>& tensors,
       result.push_back(tensors[i]);
       continue;
     }
+    if (tensors[i].dims() > 1) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "The `map_func` for `index_flat_map` is expected to return Tensors "
+          "of lists of scalars (i.e,: 1-dimensional arrays). Got ",
+          tensors[i].DebugString()));
+    }
     if (offset > tensors[i].dim_size(0)) {
       return absl::InvalidArgumentError(absl::StrCat(
           "`index_flat_map` got invalid `index_map_fn` which returns offset ",

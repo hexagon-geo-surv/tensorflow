@@ -141,7 +141,7 @@ class IndexFlatMapTest(test_base.DatasetTestBase, parameterized.TestCase):
       self.getDatasetOutput(dataset)
 
   @combinations.generate(test_base.default_test_combinations())
-  def test_invalid_map_fn(self):
+  def test_invalid_map_fn_type(self):
 
     def _index_map_func(_) -> str:
       # Expected to return two integers.
@@ -153,6 +153,24 @@ class IndexFlatMapTest(test_base.DatasetTestBase, parameterized.TestCase):
     with self.assertRaisesRegex(
         errors.InvalidArgumentError,
         "expected to return two int values"):
+      self.getDatasetOutput(dataset)
+
+  @combinations.generate(test_base.default_test_combinations())
+  def test_invalid_map_fn_shape(self):
+
+    def _map_func(_) -> list[list[int]]:
+      return [[1, 2], [3, 4, 5]]
+
+    def _index_map_func(_) -> tuple[int, int]:
+      return (0, 0)
+
+    dataset = dataset_ops.Dataset.range(10)
+    with self.assertRaisesRegex(
+        ValueError,
+        "The `map_func` for `index_flat_map` is expected to return Tensors of "
+        "lists of scalars"):
+      dataset = index_flat_map_op.index_flat_map(
+          dataset, _map_func, _index_map_func)
       self.getDatasetOutput(dataset)
 
   @combinations.generate(test_base.default_test_combinations())
