@@ -31,10 +31,12 @@ limitations under the License.
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "xla/hlo/ir/hlo_module.h"
+#include "xla/layout.h"
 #include "xla/literal.h"
 #include "xla/pjrt/cpu/cpu_client.h"
 #include "xla/pjrt/distributed/client.h"
 #include "xla/pjrt/gpu/se_gpu_pjrt_client.h"
+#include "xla/pjrt/host_memory_spaces.h"
 #include "xla/pjrt/pjrt_client.h"
 #include "xla/pjrt/pjrt_compiler.h"
 #include "xla/pjrt/pjrt_executable.h"
@@ -814,15 +816,14 @@ FunctionalHloRunner::Run(PjRtClient& client, PjRtLoadedExecutable* executable,
         int device_id = device_id_and_arguments.first;
         flattened_arguments.insert({device_id, std::move(flattened_argument)});
       }
-      return CopyArgumentsToDevice(client, executable->addressable_devices(),
-                                   flattened_arguments,
+      return CopyArgumentsToDevice(client, executable, flattened_arguments,
                                    running_options.log_input_output());
     }
     // If the per-device argument is not a single tuple, we ignore the
     // flatten_tupled_arguments parameter and assume the provided arguments have
     // already been flattened.
-    return CopyArgumentsToDevice(client, executable->addressable_devices(),
-                                 arguments, running_options.log_input_output());
+    return CopyArgumentsToDevice(client, executable, arguments,
+                                 running_options.log_input_output());
   };
   return RunInternal(client, executable, create_argument_buffers_on_device,
                      running_options);
@@ -1132,12 +1133,11 @@ FunctionalHloRunner::CreateArgumentsOnDevice(
       per_device_index_vec[addressable_devices[i]->id()] = argument_indices;
     }
     return CopyArgumentsToDevice(
-        client, addressable_devices,
+        client, executable,
         per_device_argument_literals[addressable_devices[0]->id()],
         per_device_index_vec, running_options.log_input_output());
   }
-  return CopyArgumentsToDevice(client, addressable_devices,
-                               per_device_argument_literals,
+  return CopyArgumentsToDevice(client, executable, per_device_argument_literals,
                                running_options.log_input_output());
 }
 
@@ -1227,8 +1227,10 @@ FunctionalHloRunner::CreateUninitializedArgumentsOnDevice(
 
 absl::StatusOr<std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>>
 FunctionalHloRunner::CopyArgumentsToDevice(
-    PjRtClient& client, absl::Span<PjRtDevice* const> addressable_devices,
+    PjRtClient& client, const PjRtLoadedExecutable* executable,
     const PerDeviceLiteralVecType& arguments, bool log_input) {
+  absl::Span<PjRtDevice* const> addressable_devices =
+      executable->addressable_devices();
   size_t num_addressable_devices = addressable_devices.size();
   if (num_addressable_devices != arguments.size()) {
     return InvalidArgument(
@@ -1237,6 +1239,23 @@ FunctionalHloRunner::CopyArgumentsToDevice(
   }
   std::vector<std::vector<std::unique_ptr<PjRtBuffer>>> argument_buffers;
   argument_buffers.resize(num_addressable_devices);
+
+  TF_ASSIGN_OR_RETURN(CompileOptions compile_options,
+                      executable->GetCompileOptions());
+  auto argument_memory_space =
+      [&compile_options](PjRtDevice* device,
+                         int arg_i) -> absl::StatusOr<PjRtMemorySpace*> {
+    if (!compile_options.argument_layouts.has_value() ||
+        arg_i >= compile_options.argument_layouts->size()) {
+      return device->default_memory_space();
+    }
+    const Shape& shape = (*compile_options.argument_layouts)[arg_i];
+    if (shape.has_layout() &&
+        shape.layout().memory_space() == Layout::kHostMemorySpace) {
+      return device->memory_space_by_kind(PinnedHostMemorySpace::kKind);
+    }
+    return device->default_memory_space();
+  };
 
   for (int i = 0; i < num_addressable_devices; ++i) {
     PjRtDevice* curr_device = addressable_devices[i];
@@ -1252,13 +1271,16 @@ FunctionalHloRunner::CopyArgumentsToDevice(
         arguments.at(curr_device_id);
 
     argument_buffers[i].reserve(curr_device_arguments.size());
-    for (const Literal& literal : curr_device_arguments) {
+    for (int arg_i = 0; arg_i < curr_device_arguments.size(); ++arg_i) {
+      const Literal& literal = curr_device_arguments[arg_i];
       if (log_input) {
         LOG(INFO) << "device_id=" << curr_device_id
                   << ", input = " << literal.ToString();
       }
+      TF_ASSIGN_OR_RETURN(PjRtMemorySpace * memory_space,
+                          argument_memory_space(curr_device, arg_i));
       TF_ASSIGN_OR_RETURN(std::unique_ptr<PjRtBuffer> argument_buffer,
-                          client.BufferFromHostLiteral(literal, curr_device));
+                          client.BufferFromHostLiteral(literal, memory_space));
       argument_buffers[i].push_back(std::move(argument_buffer));
     }
   }
@@ -1272,9 +1294,11 @@ FunctionalHloRunner::CopyArgumentsToDevice(
 
 absl::StatusOr<std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>>
 FunctionalHloRunner::CopyArgumentsToDevice(
-    PjRtClient& client, absl::Span<PjRtDevice* const> addressable_devices,
+    PjRtClient& client, const PjRtLoadedExecutable* executable,
     const LiteralVec& argument_literals,
     const PerDeviceIndexVecType& argument_indices, bool log_input) {
+  absl::Span<PjRtDevice* const> addressable_devices =
+      executable->addressable_devices();
   size_t num_addressable_devices = addressable_devices.size();
   if (num_addressable_devices != argument_indices.size()) {
     return InvalidArgument(
