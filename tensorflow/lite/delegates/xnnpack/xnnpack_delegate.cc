@@ -6523,6 +6523,8 @@ class Subgraph {
 
       // Attention Type
       bool is_mqa = (key_proj.dims->data[2] == 1);
+      bool is_gqa =
+          !is_mqa && (key_proj.dims->data[2] != query_proj.dims->data[2]);
 
       // Scale the query values by multiplying 1 / sqrt(dim_per_head).
       const auto query_dim = query_proj.dims;
@@ -6597,10 +6599,63 @@ class Subgraph {
                           xnn_define_tensor_value(
                               subgraph, xnn_datatype_fp32, 0, nullptr, nullptr,
                               XNN_INVALID_VALUE_ID, 0, &fc_out_id));
-        TF_LITE_ENSURE_EQ(logging_context, xnn_status_success,
-                          xnn_define_batch_matrix_multiply(
-                              subgraph, permute_q_out_id, permute_k_out_id,
-                              fc_out_id, XNN_FLAG_TRANSPOSE_B));
+        if (is_gqa) {
+          uint32_t q_reshape_id = XNN_INVALID_VALUE_ID;
+          TF_LITE_ENSURE_EQ(
+              logging_context, xnn_status_success,
+              xnn_define_tensor_value(subgraph, xnn_datatype_fp32, 0, nullptr,
+                                      nullptr, XNN_INVALID_VALUE_ID, 0,
+                                      &q_reshape_id));
+          uint32_t k_reshape_id = XNN_INVALID_VALUE_ID;
+          TF_LITE_ENSURE_EQ(
+              logging_context, xnn_status_success,
+              xnn_define_tensor_value(subgraph, xnn_datatype_fp32, 0, nullptr,
+                                      nullptr, XNN_INVALID_VALUE_ID, 0,
+                                      &k_reshape_id));
+          uint32_t bmm_reshape_id = XNN_INVALID_VALUE_ID;
+          TF_LITE_ENSURE_EQ(
+              logging_context, xnn_status_success,
+              xnn_define_tensor_value(subgraph, xnn_datatype_fp32, 0, nullptr,
+                                      nullptr, XNN_INVALID_VALUE_ID, 0,
+                                      &bmm_reshape_id));
+          size_t num_query_groups = key_proj.dims->data[2];
+          size_t head_per_query = query_proj.dims->data[2] / num_query_groups;
+          std::vector<size_t> q_reshape_dims = {
+              (size_t)query_proj.dims->data[0], num_query_groups,
+              head_per_query, (size_t)query_proj.dims->data[1],
+              (size_t)query_proj.dims->data[3]};
+          std::vector<size_t> k_reshape_dims = {
+              (size_t)key_proj.dims->data[0], num_query_groups, 1,
+              (size_t)key_proj.dims->data[1], (size_t)key_proj.dims->data[3]};
+          std::vector<size_t> bmm_reshape_dims = {
+              (size_t)query_proj.dims->data[0],
+              num_query_groups * head_per_query,
+              (size_t)query_proj.dims->data[1], (size_t)key_proj.dims->data[1]};
+          TF_LITE_ENSURE_EQ(
+              logging_context, xnn_status_success,
+              xnn_define_static_reshape(subgraph, q_reshape_dims.size(),
+                                        q_reshape_dims.data(), permute_q_out_id,
+                                        q_reshape_id, 0));
+          TF_LITE_ENSURE_EQ(
+              logging_context, xnn_status_success,
+              xnn_define_static_reshape(subgraph, k_reshape_dims.size(),
+                                        k_reshape_dims.data(), permute_k_out_id,
+                                        k_reshape_id, 0));
+          TF_LITE_ENSURE_EQ(logging_context, xnn_status_success,
+                            xnn_define_batch_matrix_multiply(
+                                subgraph, q_reshape_id, k_reshape_id,
+                                bmm_reshape_id, XNN_FLAG_TRANSPOSE_B));
+          TF_LITE_ENSURE_EQ(
+              logging_context, xnn_status_success,
+              xnn_define_static_reshape(subgraph, bmm_reshape_dims.size(),
+                                        bmm_reshape_dims.data(), bmm_reshape_id,
+                                        fc_out_id, 0));
+        } else {
+          TF_LITE_ENSURE_EQ(logging_context, xnn_status_success,
+                            xnn_define_batch_matrix_multiply(
+                                subgraph, permute_q_out_id, permute_k_out_id,
+                                fc_out_id, XNN_FLAG_TRANSPOSE_B));
+        }
       } else {
         // FC (permute_q, permute_k)
         TFLITE_DCHECK(key_proj.dims->data[0] == 1);
@@ -6677,10 +6732,66 @@ class Subgraph {
                           xnn_define_tensor_value(
                               subgraph, xnn_datatype_fp32, 0, nullptr, nullptr,
                               XNN_INVALID_VALUE_ID, 0, &fc2_out_id));
-        TF_LITE_ENSURE_EQ(logging_context, xnn_status_success,
-                          xnn_define_batch_matrix_multiply(
-                              subgraph, probs_id, permute_v_out_id, fc2_out_id,
-                              XNN_FLAG_TRANSPOSE_B));
+        if (is_gqa) {
+          uint32_t padded_logits_reshape_id = XNN_INVALID_VALUE_ID;
+          TF_LITE_ENSURE_EQ(
+              logging_context, xnn_status_success,
+              xnn_define_tensor_value(subgraph, xnn_datatype_fp32, 0, nullptr,
+                                      nullptr, XNN_INVALID_VALUE_ID, 0,
+                                      &padded_logits_reshape_id));
+          uint32_t v_reshape_id = XNN_INVALID_VALUE_ID;
+          TF_LITE_ENSURE_EQ(
+              logging_context, xnn_status_success,
+              xnn_define_tensor_value(subgraph, xnn_datatype_fp32, 0, nullptr,
+                                      nullptr, XNN_INVALID_VALUE_ID, 0,
+                                      &v_reshape_id));
+          uint32_t bmm2_reshape_id = XNN_INVALID_VALUE_ID;
+          TF_LITE_ENSURE_EQ(
+              logging_context, xnn_status_success,
+              xnn_define_tensor_value(subgraph, xnn_datatype_fp32, 0, nullptr,
+                                      nullptr, XNN_INVALID_VALUE_ID, 0,
+                                      &bmm2_reshape_id));
+          size_t num_query_groups = value_proj.dims->data[2];
+          size_t head_per_query = query_proj.dims->data[2] / num_query_groups;
+          std::vector<size_t> padded_logits_reshape_dims = {
+              (size_t)query_proj.dims->data[0], num_query_groups,
+              head_per_query, (size_t)query_proj.dims->data[1],
+              (size_t)value_proj.dims->data[1]};
+          std::vector<size_t> v_reshape_dims = {
+              (size_t)value_proj.dims->data[0], num_query_groups, 1,
+              (size_t)value_proj.dims->data[3],
+              (size_t)value_proj.dims->data[1]};
+          std::vector<size_t> bmm2_reshape_dims = {
+              (size_t)query_proj.dims->data[0],
+              num_query_groups * head_per_query,
+              (size_t)query_proj.dims->data[1],
+              (size_t)query_proj.dims->data[3]};
+          TF_LITE_ENSURE_EQ(logging_context, xnn_status_success,
+                            xnn_define_static_reshape(
+                                subgraph, padded_logits_reshape_dims.size(),
+                                padded_logits_reshape_dims.data(), probs_id,
+                                padded_logits_reshape_id, 0));
+          TF_LITE_ENSURE_EQ(
+              logging_context, xnn_status_success,
+              xnn_define_static_reshape(subgraph, v_reshape_dims.size(),
+                                        v_reshape_dims.data(), permute_v_out_id,
+                                        v_reshape_id, 0));
+          TF_LITE_ENSURE_EQ(
+              logging_context, xnn_status_success,
+              xnn_define_batch_matrix_multiply(
+                  subgraph, padded_logits_reshape_id, v_reshape_id,
+                  bmm2_reshape_id, XNN_FLAG_TRANSPOSE_B));
+          TF_LITE_ENSURE_EQ(
+              logging_context, xnn_status_success,
+              xnn_define_static_reshape(subgraph, bmm2_reshape_dims.size(),
+                                        bmm2_reshape_dims.data(),
+                                        bmm2_reshape_id, fc2_out_id, 0));
+        } else {
+          TF_LITE_ENSURE_EQ(logging_context, xnn_status_success,
+                            xnn_define_batch_matrix_multiply(
+                                subgraph, probs_id, permute_v_out_id,
+                                fc2_out_id, XNN_FLAG_TRANSPOSE_B));
+        }
       } else {
         // FC (padded_logits, permute_v)
         TFLITE_DCHECK(value_proj.dims->data[0] == 1);
