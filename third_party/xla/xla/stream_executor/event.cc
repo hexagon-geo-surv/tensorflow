@@ -21,26 +21,15 @@ limitations under the License.
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
-#include "xla/stream_executor/event_interface.h"
 #include "xla/stream_executor/stream_executor_interface.h"
 
 namespace stream_executor {
 
-Event::Event(StreamExecutorInterface* stream_exec,
-             std::unique_ptr<EventInterface> implementation)
-    : stream_exec_(stream_exec), implementation_(std::move(implementation)) {}
-
-Event::~Event() = default;
-
-Event::Event(Event&&) = default;
-Event& Event::operator=(Event&&) = default;
+Event::Event(StreamExecutorInterface* stream_exec)
+    : stream_exec_(stream_exec) {}
 
 Event::Status Event::PollForStatus() {
   return stream_exec_->PollForEventStatus(this);
-}
-
-absl::Status Event::WaitForEventOnExternalStream(std::intptr_t stream) {
-  return stream_exec_->WaitForEventOnExternalStream(stream, this);
 }
 
 }  // namespace stream_executor
