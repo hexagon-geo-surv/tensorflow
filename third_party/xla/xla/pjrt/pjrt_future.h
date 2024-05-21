@@ -265,10 +265,14 @@ class PjRtFutureBase : public PjRtFutureMoveControl<unique> {
   // Blocks the calling thread until the future is ready.
   void BlockUntilReady() const {
     CHECK(IsValid());
+    LOG(ERROR) << "2DO BlockUntilReady before isAvailable";
     if (!promise_.IsAvailable()) {
       PjRtFutureHelpers::ProfilingKeys keys = OnBlockStart();
+      LOG(ERROR) << "2DO BlockUntilReady before tsl::BlockUntilReady";
       tsl::BlockUntilReady(promise_);
+      LOG(ERROR) << "2DO BlockUntilReady after tsl::BlockUntilReady";
       OnBlockEnd(std::move(keys));
+      LOG(ERROR) << "2DO BlockUntilReady after OnBlockEnd";
     }
     DCHECK(promise_.IsConcrete());
   }
@@ -276,7 +280,9 @@ class PjRtFutureBase : public PjRtFutureMoveControl<unique> {
   // Blocks the calling thread until the future is ready, then returns the
   // final value.
   const T& Await() const& {
+    LOG(ERROR) << "2DO Before Blocking";
     BlockUntilReady();
+    LOG(ERROR) << "2DO AfterBlocking";
     return *promise_;
   }
 
