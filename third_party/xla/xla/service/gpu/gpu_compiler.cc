@@ -1261,7 +1261,7 @@ absl::Status GpuCompiler::OptimizeHloModule(
   TF_RETURN_IF_ERROR(RunPostFusionVerificationPasses(
       hlo_module, stream_exec, options, gpu_target_config));
 
-  return absl::OkStatus();
+  return RunPreSchedulingPasses(hlo_module, stream_exec);
 }  // NOLINT(readability/fn_size)
 
 AlgebraicSimplifierOptions GpuCompiler::GetAlgebraicSimplifierOptions(
@@ -1418,13 +1418,6 @@ absl::Status GpuCompiler::OptimizeHloPostLayoutAssignment(
                      .VerifyBroadcastDimensionsOrder()
                      .VerifyReshapeIsBitcast(),
                  /*debug_only=*/true);
-
-  // Linearize collective schedule if online autotuning of convolutions is
-  // enabled.
-  pipeline.AddPass<CollectivesScheduleLinearizer>(
-      [this, stream_exec](const HloModule* module) {
-        return RequiresCollectiveScheduleLinearizer(module, stream_exec);
-      });
 
   // Triton compilation needs normalized operations on bf16 (i.e. converted to
   // f32).
@@ -2141,6 +2134,16 @@ absl::StatusOr<std::unique_ptr<AotCompilationResult>> GpuCompiler::Export(
       &gpu_executable->module(), gpu_executable->buffer_assignment(),
       gpu_executable->text(), gpu_executable->binary(),
       gpu_executable->dnn_compiled_graphs());
+}
+
+absl::Status GpuCompiler::RunPreSchedulingPasses(
+    HloModule* module, se::StreamExecutor* stream_exec) {
+  HloPassPipeline pipeline("pre-scheduling-passes");
+  pipeline.AddPass<CollectivesScheduleLinearizer>(
+      [this, stream_exec](const HloModule* module) {
+        return RequiresCollectiveScheduleLinearizer(module, stream_exec);
+      });
+  return pipeline.Run(module).status();
 }
 
 absl::Status GpuCompiler::RunPostSchedulingPipelines(
