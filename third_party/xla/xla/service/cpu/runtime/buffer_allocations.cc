@@ -50,16 +50,16 @@ absl::StatusOr<se::DeviceMemoryBase> BufferAllocations::GetDeviceAddress(
         absl::StrCat("Buffer slice offset ", offset, " must be non-negative"));
   }
 
-  if (offset >= base.size()) {
+  if (offset > base.size()) {
     return absl::InvalidArgumentError(absl::StrCat(
-        "Buffer slice offset ", offset, " must be smaller than buffer #", index,
-        " size ", base.size()));
+        "Buffer slice offset ", offset, " is out of range for buffer #", index,
+        " of size ", base.size()));
   }
 
   if (extent > base.size()) {
     return absl::InvalidArgumentError(absl::StrCat(
-        "Buffer slice extent ", extent, " must be smaller than buffer #", index,
-        " size ", base.size()));
+        "Buffer slice extent ", extent, " is out of range for buffer #", index,
+        " of size ", base.size()));
   }
 
   return base.GetByteSlice(offset, buffer_slice.size());

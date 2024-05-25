@@ -78,6 +78,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
 #ifdef XLA_CPU_USE_ACL
   opts.set_xla_cpu_use_acl(true);
 #endif
+  opts.set_xla_cpu_use_thunk_runtime(false);
 
   opts.set_xla_cpu_enable_fast_math(false);
   // Disable forms of fast math that have caused users problems in the past.
@@ -762,6 +763,11 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
                 bool_setter_for(&DebugOptions::set_xla_cpu_use_mkl_dnn),
                 debug_options->xla_cpu_use_mkl_dnn(),
                 "Generate calls to MKL-DNN in the CPU backend."));
+  flag_list->push_back(
+      tsl::Flag("xla_cpu_use_thunk_runtime",
+                bool_setter_for(&DebugOptions::set_xla_cpu_use_thunk_runtime),
+                debug_options->xla_cpu_use_thunk_runtime(),
+                "Use Thunk-based runtime for the CPU backend."));
   flag_list->push_back(tsl::Flag(
       "xla_cpu_use_acl", bool_setter_for(&DebugOptions::set_xla_cpu_use_acl),
       debug_options->xla_cpu_use_acl(),
