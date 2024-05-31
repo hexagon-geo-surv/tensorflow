@@ -3232,9 +3232,9 @@ xla_cc_test(
 )
 
 cc_library(
-    name = "address_computation_fusion_rewriter",
-    srcs = ["address_computation_fusion_rewriter.cc"],
-    hdrs = ["address_computation_fusion_rewriter.h"],
+    name = "dynamic_slice_fusion_rewriter",
+    srcs = ["dynamic_slice_fusion_rewriter.cc"],
+    hdrs = ["dynamic_slice_fusion_rewriter.h"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -3263,10 +3263,10 @@ cc_library(
 )
 
 xla_cc_test(
-    name = "address_computation_fusion_rewriter_test",
-    srcs = if_cuda_is_configured(["address_computation_fusion_rewriter_test.cc"]),
+    name = "dynamic_slice_fusion_rewriter_test",
+    srcs = if_cuda_is_configured(["dynamic_slice_fusion_rewriter_test.cc"]),
     deps = [
-        ":address_computation_fusion_rewriter",
+        ":dynamic_slice_fusion_rewriter",
         ":gpu_device_info_for_tests",
         "//xla:shape_util",
         "//xla/client:xla_builder",
@@ -3353,7 +3353,7 @@ cc_library(
         ":gpu_p2p_pipeliner",
         ":pipelined_p2p_rewriter",
         ":collective_permute_cycle_decomposer",
-        ":address_computation_fusion_rewriter",
+        ":dynamic_slice_fusion_rewriter",
         ":gemv_rewriter",
         ":algorithm_checker",
         ":alias_passthrough_params",
@@ -5851,6 +5851,32 @@ xla_cc_test(
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest",
         "@local_tsl//tsl/platform:statusor",
+        "@local_tsl//tsl/platform:test_main",
+    ],
+)
+
+cc_library(
+    name = "collective_permute_valid_iteration_annotator",
+    srcs = ["collective_permute_valid_iteration_annotator.cc"],
+    hdrs = ["collective_permute_valid_iteration_annotator.h"],
+    deps = [
+        "//xla:literal_util",
+        "//xla/service:collective_ops_utils",
+        "//xla/service:pattern_matcher",
+        "//xla/service:while_loop_analysis",
+    ],
+)
+
+xla_cc_test(
+    name = "collective_permute_valid_iteration_annotator_test",
+    srcs = ["collective_permute_valid_iteration_annotator_test.cc"],
+    deps = [
+        ":collective_permute_valid_iteration_annotator",
+        "//xla/hlo/ir:hlo",
+        "//xla/service:collective_ops_utils",
+        "//xla/service:hlo_pass_pipeline",
+        "//xla/service:while_loop_trip_count_annotator",
+        "//xla/tests:hlo_test_base",
         "@local_tsl//tsl/platform:test_main",
     ],
 )
