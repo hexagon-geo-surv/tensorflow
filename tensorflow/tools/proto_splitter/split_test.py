@@ -18,6 +18,7 @@
 import os
 import random
 import string
+from typing import Optional
 
 from absl.testing import parameterized
 import riegeli
@@ -148,7 +149,7 @@ class NoOpSplitter(split.ComposableSplitter):
 class NoOpSplitterTest(test.TestCase, parameterized.TestCase):
 
   @parameterized.parameters([None, "uncompressed"])
-  def testWriteNoChunks(self, writer_options: str | None):
+  def testWriteNoChunks(self, writer_options: Optional[str]):
     path = os.path.join(self.create_tempdir(), "split-none")
     proto = test_message_pb2.RepeatedString(strings=["a", "bc", "de"])
     returned_path = NoOpSplitter(proto).write(path, writer_options)

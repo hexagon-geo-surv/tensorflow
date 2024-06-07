@@ -150,7 +150,9 @@ class ComposableSplitter(Splitter):
       self._built = True
     return self._chunks, self._chunked_message
 
-  def write(self, file_prefix: str, writer_options: str | None = None) -> str:
+  def write(
+      self, file_prefix: str, writer_options: Optional[str] = None
+  ) -> str:
     """Serializes a proto to disk.
 
     The writer writes all chunks into a riegeli file. The chunk metadata

@@ -422,8 +422,8 @@ class _SavedModelBuilder(object):
 
     Raises:
        RuntimeError: When trying to use `proto_splitter` but `proto_splitter` is
-         not imported. This check is here because `proto_splitter` is not 
-         available in OSS at the moment. 
+         not imported. This check is here because `proto_splitter` is not
+         available in OSS at the moment.
 
     Returns:
       The path to which the SavedModel protocol buffer was written.
