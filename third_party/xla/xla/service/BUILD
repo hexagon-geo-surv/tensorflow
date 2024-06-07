@@ -4145,6 +4145,8 @@ cc_library(
         "//xla:util",
         "//xla:xla_data_proto_cc",
         "//xla/stream_executor",
+        "//xla/stream_executor:event",
+        "//xla/stream_executor:memory_allocation",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:node_hash_map",
         "@com_google_absl//absl/status",
@@ -5932,12 +5934,11 @@ cc_library(
     srcs = ["stable_sort_expander.cc"],
     hdrs = ["stable_sort_expander.h"],
     deps = [
-        ":hlo_pass",
         ":op_expander_pass",
-        "//xla:statusor",
         "//xla/hlo/ir:hlo",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status:statusor",
     ],
 )
 
@@ -7386,6 +7387,7 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@local_tsl//tsl/platform:logging",
+        "@local_tsl//tsl/profiler/lib:traceme",
     ],
 )
 
@@ -7415,6 +7417,7 @@ cc_library(
         "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
+        "@local_tsl//tsl/profiler/lib:traceme",
     ],
 )
 
