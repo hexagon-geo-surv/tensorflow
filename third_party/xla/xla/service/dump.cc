@@ -699,9 +699,11 @@ void DumpProtobufToFile(const tsl::protobuf::Message& proto,
       status = tsl::WriteStringToFile(env, absl::StrCat(path, ".txt"),
                                       written_proto.value());
     } else {
+      std::cout << "Text proto write?\n";
       status = tsl::WriteTextProto(env, absl::StrCat(path, ".txt"), proto);
     }
   } else {
+    std::cout << "Binary proto write, as intended\n";
     status = tsl::WriteBinaryProto(env, absl::StrCat(path, ".pb"), proto);
   }
   if (!status.ok()) {
