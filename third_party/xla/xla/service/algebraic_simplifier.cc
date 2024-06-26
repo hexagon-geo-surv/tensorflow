@@ -179,6 +179,11 @@ std::optional<double> GetConstantValue(const HloInstruction* inst) {
           using NativeT = NativeTypeOf<primitive_type_constant>;
           return static_cast<double>(
               inst->literal().GetFirstElement<NativeT>());
+        } else if constexpr (primitive_util::IsIntegralType(
+                                 primitive_type_constant)) {
+          using NativeT = NativeTypeOf<primitive_type_constant>;
+          return static_cast<int64_t>(
+              inst->literal().GetFirstElement<NativeT>());
         }
         return std::nullopt;
       },
@@ -605,6 +610,11 @@ std::unique_ptr<HloInstruction> MakeScalarInstruction(HloInstruction* target,
       [&](auto primitive_type_constant) -> std::unique_ptr<HloInstruction> {
         if constexpr (primitive_util::IsFloatingPointType(
                           primitive_type_constant)) {
+          using NativeT = NativeTypeOf<primitive_type_constant>;
+          return HloInstruction::CreateConstant(
+              LiteralUtil::CreateR0<NativeT>(static_cast<NativeT>(multiplier)));
+        } else if constexpr (primitive_util::IsIntegralType(
+                                 primitive_type_constant)) {
           using NativeT = NativeTypeOf<primitive_type_constant>;
           return HloInstruction::CreateConstant(
               LiteralUtil::CreateR0<NativeT>(static_cast<NativeT>(multiplier)));
@@ -7879,7 +7889,8 @@ absl::Status AlgebraicSimplifierVisitor::HandleReduce(HloInstruction* hlo) {
     }
   }
 
-  // Replace Reduce(Broadcast(x), dims, Sum()) with Broadcast(x * prod(dims)).
+  // Replace Reduce(Broadcast(x), Sum(), init_value), dimensions=dims with
+  // Broadcast(init_value +x * prod(dims)).
   if (HloInstruction * broadcast_arg;
       Match(arg, m::Broadcast(m::ConstantScalar(&broadcast_arg))) &&
       Match(function->root_instruction(),
@@ -7888,9 +7899,11 @@ absl::Status AlgebraicSimplifierVisitor::HandleReduce(HloInstruction* hlo) {
         broadcast_value.has_value() &&
         // Skip float64, where product is too accurate compared to repeated-sum.
         broadcast_arg->shape().element_type() != PrimitiveType::F64) {
-      auto result_value = broadcast_value.value() *
-                          ShapeUtil::ElementsIn(arg->shape()) /
-                          ShapeUtil::ElementsIn(reduce_result_shape);
+      auto reduce_init_value = GetConstantValue(reduce->operand(1));
+      auto result_value = reduce_init_value.value() +
+                          broadcast_value.value() *
+                              ShapeUtil::ElementsIn(arg->shape()) /
+                              ShapeUtil::ElementsIn(reduce_result_shape);
       return ReplaceWithNewInstruction(
           reduce, HloInstruction::CreateBroadcast(
                       reduce_result_shape,

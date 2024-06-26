@@ -10075,21 +10075,21 @@ TEST_F(AlgebraicSimplifierTest, UnaryVariadicReduce) {
 
 TEST_F(AlgebraicSimplifierTest, ReplaceReduceSumOfConstantBroadcast) {
   const char* kModuleStr = R"(
-HloModule ReplaceReduceSumOfConstantBroadcast
+  HloModule ReplaceReduceSumOfConstantBroadcast
 
-add_f32 {
-  p0 = f32[] parameter(0)
-  p1 = f32[] parameter(1)
-  ROOT r = f32[] add(p0, p1)
-}
+  add_f32 {
+    p0 = f32[] parameter(0)
+    p1 = f32[] parameter(1)
+    ROOT r = f32[] add(p0, p1)
+  }
 
-ENTRY main {
-  init_value = f32[] constant(0)
-  const_value = f32[] constant(1)
-  const_bcast = f32[8, 128] broadcast(f32[] const_value), dimensions={}
-  ROOT reduce = f32[8] reduce(f32[8, 128] const_bcast, f32[] init_value), dimensions={1}, to_apply=add_f32
-}
-)";
+  ENTRY main {
+    init_value = f32[] constant(0)
+    const_value = f32[] constant(1)
+    const_bcast = f32[8, 128] broadcast(f32[] const_value), dimensions={}
+    ROOT reduce = f32[8] reduce(f32[8, 128] const_bcast, f32[] init_value), dimensions={1}, to_apply=add_f32
+  }
+  )";
 
   TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
   ASSERT_TRUE(AlgebraicSimplifier(default_options_).Run(m.get()).value());
@@ -11712,6 +11712,60 @@ ENTRY main.1 {
   EXPECT_NE(root->operand(0)->operand(0)->opcode(), HloOpcode::kParameter);
   EXPECT_EQ(root->operand(0)->operand(1)->operand(0)->opcode(),
             HloOpcode::kParameter);
+}
+
+TEST_F(AlgebraicSimplifierTest, ReduceOfConstantBroadcastS32) {
+  const std::string hlo_string = R"(
+  HloModule test
+    add_s32 {
+      p0 = s32[] parameter(0)
+      p1 = s32[] parameter(1)
+      ROOT r = s32[] add(p0, p1)
+    }
+    ENTRY test.1 {
+      one = s32[] constant(2)
+      zero = s32[] constant(10)
+      bcast = s32[1,7,7,1] broadcast(one), dimensions={}
+      ROOT out = s32[1,7,1] reduce(bcast, zero), dimensions={1}, to_apply=add_s32
+    }
+  )";
+  TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(hlo_string));
+  auto clone = m->Clone();
+  EXPECT_TRUE(AlgebraicSimplifier(default_options_).Run(m.get()).value());
+  int64_t reduce_count =
+      absl::c_count_if(m->entry_computation()->instructions(),
+                       HloPredicateIsOp<HloOpcode::kReduce>);
+  // Expect no Reduce operation after simplification.
+  EXPECT_EQ(0, reduce_count);
+  EXPECT_TRUE(RunAndCompareTwoModules(std::move(clone), std::move(m),
+                                      std::nullopt, false));
+}
+
+TEST_F(AlgebraicSimplifierTest, ReduceOfConstantBroadcastBF16) {
+  const std::string hlo_string = R"(
+  HloModule test
+    add_bf16 {
+      p0 = bf16[] parameter(0)
+      p1 = bf16[] parameter(1)
+      ROOT r = bf16[] add(p0, p1)
+    }
+    ENTRY test.1 {
+      one = bf16[] constant(2.12)
+      zero = bf16[] constant(10.34)
+      bcast = bf16[1,7,7,1] broadcast(one), dimensions={}
+      ROOT out = bf16[1,7,1] reduce(bcast, zero), dimensions={1}, to_apply=add_bf16
+    }
+  )";
+  TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(hlo_string));
+  auto clone = m->Clone();
+  EXPECT_TRUE(AlgebraicSimplifier(default_options_).Run(m.get()).value());
+  int64_t reduce_count =
+      absl::c_count_if(m->entry_computation()->instructions(),
+                       HloPredicateIsOp<HloOpcode::kReduce>);
+  // Expect no Reduce operation after simplification.
+  EXPECT_EQ(0, reduce_count);
+  EXPECT_TRUE(RunAndCompareTwoModules(std::move(clone), std::move(m),
+                                      std::nullopt, false));
 }
 
 TEST_F(AlgebraicSimplifierTest, RemoveConvertConstant) {
