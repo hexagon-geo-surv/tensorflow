@@ -95,6 +95,10 @@ class ConstraintExpression {
 
   void Print(std::ostream& out, const AffineMapPrinter& printer) const;
 
+  // Simplifies away the parts of the constraints which are trivially
+  // unsatisfiable or always satisfied.
+  void Simplify();
+
   // TODO(bchetioui): add a util to verify constraints here later.
   // TODO(bchetioui): is canonicalization of disjunctions necessary?
  private:
