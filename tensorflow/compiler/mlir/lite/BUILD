@@ -1336,30 +1336,6 @@ tf_cc_binary(
     ],
 )
 
-tf_cc_binary(
-    name = "mlir-tflite-runner",
-    srcs = [
-        "mlir_tflite_runner.cc",
-    ],
-    deps = [
-        ":flatbuffer_translate_lib",
-        ":flatbuffer_translate_registration",
-        ":tensorflow_lite",
-        "//tensorflow/compiler/mlir/tensorflow",
-        "//tensorflow/core:lib",
-        "//tensorflow/core/platform:logging",
-        "//tensorflow/lite:framework",
-        "//tensorflow/lite/delegates/flex:delegate",
-        "//tensorflow/lite/kernels:builtin_ops",
-        "@com_google_absl//absl/strings",
-        "@llvm-project//llvm:Support",
-        "@llvm-project//mlir:ArithDialect",
-        "@llvm-project//mlir:FuncDialect",
-        "@llvm-project//mlir:IR",
-        "@llvm-project//mlir:Parser",
-    ],
-)
-
 cc_library(
     name = "tf_tfl_passes",
     srcs = ["tf_tfl_passes.cc"],
@@ -1427,6 +1403,7 @@ cc_library(
         "//tensorflow/compiler/mlir/lite/stablehlo:op_stat_pass",
         "//tensorflow/compiler/mlir/lite/stablehlo:stablehlo_util",
         "//tensorflow/compiler/mlir/lite/stablehlo:transforms",
+        "//tensorflow/compiler/mlir/lite/tools/optimize:reduced_precision_metadata",
         "//tensorflow/compiler/mlir/quantization/common/quantization_lib:quantization_config",
         "//tensorflow/compiler/mlir/quantization/stablehlo:quantization_config_proto_cc",
         "//tensorflow/compiler/mlir/quantization/stablehlo:quantize_passes",
@@ -1449,7 +1426,6 @@ cc_library(
         "//tensorflow/lite/python/metrics:converter_error_data_proto_cc",
         "//tensorflow/lite/toco:toco_flags_proto_cc",
         "//tensorflow/lite/tools/optimize:quantize_weights",
-        "//tensorflow/lite/tools/optimize:reduced_precision_support",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
