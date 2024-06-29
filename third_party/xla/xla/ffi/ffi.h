@@ -59,21 +59,6 @@ struct CalledComputation {};  // binds `HloComputation*`
 // Arguments
 //===----------------------------------------------------------------------===//
 
-// Dynamically-typed buffer.
-//
-// No checks are done at decoding time. Any dtype and rank combination is
-// accepted.
-struct AnyBuffer {
-  using Shape = absl::Span<const int64_t>;
-
-  PrimitiveType dtype;
-  se::DeviceMemoryBase data;
-  Shape dimensions;
-};
-
-// Deprecated. Use `AnyBuffer` instead.
-using BufferBase = AnyBuffer;
-
 namespace internal {
 
 inline constexpr size_t kDynamicRank = std::numeric_limits<size_t>::max();
@@ -83,16 +68,62 @@ using NativeType = typename primitive_util::PrimitiveTypeToNative<dtype>::type;
 
 }  // namespace internal
 
+// Dynamically-typed buffer.
+//
+// No checks are done at decoding time. Any dtype and rank combination is
+// accepted.
+class AnyBuffer {
+ public:
+  using Dimensions = absl::Span<const int64_t>;
+
+  explicit AnyBuffer(const XLA_FFI_Buffer* buf) : buf_(buf) {}
+
+  inline ABSL_ATTRIBUTE_ALWAYS_INLINE PrimitiveType element_type() const;
+  inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* untyped_data() const;
+  inline ABSL_ATTRIBUTE_ALWAYS_INLINE Dimensions dimensions() const;
+  inline ABSL_ATTRIBUTE_ALWAYS_INLINE size_t size_bytes() const;
+  inline ABSL_ATTRIBUTE_ALWAYS_INLINE se::DeviceMemoryBase device_memory()
+      const;
+
+ private:
+  const XLA_FFI_Buffer* buf_;
+};
+
+PrimitiveType AnyBuffer::element_type() const {
+  return PrimitiveType(buf_->dtype);
+}
+
+void* AnyBuffer::untyped_data() const { return buf_->data; }
+
+AnyBuffer::Dimensions AnyBuffer::dimensions() const {
+  return absl::MakeConstSpan(buf_->dims, buf_->rank);
+}
+
+size_t AnyBuffer::size_bytes() const {
+  if (ABSL_PREDICT_TRUE(primitive_util::IsArrayType(element_type()))) {
+    size_t size_bytes = primitive_util::ByteWidth(element_type());
+    for (int64_t i = 0; i < buf_->rank; ++i) {
+      size_bytes *= buf_->dims[i];
+    }
+    return size_bytes;
+  }
+  return 0;
+}
+
+se::DeviceMemoryBase AnyBuffer::device_memory() const {
+  return se::DeviceMemoryBase(untyped_data(), size_bytes());
+}
+
 // Buffer with a statically-known dtype and rank.
 //
 // The dtype and rank are checked at decoding time. If rank is not specified,
 // any rank is accepted.
 template <PrimitiveType dtype, size_t rank = internal::kDynamicRank>
 struct Buffer {
-  using Shape = AnyBuffer::Shape;
+  using Dimensions = AnyBuffer::Dimensions;
 
   se::DeviceMemory<internal::NativeType<dtype>> data;
-  Shape dimensions;
+  Dimensions dimensions;
 };
 
 // clang-format off
@@ -106,21 +137,6 @@ template <PrimitiveType dtype> using BufferR4 = Buffer<dtype, 4>;
 using Token = BufferR0<PrimitiveType::TOKEN>;
 
 namespace internal {
-
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE AnyBuffer
-DecodeBuffer(XLA_FFI_Buffer* buf) {
-  size_t size_bytes = 0;
-  if (primitive_util::IsArrayType(PrimitiveType(buf->dtype))) {
-    size_bytes = primitive_util::ByteWidth(PrimitiveType(buf->dtype));
-    for (int64_t i = 0; i < buf->rank; ++i) size_bytes *= buf->dims[i];
-  }
-
-  AnyBuffer buffer;
-  buffer.dtype = PrimitiveType(buf->dtype);
-  buffer.data = se::DeviceMemoryBase(buf->data, size_bytes);
-  buffer.dimensions = absl::MakeConstSpan(buf->dims, buf->rank);
-  return buffer;
-}
 
 template <PrimitiveType dtype, size_t rank>
 ABSL_ATTRIBUTE_ALWAYS_INLINE std::optional<Buffer<dtype, rank>> DecodeBuffer(
@@ -142,7 +158,15 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE std::optional<Buffer<dtype, rank>> DecodeBuffer(
   size_t size_bytes = 0;
   if constexpr (primitive_util::IsArrayType(dtype)) {
     size_bytes = primitive_util::ByteWidth(dtype);
-    for (int64_t i = 0; i < buf->rank; ++i) size_bytes *= buf->dims[i];
+    if constexpr (rank != internal::kDynamicRank) {
+      for (int64_t i = 0; i < rank; ++i) {
+        size_bytes *= buf->dims[i];
+      }
+    } else {
+      for (int64_t i = 0; i < buf->rank; ++i) {
+        size_bytes *= buf->dims[i];
+      }
+    }
   }
 
   Buffer<dtype, rank> buffer;
@@ -182,7 +206,7 @@ struct ArgDecoding<AnyBuffer> {
              << XLA_FFI_ArgType_BUFFER << " but got " << type;
     }
 
-    return internal::DecodeBuffer(reinterpret_cast<XLA_FFI_Buffer*>(arg));
+    return AnyBuffer(reinterpret_cast<XLA_FFI_Buffer*>(arg));
   }
 };
 
@@ -215,7 +239,7 @@ struct RetDecoding<AnyBuffer> {
       return diagnostic.Emit("Wrong result type: expected ")
              << XLA_FFI_RetType_BUFFER << " but got " << type;
     }
-    return internal::DecodeBuffer(reinterpret_cast<XLA_FFI_Buffer*>(arg));
+    return AnyBuffer(reinterpret_cast<XLA_FFI_Buffer*>(arg));
   }
 };
 
