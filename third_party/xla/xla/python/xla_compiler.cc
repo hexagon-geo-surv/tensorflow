@@ -1199,7 +1199,10 @@ void BuildXlaCompilerSubmodule(nb::module_& m) {
                    &DebugOptions::xla_gpu_dump_autotune_logs_to,
                    [](DebugOptions* self, std::string value) {
                      self->set_xla_gpu_dump_autotune_logs_to(value);
-                   });
+                   })
+      // TODO(b/352486192): Move this to `ExecutableBuildOptions`.
+      .def_prop_rw("xla_use_shardy", &DebugOptions::xla_use_shardy,
+                   &DebugOptions::set_xla_use_shardy);
 
   nb::class_<ExecutableBuildOptions>(m, "ExecutableBuildOptions")
       .def(nb::init<>())
@@ -1275,7 +1278,8 @@ void BuildXlaCompilerSubmodule(nb::module_& m) {
             options.set_allow_spmd_sharding_propagation_to_output(v);
           });
 
-  nb::enum_<OpSharding::Type> op_sharding_type(m, "OpSharding_Type");
+  nb::enum_<OpSharding::Type> op_sharding_type(m, "OpSharding_Type",
+                                               nb::is_arithmetic());
   op_sharding_type.value("REPLICATED", OpSharding::REPLICATED)
       .value("MAXIMAL", OpSharding::MAXIMAL)
       .value("MANUAL", OpSharding::MANUAL)
