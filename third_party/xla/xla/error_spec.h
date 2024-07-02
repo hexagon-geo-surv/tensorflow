@@ -47,6 +47,19 @@ struct ErrorSpec {
   // (We could have a symmetric more_infs_ok flag if necessary; right now it
   // appears not to be.)
   bool fewer_infs_ok = false;
+
+  enum class LowPrecisionFPType {
+    kUnused,
+    kFP8E4M3FN,
+    kFP8E5M2,
+  };
+
+  struct LowPrecisionFPErrorSpec {
+    LowPrecisionFPType type = LowPrecisionFPType::kUnused;
+    int within_n_f8_ulps = -1;
+  };
+
+  LowPrecisionFPErrorSpec low_precision_fp_error_spec;
 };
 
 }  // namespace xla

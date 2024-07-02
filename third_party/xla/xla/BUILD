@@ -673,9 +673,42 @@ cc_library(
 )
 
 cc_library(
+    name = "fp8_util",
+    srcs = ["fp8_util.cc"],
+    hdrs = ["fp8_util.h"],
+    visibility = internal_visibility([":friends"]),
+    deps = ["@local_tsl//tsl/platform:ml_dtypes"],
+)
+
+xla_cc_test(
+    name = "fp8_util_test",
+    srcs = ["fp8_util_test.cc"],
+    deps = [
+        ":fp8_util",
+        "@com_google_googletest//:gtest_main",
+        "@local_tsl//tsl/platform:ml_dtypes",
+        "@local_tsl//tsl/platform:test_main",
+    ],
+)
+
+cc_library(
     name = "error_spec",
     hdrs = ["error_spec.h"],
     visibility = internal_visibility([":friends"]),
+)
+
+xla_cc_test(
+    name = "literal_comparison_test",
+    srcs = ["literal_comparison_test.cc"],
+    deps = [
+        ":error_spec",
+        ":literal_comparison",
+        ":literal_util",
+        ":test_helpers",
+        "@com_google_googletest//:gtest_main",
+        "@local_tsl//tsl/platform:ml_dtypes",
+        "@local_tsl//tsl/platform:test_main",
+    ],
 )
 
 cc_library(
@@ -685,13 +718,13 @@ cc_library(
     visibility = internal_visibility([":friends"]),
     deps = [
         ":error_spec",
+        ":fp8_util",
         ":literal",
         ":literal_util",
         ":shape_util",
         ":types",
         ":util",
         ":xla_data_proto_cc",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
