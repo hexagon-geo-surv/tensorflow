@@ -1,4 +1,8 @@
 load("//tensorflow:tensorflow.default.bzl", "get_compatible_with_portable")
+load(
+    "//tensorflow/compiler/mlir/lite:build_def.bzl",
+    "tflite_copts",
+)
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
@@ -16,4 +20,16 @@ cc_library(
     ],
     compatible_with = get_compatible_with_portable(),
     visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "operator_property",
+    srcs = ["operator_property.cc"],
+    hdrs = ["operator_property.h"],
+    compatible_with = get_compatible_with_portable(),
+    copts = tflite_copts(),
+    deps = [
+        "//tensorflow/compiler/mlir/lite/schema:schema_fbs",
+        "//tensorflow/compiler/mlir/lite/schema:schema_utils",
+    ],
 )
