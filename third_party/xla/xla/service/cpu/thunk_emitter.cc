@@ -259,6 +259,9 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitHloInstruction(
     case HloOpcode::kDynamicUpdateSlice:
       return EmitElementalKernelThunk(instruction);
 
+    case HloOpcode::kGetDimensionSize:
+      return EmitGetDimensionSizeThunk(instruction);
+
     case HloOpcode::kConcatenate:
       return EmitConcatenateThunk(instruction);
 
@@ -485,6 +488,11 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitConcatenateThunk(
     const HloInstruction* instruction) {
   // TODO(ezhulenev): Port optimized concat implementation from IrEmitter.
   return EmitElementalKernelThunk(instruction);
+}
+
+absl::StatusOr<ThunkSequence> ThunkEmitter::EmitGetDimensionSizeThunk(
+    const HloInstruction* instruction) {
+  return Unimplemented("GetDimensionSize should be rewritten for CPU.");
 }
 
 absl::StatusOr<ThunkSequence> ThunkEmitter::EmitConvolutionThunk(
