@@ -1314,17 +1314,25 @@ absl::Status GpuCompiler::OptimizeHloPostLayoutAssignment(
                                         gpu_target_config));
   // Lambdas and related constants:
   const GpuFloatSupport bf16_support(gpu_version, BF16);
-  const GpuFloatSupport f8e5m2_support(gpu_version, F8E5M2, F16);
-  const GpuFloatSupport f8e4m3fn_support(gpu_version, F8E4M3FN, F16);
+  const GpuFloatSupport f8e5m2_support_triton(gpu_version, F8E5M2, F16);
+  const GpuFloatSupport f8e4m3fn_support_triton(gpu_version, F8E4M3FN, F16);
+  const GpuFloatSupport f8e5m2_support(gpu_version, F8E5M2, F16, true);
+  const GpuFloatSupport f8e4m3fn_support(gpu_version, F8E4M3FN, F16, true);
   const FloatSupport f8e4m3b11fnuz_support(F8E4M3B11FNUZ, F16);
   const GpuFloatSupport f8e5m2fnuz_support(gpu_version, F8E5M2FNUZ, F16);
   const GpuFloatSupport f8e4m3fnuz_support(gpu_version, F8E4M3FNUZ, F16);
-  auto add_float_normalization = [&](HloPassPipeline& pipeline) {
+  auto add_float_normalization = [&](HloPassPipeline& pipeline,
+                                     bool pre_fusion) {
     auto& sub_pipeline =
         pipeline.AddPass<HloPassPipeline>("float_normalization");
     sub_pipeline.AddPass<FloatNormalization>(&bf16_support);
-    sub_pipeline.AddPass<FloatNormalization>(&f8e5m2_support);
-    sub_pipeline.AddPass<FloatNormalization>(&f8e4m3fn_support);
+    if (pre_fusion) {
+      sub_pipeline.AddPass<FloatNormalization>(&f8e5m2_support_triton);
+      sub_pipeline.AddPass<FloatNormalization>(&f8e4m3fn_support_triton);
+    } else {
+      sub_pipeline.AddPass<FloatNormalization>(&f8e5m2_support);
+      sub_pipeline.AddPass<FloatNormalization>(&f8e4m3fn_support);
+    }
     sub_pipeline.AddPass<FloatNormalization>(&f8e4m3b11fnuz_support);
     sub_pipeline.AddPass<FloatNormalization>(&f8e5m2fnuz_support);
     sub_pipeline.AddPass<FloatNormalization>(&f8e4m3fnuz_support);
@@ -1371,16 +1379,14 @@ absl::Status GpuCompiler::OptimizeHloPostLayoutAssignment(
     pipeline.AddPass<AlgorithmChecker>(gpu_version);
     const auto* cuda_cc = std::get_if<se::CudaComputeCapability>(&gpu_version);
 
-    // Rewrite FP8 GEMMs ahead of Triton which currently lacks support for FP8
-    // and may rewrite quantized FP8 GEMMs as higher-precision GEMMs.
-    pipeline.AddPass<GemmRewriter>(gpu_version, GetToolkitVersion(),
-                                   /*f8_rewrite=*/true);
     if (debug_options.xla_gpu_enable_triton_gemm() && cuda_cc != nullptr &&
         cuda_cc->IsAtLeast(se::CudaComputeCapability::AMPERE)) {
       pipeline.AddPass<GemvRewriter>();
       pipeline.AddPass<GemmFusion>(gpu_version);
     }
-    // Rewrite non-FP8 GEMMs.
+
+    pipeline.AddPass<GemmRewriter>(gpu_version, GetToolkitVersion(),
+                                   /*f8_rewrite=*/true);
     pipeline.AddPass<GemmRewriter>(gpu_version, GetToolkitVersion(),
                                    /*f8_rewrite=*/false);
 
@@ -1432,9 +1438,9 @@ absl::Status GpuCompiler::OptimizeHloPostLayoutAssignment(
                      .VerifyReshapeIsBitcast(),
                  /*debug_only=*/true);
 
-  // Triton compilation needs normalized operations on bf16 (i.e. converted to
-  // f32).
-  add_float_normalization(pipeline);
+  // Perform float normalization required for Triton fusions and cuBLAS
+  // rewrites.
+  add_float_normalization(pipeline, /*pre_fusion=*/true);
 
   TF_RETURN_IF_ERROR(AddGemmFusionAutotuningPasses(&pipeline, hlo_module,
                                                    autotune_config, thread_pool,
@@ -1443,7 +1449,10 @@ absl::Status GpuCompiler::OptimizeHloPostLayoutAssignment(
   pipeline.AddPass<CallInliner>();
   // TODO(tdanyluk): Apply CublasPadForGemms to the cuBLAS GEMMs generated
   // here for possibly better cuBLAS performance.
-  pipeline.AddPass<GemmRewriter>(gpu_version, GetToolkitVersion());
+  pipeline.AddPass<GemmRewriter>(gpu_version, GetToolkitVersion(),
+                                 /*f8_rewrite=*/true);
+  pipeline.AddPass<GemmRewriter>(gpu_version, GetToolkitVersion(),
+                                 /*f8_rewrite=*/false);
   // Rewrite GEMMs with broadcasted inputs as strided GEMMs.
   pipeline.AddPass<GemmBroadcastFoldingRewriter>();
 
@@ -1456,9 +1465,10 @@ absl::Status GpuCompiler::OptimizeHloPostLayoutAssignment(
   TF_RETURN_IF_ERROR(AddConvAndGemmAutotuningPasses(
       &pipeline, hlo_module, autotune_config, thread_pool));
 
-  // The GEMM fusion autotuner can insert new bf16 reductions that need to be
-  // normalized again.
-  add_float_normalization(pipeline);
+  // Do float normalization again, as the fallback emitters support less type
+  // combinations than Triton. Additionally, triton fusion may insert new cases
+  // that need normalization (in case of splitK reductions).
+  add_float_normalization(pipeline, /*pre_fusion=*/false);
 
   // Clean up new_tuple described above.
   pipeline.AddPass<TupleSimplifier>();

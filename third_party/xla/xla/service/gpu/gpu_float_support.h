@@ -28,10 +28,15 @@ namespace gpu {
 
 class GpuFloatSupport : public FloatSupport {
  public:
+  // fallback_only is true when the float normalization happens after
+  // Triton/cuBLAS rewrites were attempted, so normalization for legacy/fallback
+  // emitters is needed. In that case, less type combinations are supported.
   explicit GpuFloatSupport(se::GpuComputeCapability cc,
                            PrimitiveType low_precision_type,
-                           PrimitiveType high_precision_type = F32)
+                           PrimitiveType high_precision_type = F32,
+                           bool fallback_only = false)
       : FloatSupport(low_precision_type, high_precision_type),
+        fallback_only_(fallback_only),
         compute_capability_(cc) {}
 
   bool SupportsLowPrecisionOperand(const HloInstruction& hlo,
@@ -49,6 +54,7 @@ class GpuFloatSupport : public FloatSupport {
  private:
   bool IsSupported(const HloInstruction& hlo) const;
 
+  const bool fallback_only_;
   const se::GpuComputeCapability compute_capability_;
 };
 
