@@ -7,7 +7,9 @@ def python_init_repositories(
         requirements = {},
         local_wheel_workspaces = [],
         local_wheel_dist_folder = None,
-        default_python_version = None):
+        default_python_version = None,
+        local_wheel_whitelist = ["*"],
+        local_wheel_blacklist = []):
     python_repository(
         name = "python_version_repo",
         requirements_versions = requirements.keys(),
@@ -15,5 +17,7 @@ def python_init_repositories(
         local_wheel_workspaces = local_wheel_workspaces,
         local_wheel_dist_folder = local_wheel_dist_folder,
         default_python_version = default_python_version,
+        local_wheel_whitelist = local_wheel_whitelist,
+        local_wheel_blacklist = local_wheel_blacklist,
     )
     py_repositories()
