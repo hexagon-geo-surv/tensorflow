@@ -96,6 +96,25 @@ cc_library(
 )
 
 cc_library(
+    name = "thunk_utils",
+    hdrs = ["thunk_utils.h"],
+    deps = [
+        ":thunk",
+        "//xla/tsl/concurrency:async_value",
+    ],
+)
+
+xla_cc_test(
+    name = "thunk_utils_test",
+    srcs = ["thunk_utils_test.cc"],
+    deps = [
+        ":thunk_utils",
+        "@local_tsl//tsl/platform:test",
+        "@local_tsl//tsl/platform:test_main",
+    ],
+)
+
+cc_library(
     name = "thunk_testlib",
     testonly = 1,
     hdrs = ["thunk_testlib.h"],
@@ -293,6 +312,7 @@ cc_library(
     deps = [
         ":conv_impl",
         ":thunk",
+        ":thunk_utils",
         "//xla:executable_run_options",
         "//xla:shape_util",
         "//xla:status_macros",
@@ -593,6 +613,7 @@ cc_library(
     hdrs = ["dot_thunk.h"],
     deps = [
         ":thunk",
+        ":thunk_utils",
         "//xla:shape_util",
         "//xla:types",
         "//xla:util",

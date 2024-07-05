@@ -34,6 +34,7 @@ limitations under the License.
 #include "xla/primitive_util.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/service/cpu/runtime/thunk.h"
+#include "xla/service/cpu/runtime/thunk_utils.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/stream_executor/device_memory.h"
@@ -77,24 +78,6 @@ struct MatMulDims {
 
   // True if the RHS contraction dimension is 0.
   bool rhs_canonical;
-};
-
-// Keep track of pending matrix multiplications and an event that signals
-// completion of Dot operation to the caller.
-struct ExecuteState {
-  explicit ExecuteState(int64_t batch_size)
-      : pending_matmuls(batch_size),
-        event(tsl::MakeConstructedAsyncValueRef<Thunk::ExecuteEvent>()) {}
-
-  void Notify() {
-    if (pending_matmuls.load(std::memory_order_relaxed) == 1 ||
-        pending_matmuls.fetch_sub(1, std::memory_order_relaxed) == 1) {
-      event.SetStateConcrete();
-    }
-  }
-
-  std::atomic<int64_t> pending_matmuls;
-  tsl::AsyncValueRef<Thunk::ExecuteEvent> event;
 };
 
 }  // namespace
@@ -302,7 +285,7 @@ tsl::AsyncValueRef<DotThunk::ExecuteEvent> DotThunk::Execute(
     return static_cast<uint8_t*>(ptr) + stride * index;
   };
 
-  auto state = std::make_shared<ExecuteState>(batch_size_);
+  auto state = std::make_shared<ThunkExecuteState>(batch_size_);
 
   auto dispatch = [&](auto type_tag) {
     for (int64_t i = 0; i < batch_size_; ++i) {
