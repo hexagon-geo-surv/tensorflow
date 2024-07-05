@@ -1,4 +1,4 @@
-/* Copyright 2020 The OpenXLA Authors.
+/* Copyright 2024 The OpenXLA Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include <cstdint>
 #include <utility>
 
 #include "absl/status/status.h"
@@ -33,30 +34,33 @@ void DisableAllHloPasses(HloModule& module) {
   module.mutable_config().set_debug_options(debug_options);
 }
 
-class GetDimensionSizeTest : public HloTestBase {};
+class SetDimensionSizeTest : public HloTestBase {};
 
-// Test that the interpreter can correctly compute get_dimension_size.
-TEST_F(GetDimensionSizeTest, CorrectComputation) {
+TEST_F(SetDimensionSizeTest, CorrectComputation) {
   const char* const kModuleStr = R"(
-HloModule a_inference_call_110__.55
+HloModule m
 
-ENTRY %a_inference_call_110__.55 (arg0.1: f32[1,8], arg1.2: f32[8], arg2.3: f32[8]) -> s32[] {
-  %constant.37 = f32[] constant(1e-12)
-  %broadcast.38 = f32[1,1]{1,0} broadcast(f32[] %constant.37), dimensions={}
-  %arg0.1 = f32[1,8]{1,0} parameter(0), parameter_replication={false}
-  %reshape.4 = f32[1,8]{1,0} reshape(f32[1,8]{1,0} %arg0.1)
-  %convert.5 = f32[1,8]{1,0} convert(f32[1,8]{1,0} %reshape.4)
-  %constant.6 = f32[] constant(0)
-  %convert.7 = f32[] convert(f32[] %constant.6)
-  ROOT %get-dimension-size.13 = s32[] get-dimension-size(f32[1,8]{1,0} %convert.5), dimensions={1}
+ENTRY %test {
+  %arg0 = f32[1,8] parameter(0)
+  %arg1 = s32[] parameter(1)
+  ROOT %set-dimension-size.0 = f32[1,<=8] set-dimension-size(%arg0, %arg1), dimensions={1}
 }
 )";
   TF_ASSERT_OK_AND_ASSIGN(auto module,
                           ParseAndReturnVerifiedModule(kModuleStr));
-  EXPECT_TRUE(RunAndCompare(std::move(module), ErrorSpec{0.01, 0.01}));
+
+  Literal arg0 =
+      LiteralUtil::CreateR2<float>({{0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0}});
+  Literal arg1 = LiteralUtil::CreateR0<int32_t>(5);
+
+  TF_ASSERT_OK_AND_ASSIGN(auto result,
+                          Execute(std::move(module), {&arg0, &arg1}));
+
+  Literal expected = LiteralUtil::CreateR2<float>({{0.0, 1.0, 2.0, 3.0, 4.0}});
+  EXPECT_EQ(result, expected);
 }
 
-TEST_F(GetDimensionSizeTest,
+TEST_F(SetDimensionSizeTest,
        DISABLED_ON_INTERPRETER(DISABLED_ON_GPU(
            DISABLED_ON_TPU(ReturnsErrorWhenHloPassesDisabled)))) {
   const char* const kModuleStr = R"(
@@ -64,7 +68,8 @@ HloModule m
 
 ENTRY %test {
   %arg0 = f32[1,8] parameter(0)
-  ROOT %get-dimension-size.0 = s32[] get-dimension-size(%arg0), dimensions={1}
+  %arg1 = s32[] parameter(1)
+  ROOT %set-dimension-size.0 = f32[1,<=8] set-dimension-size(%arg0, %arg1), dimensions={1}
 }
 )";
   TF_ASSERT_OK_AND_ASSIGN(auto module,
@@ -74,12 +79,13 @@ ENTRY %test {
 
   Literal arg0 =
       LiteralUtil::CreateR1<float>({0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0});
+  Literal arg1 = LiteralUtil::CreateR0<int32_t>(5);
 
-  auto status_or_result = Execute(std::move(module), {&arg0});
+  auto status_or_result = Execute(std::move(module), {&arg0, &arg1});
   EXPECT_EQ(status_or_result.status().code(), absl::StatusCode::kUnimplemented);
   EXPECT_THAT(
       status_or_result.status().message(),
-      ::testing::HasSubstr("GetDimensionSize should be rewritten for CPU"));
+      ::testing::HasSubstr("SetDimensionSize should be rewritten for CPU"));
 }
 
 }  // anonymous namespace

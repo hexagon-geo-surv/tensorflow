@@ -170,6 +170,12 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitHloInstruction(
     case HloOpcode::kWhile:
       return EmitWhileThunk(instruction);
 
+    // Dimension size operations.
+    case HloOpcode::kGetDimensionSize:
+      return EmitGetDimensionSizeThunk(instruction);
+    case HloOpcode::kSetDimensionSize:
+      return EmitSetDimensionSizeThunk(instruction);
+
     // Simple HLO instructions lowered to elemental host kernels (plain loops
     // behind the HostKernel API).
     case HloOpcode::kAbs:
@@ -485,6 +491,16 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitConcatenateThunk(
     const HloInstruction* instruction) {
   // TODO(ezhulenev): Port optimized concat implementation from IrEmitter.
   return EmitElementalKernelThunk(instruction);
+}
+
+absl::StatusOr<ThunkSequence> ThunkEmitter::EmitGetDimensionSizeThunk(
+    const HloInstruction* instruction) {
+  return Unimplemented("GetDimensionSize should be rewritten for CPU.");
+}
+
+absl::StatusOr<ThunkSequence> ThunkEmitter::EmitSetDimensionSizeThunk(
+    const HloInstruction* instruction) {
+  return Unimplemented("SetDimensionSize should be rewritten for CPU.");
 }
 
 absl::StatusOr<ThunkSequence> ThunkEmitter::EmitConvolutionThunk(
