@@ -71,8 +71,9 @@ class TiledHloComputation {
   // Creates a computation from a list of instructions. The instructions are
   // expected to be sorted in def-before-use order.
   static TiledHloComputation FromSortedTiledHloInstructions(
-      std::vector<std::unique_ptr<TiledHloInstruction>> instructions) {
-    return TiledHloComputation(std::move(instructions));
+      std::vector<std::unique_ptr<TiledHloInstruction>> instructions,
+      int num_blocks) {
+    return TiledHloComputation(std::move(instructions), num_blocks);
   }
 
   // Returns an iterator range over the instructions in the computation in
@@ -83,6 +84,9 @@ class TiledHloComputation {
     return {MakeUnwrappingIterator(instructions_.begin()),
             MakeUnwrappingIterator(instructions_.end())};
   }
+
+  // Returns the number of blocks in the launch grid of the computation.
+  int64_t num_blocks() const { return num_blocks_; }
 
   // Returns the root instruction of the computation.
   const TiledHloInstruction* GetRoot() const {
@@ -95,11 +99,15 @@ class TiledHloComputation {
 
  private:
   explicit TiledHloComputation(
-      std::vector<std::unique_ptr<TiledHloInstruction>> instructions)
-      : instructions_(std::move(instructions)) {}
+      std::vector<std::unique_ptr<TiledHloInstruction>> instructions,
+      int64_t num_blocks)
+      : instructions_(std::move(instructions)), num_blocks_(num_blocks) {}
 
   // Stores instructions in the computation in def-before-use order.
   std::vector<std::unique_ptr<TiledHloInstruction>> instructions_;
+
+  // Number of blocks in the launch grid of the computation.
+  int64_t num_blocks_;
 };
 
 }  // namespace gpu

@@ -352,6 +352,9 @@ SymbolicTileAnalysis::ComputeTiledHloInstructions(
   IndexingMap block_id_to_root_tile_offset = ComputeBlockIdToOutputTileIndexing(
       GetRoot()->hlo()->shape().dimensions(), tile_parameters, context_);
 
+  int64_t num_blocks =
+      block_id_to_root_tile_offset.GetDimensionBound(0).GetLoopTripCount();
+
   std::vector<std::unique_ptr<TiledHloInstruction>> tiled_hlo_instructions;
   absl::flat_hash_map<const SymbolicTiledHloInstruction*, TiledHloInstruction*>
       symbolic_to_tiled_hlo_map;
@@ -405,7 +408,7 @@ SymbolicTileAnalysis::ComputeTiledHloInstructions(
   }
 
   return TiledHloComputation::FromSortedTiledHloInstructions(
-      std::move(tiled_hlo_instructions));
+      std::move(tiled_hlo_instructions), num_blocks);
 }
 
 std::string SymbolicTileAnalysis::ToString(
