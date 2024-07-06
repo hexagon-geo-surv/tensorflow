@@ -654,6 +654,31 @@ cc_library(
 )
 
 cc_library(
+    name = "tfl_legalize_chlo",
+    srcs = [
+        "transforms/tfl_legalize_chlo.cc",
+    ],
+    hdrs = ["transforms/passes.h"],
+    compatible_with = get_compatible_with_portable(),
+    copts = [
+        "-Ithird_party",
+    ],
+    deps = [
+        ":passes_inc_gen",
+        "//tensorflow/compiler/mlir/lite:tensorflow_lite",
+        "//tensorflow/compiler/mlir/lite/stablehlo/transforms/legalize_hlo_conversions:gelu",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:Support",
+        "@llvm-project//mlir:TransformUtils",
+        "@stablehlo//:chlo_ops",
+        "@stablehlo//:stablehlo_ops",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
     name = "tf_legalize_hlo",
     srcs = [
         "transforms/generated_legalize_hlo.inc",
@@ -855,6 +880,7 @@ tf_cc_binary(
         ":passes_inc_gen",
         ":tf_legalize_hlo",
         ":tf_stablehlo",
+        ":tfl_legalize_chlo",
         ":tfl_legalize_hlo",
         ":tfl_stablehlo",
         ":unfuse_batch_norm_pass",
