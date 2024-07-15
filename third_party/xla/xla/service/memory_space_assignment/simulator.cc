@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <cstdint>
 #include <memory>
+#include <queue>
 #include <utility>
 #include <vector>
 
@@ -86,5 +87,39 @@ float RuntimeSimulator::ComputeEstimatedElapsedTime(
   }
   return total_elapsed;
 }
+
+float RuntimeSimulator::SimulateAsyncCopyDone(
+    float bytes_to_transfer,
+    std::queue<const HloInstruction*>& memory_access_queue_to_share_bandwidth,
+    absl::flat_hash_map<const HloInstruction*, float>&
+        remaining_size_of_buffers,
+    float default_memory_bytes_per_second) {
+  float remaining_bytes = bytes_to_transfer;
+  float elapsed_time = 0.0;
+  while (!memory_access_queue_to_share_bandwidth.empty() &&
+         remaining_bytes > 0) {
+    const HloInstruction* front_async_copy =
+        memory_access_queue_to_share_bandwidth.front();
+    float smaller_buffer_size = std::min(
+        remaining_bytes, remaining_size_of_buffers.at(front_async_copy));
+    // The bandwidth is shared, so the request can only use half of the
+    // bandwidth.
+    elapsed_time +=
+        smaller_buffer_size / (0.5 * default_memory_bytes_per_second);
+    remaining_bytes -= smaller_buffer_size;
+    remaining_size_of_buffers.at(front_async_copy) -= smaller_buffer_size;
+    if (remaining_size_of_buffers.at(front_async_copy) <= 0) {
+      remaining_size_of_buffers.erase(front_async_copy);
+      memory_access_queue_to_share_bandwidth.pop();
+    }
+  }
+  if (remaining_bytes > 0) {
+    // The queue that shares the bandwidth is drained, we can now use the full
+    // bandwidth.
+    elapsed_time += remaining_bytes / default_memory_bytes_per_second;
+  }
+  return elapsed_time;
+};
+
 }  // namespace memory_space_assignment
 }  // namespace xla
