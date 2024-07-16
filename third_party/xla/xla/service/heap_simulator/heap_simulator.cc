@@ -36,6 +36,7 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
@@ -46,11 +47,105 @@ limitations under the License.
 #include "xla/map_util.h"
 #include "xla/service/heap_simulator/allocation_block.h"
 #include "xla/service/hlo_value.h"
-#include "xla/service/memory_space_assignment/repacking.h"
 #include "xla/service/time_utils.h"
 #include "xla/util.h"
 
 namespace xla {
+namespace {
+
+constexpr int64_t kMaxMemoryMapDimensionSize = 100;
+
+// Given a set of BufferIntervalTreeNodes, returns the best memory block size(to
+// visually represent all chunks in a compact fashion) and the maximum chunk end
+// of all occupied chunks. The best memory block size is the gcd of all chunk
+// offsets and chunk ends. These are parameters required to construct a compact
+// memory map.
+std::pair<int64_t, int64_t> GetMemroyMapParameters(
+    std::vector<const BufferIntervalTreeNode*>& nodes) {
+  CHECK(!nodes.empty());
+  int64_t min_chunk_offset = std::numeric_limits<int64_t>::max();
+  int64_t max_chunk_end = std::numeric_limits<int64_t>::min();
+  int64_t best_memory_block = nodes.front()->chunk.offset;
+  for (const BufferIntervalTreeNode* node : nodes) {
+    min_chunk_offset = std::min(min_chunk_offset, node->chunk.offset);
+    max_chunk_end = std::max(max_chunk_end, node->chunk.chunk_end());
+    best_memory_block = std::gcd(best_memory_block, node->chunk.offset);
+    best_memory_block = std::gcd(best_memory_block, node->chunk.chunk_end());
+  }
+  VLOG(3) << " min_chunk_offset: " << min_chunk_offset
+          << " max_chunk_end: " << max_chunk_end
+          << " best_memory_block: " << best_memory_block;
+  return {best_memory_block, max_chunk_end};
+}
+
+// Returns a memory map for the given time interval [start, end].
+// The memory map is a 2D array of size [n, m], where n is the number of memory
+// blocks and m is the number of time steps. Each row represents a memory block
+// and each column represents a time step. The value at (i, j) indicates whether
+// there is a buffer occupying the memory block at time j.
+std::vector<std::vector<bool>> GetMemoryMap(
+    int64_t start, int64_t end, int64_t best_memory_block,
+    int64_t num_memory_blocks,
+    std::vector<const BufferIntervalTreeNode*>& nodes) {
+  int64_t total_time = end - start + 1;
+  std::vector<std::vector<bool>> memory_map(
+      num_memory_blocks, std::vector<bool>(total_time, false));
+  for (const BufferIntervalTreeNode* node : nodes) {
+    for (int64_t i = node->chunk.offset / best_memory_block;
+         i < node->chunk.chunk_end() / best_memory_block; ++i) {
+      for (int64_t j = std::max(node->start - start, 0L);
+           j <= std::min(node->end - start, end - start); ++j) {
+        memory_map[i][j] = true;
+      }
+    }
+  }
+  return memory_map;
+}
+
+std::string BufferIntervalTreeNodesToString(
+    std::vector<const BufferIntervalTreeNode*>& nodes) {
+  std::string output = "\n";
+  absl::StrAppend(
+      &output,
+      "Cannot print memory usage to ASCII art. Printing nodes instead!\n\n");
+  for (const BufferIntervalTreeNode* node : nodes) {
+    absl::StrAppend(&output, node->ToString(), "\n");
+  }
+  return output;
+}
+
+// Returns a string representation of the memory map of occupied memory blocks
+// for the given time interval [start, end].
+std::string MemoryMapToString(int64_t start, int64_t end,
+                              int64_t best_memory_block, int64_t group_size,
+                              std::vector<std::vector<bool>>& memory_map) {
+  int64_t num_memory_blocks = memory_map.size();
+  int64_t total_time = memory_map.front().size();
+  std::string output = "\n";
+  absl::StrAppend(&output, "Memory map for time: [", start, ",", end,
+                  "], best_memory_block: ", best_memory_block,
+                  ", group_size: ", group_size, "\n\n");
+  for (int64_t i = num_memory_blocks - 1; i >= 0; --i) {
+    for (int64_t j = 0; j < total_time; ++j) {
+      if (group_size && j % group_size == 0) {
+        absl::StrAppend(&output, " ");
+      }
+      absl::StrAppend(&output, memory_map[i][j] ? "#" : ".");
+    }
+    absl::StrAppend(&output, " ", std::to_string((i + 1) * best_memory_block),
+                    "\n");
+  }
+  for (int64_t j = start; j <= end; ++j) {
+    if (group_size && j % group_size == 0) {
+      absl::StrAppend(&output, " ");
+    }
+    absl::StrAppend(&output, std::to_string(j % 10));
+  }
+  absl::StrAppend(&output, "\n\n");
+  return output;
+}
+
+}  // namespace
 
 using absl::flat_hash_map;
 using absl::flat_hash_set;
@@ -71,6 +166,11 @@ HeapSimulator::Chunk HeapSimulator::Chunk::FromOffsetSize(int64_t offset,
 
 std::string HeapSimulator::Chunk::ToString() const {
   return absl::StrCat("[", offset, ",", chunk_end(), ")");
+}
+
+std::string BufferIntervalTreeNode::ToString() const {
+  return absl::StrCat("start: ", start, " end: ", end,
+                      " chunk: ", chunk.ToString());
 }
 
 bool HeapSimulator::Chunk::OverlapsWith(Chunk other_chunk) const {
@@ -848,6 +948,16 @@ bool BufferIntervalTree::Remove(int64_t start, int64_t end,
 std::vector<Chunk> BufferIntervalTree::ChunksOverlappingInTime(
     int64_t start, int64_t end) const {
   std::vector<Chunk> result;
+  for (const BufferIntervalTreeNode* node :
+       NodesOverlappingInTime(start, end)) {
+    result.push_back(node->chunk);
+  }
+  return result;
+}
+
+std::vector<const BufferIntervalTreeNode*>
+BufferIntervalTree::NodesOverlappingInTime(int64_t start, int64_t end) const {
+  std::vector<const BufferIntervalTreeNode*> result;
   if (root_ == nullptr) {
     return result;
   }
@@ -863,7 +973,7 @@ std::vector<Chunk> BufferIntervalTree::ChunksOverlappingInTime(
       visiting_stack.push_back(top->left);
     }
     if (top->start <= end && top->end >= start) {
-      result.push_back(top->chunk);
+      result.push_back(top);
     }
     if (end < top->start) {
       continue;
@@ -873,6 +983,28 @@ std::vector<Chunk> BufferIntervalTree::ChunksOverlappingInTime(
     }
   }
   return result;
+}
+
+std::string BufferIntervalTree::NodesOverlappingInTimeToAsciiArt(
+    int64_t start, int64_t end, int64_t group_size) const {
+  std::vector<const BufferIntervalTreeNode*> nodes =
+      NodesOverlappingInTime(start, end);
+  if (nodes.empty()) {
+    return "No nodes overlapping in time. Memory is free!";
+  }
+  int64_t total_time = end - start + 1;
+  if (total_time > kMaxMemoryMapDimensionSize) {
+    return BufferIntervalTreeNodesToString(nodes);
+  }
+  auto [best_memory_block, max_chunk_end] = GetMemroyMapParameters(nodes);
+  int64_t num_memory_blocks = max_chunk_end / best_memory_block;
+  if (num_memory_blocks > kMaxMemoryMapDimensionSize) {
+    return BufferIntervalTreeNodesToString(nodes);
+  }
+  std::vector<std::vector<bool>> memory_map =
+      GetMemoryMap(start, end, best_memory_block, num_memory_blocks, nodes);
+  return MemoryMapToString(start, end, best_memory_block, group_size,
+                           memory_map);
 }
 
 template <typename BufferType>
