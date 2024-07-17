@@ -2,6 +2,8 @@
 # The autotuning results can be serialized as a string, allowing you to save
 # and later restore them.
 
+load("//devtools/clif/python:clif_build_rule.bzl", "pyclif_proto_library")
+
 # Placeholder: load py_proto_library
 load(
     "//tensorflow:tensorflow.bzl",
@@ -154,6 +156,15 @@ tf_proto_library(
 #     deps = [":autotune_map_proto"],
 # )
 # copybara:uncomment_end
+
+pyclif_proto_library(
+    name = "autotune_map_pyclif",
+    proto_lib = ":autotune_map_proto",
+    visibility = [
+        "//waymo/ml/deploy/benchmark:__subpackages__",
+        "//waymo/ml/deploy/system/autotuning:__subpackages__",
+    ],
+)
 
 tf_cuda_library(
     name = "autotune_serialize",
