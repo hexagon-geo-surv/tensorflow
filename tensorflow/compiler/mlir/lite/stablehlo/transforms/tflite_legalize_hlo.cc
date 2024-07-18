@@ -56,8 +56,6 @@ class LegalizeHloToTfLitePass
   void runOnOperation() override;
 };
 
-
-
 std::optional<bool> IsCbrtLegal(mhlo::CbrtOp op) {
   return !op.getType().getElementType().isF32();
 }
@@ -68,8 +66,8 @@ void LegalizeHloToTfLitePass::runOnOperation() {
 
   RewritePatternSet patterns(context);
   patterns.add<odml::ConvertCustomCallOp, odml::LowerDotGeneralOp,
-               ConvertReduceOpToTFLiteArgmin, ConvertReduceOpToTFLiteArgmax,
-               LegalizeConv>(context);
+               ConvertReduceOpToTFLiteArgmin, ConvertReduceOpToTFLiteArgmax>(
+      context);
   populateWithGenerated(patterns);
 
   ConversionTarget target(*context);
@@ -77,9 +75,10 @@ void LegalizeHloToTfLitePass::runOnOperation() {
   target.addLegalOp<func::CallOp, func::ConstantOp, arith::ConstantOp>();
   target.addDynamicallyLegalOp<mhlo::CustomCallOp>(IsCustomCallLegal);
   target.addDynamicallyLegalOp<mhlo::ReduceOp>(IsReduceOpLegal);
-  target.addDynamicallyLegalOp<mhlo::ConvolutionOp>(IsConvLegal);
   target.addDynamicallyLegalOp<mhlo::CbrtOp>(IsCbrtLegal);
   target.addIllegalOp<mhlo::DotGeneralOp, mhlo::DotOp, mhlo::TransposeOp>();
+
+  PopulateConvPatterns(context, patterns, target);
 
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {
