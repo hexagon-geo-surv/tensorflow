@@ -28,6 +28,8 @@ inline stream_executor::NumericOptions GetNumericOptions() {
       /*allow_tf32=*/tsl::tensor_float_32_execution_enabled()};
 }
 
+stream_executor::NumericOptions GetNumericOptionsForCuDnn();
+
 }  // namespace tensorflow
 
 #endif  // TENSORFLOW_CORE_KERNELS_NUMERIC_OPTIONS_UTILS_H_

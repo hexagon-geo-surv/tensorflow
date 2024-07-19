@@ -552,11 +552,14 @@ cc_library(
 
 cc_library(
     name = "numeric_options_utils",
+    srcs = ["numeric_options_utils.cc"],
     hdrs = ["numeric_options_utils.h"],
     deps = [
         "//tensorflow/core/platform:tensor_float_32_hdr_lib",
         "//tensorflow/core/util:determinism_for_kernels",
+        "//tensorflow/core/util:env_var",
         "@local_xla//xla/stream_executor:numeric_options",
+        "@local_xla//xla/tsl/util:determinism_for_kernels",
     ] + if_static(["//tensorflow/core/platform:tensor_float_32_utils"]),
 )
 
