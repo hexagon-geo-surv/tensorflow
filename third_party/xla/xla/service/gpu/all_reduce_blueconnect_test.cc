@@ -18,6 +18,7 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -33,6 +34,7 @@ limitations under the License.
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/tests/hlo_test_base.h"
+#include "xla/util.h"
 #include "tsl/platform/status_matchers.h"
 #include "tsl/platform/statusor.h"
 
@@ -44,11 +46,20 @@ namespace m = ::xla::match;
 
 using AllReduceBlueConnectTest = HloTestBase;
 
-void SetModuleConfig(HloModule& module, size_t replica_count) {
-  DeviceAssignment device_assignment(replica_count, /*computation_count=*/1);
+HloPredicate MatchChannelId(std::optional<int64_t> channel_id) {
+  return [channel_id](const HloInstruction* instruction) {
+    return instruction->channel_id() == channel_id;
+  };
+}
+
+void SetModuleConfig(HloModule& module, size_t replica_count,
+                     size_t partition_count = 1) {
+  DeviceAssignment device_assignment(replica_count,
+                                     /*computation_count=*/partition_count);
   device_assignment.FillIota(0);
   auto& module_config = module.mutable_config();
   module_config.set_replica_count(replica_count);
+  module_config.set_num_partitions(partition_count);
   module_config.set_static_device_assignment(device_assignment);
 }
 
@@ -81,15 +92,18 @@ ENTRY %comp {
   // clang-format on
 
   auto bitcast = m::Bitcast(m::Parameter(0)).WithShape(F32, {16});
-  auto reduce_scatter =
-      m::ReduceScatter(bitcast).WithShape(F32, {4}).WithReplicaGroups(
-          scatter_gather_groups);
+  auto reduce_scatter = m::ReduceScatter(bitcast)
+                            .WithShape(F32, {4})
+                            .WithReplicaGroups(scatter_gather_groups)
+                            .WithPredicate(MatchChannelId(std::nullopt));
   auto all_reduce = m::AllReduce(reduce_scatter)
                         .WithShape(F32, {4})
-                        .WithReplicaGroups(new_all_reduce_groups);
+                        .WithReplicaGroups(new_all_reduce_groups)
+                        .WithPredicate(MatchChannelId(std::nullopt));
   auto all_gather = m::AllGather(all_reduce)
                         .WithShape(F32, {16})
-                        .WithReplicaGroups(scatter_gather_groups);
+                        .WithReplicaGroups(scatter_gather_groups)
+                        .WithPredicate(MatchChannelId(std::nullopt));
   EXPECT_THAT(module->entry_computation()->root_instruction(),
               GmockMatch(m::Bitcast(all_gather).WithShape(F32, {4, 4})));
 }
@@ -197,6 +211,52 @@ ENTRY %comp {
       m::Bitcast(m::GetTupleElement(all_gather, 1)).WithShape(F32, {4, 4, 2});
   EXPECT_THAT(module->entry_computation()->root_instruction(),
               GmockMatch(m::Tuple(bitcast2, bitcast3)));
+}
+
+TEST_F(AllReduceBlueConnectTest, MultiplePartitions) {
+  constexpr absl::string_view hlo_string = R"(
+HloModule module
+
+%add {
+  lhs = f32[] parameter(0)
+  rhs = f32[] parameter(1)
+  ROOT add = f32[] add(lhs, rhs)
+}
+
+ENTRY %comp {
+  p0 = f32[8,8] parameter(0)
+  ROOT crs = f32[8,8] all-reduce(p0), channel_id=1,
+    replica_groups={{0,1,2,3,4,5,6,7}}, use_global_device_ids=true, to_apply=add
+})";
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+  SetModuleConfig(*module, /*replica_count=*/1, /*partition_count=*/8);
+
+  AllReduceBlueConnect pass(/*num_devices_per_host=*/4);
+  EXPECT_THAT(pass.Run(module.get()), IsOkAndHolds(true));
+
+  // clang-format off
+  std::vector<std::vector<int64_t>> scatter_gather_groups = {
+      {0, 1, 2, 3}, {4, 5, 6, 7}};
+  std::vector<std::vector<int64_t>> new_all_reduce_groups = {
+      {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+  // clang-format on
+
+  auto bitcast = m::Bitcast(m::Parameter(0)).WithShape(F32, {64});
+  auto reduce_scatter = m::ReduceScatter(bitcast)
+                            .WithShape(F32, {16})
+                            .WithReplicaGroups(scatter_gather_groups)
+                            .WithPredicate(MatchChannelId(2));
+  auto all_reduce = m::AllReduce(reduce_scatter)
+                        .WithShape(F32, {16})
+                        .WithReplicaGroups(new_all_reduce_groups)
+                        .WithPredicate(MatchChannelId(1));
+  auto all_gather = m::AllGather(all_reduce)
+                        .WithShape(F32, {64})
+                        .WithReplicaGroups(scatter_gather_groups)
+                        .WithPredicate(MatchChannelId(3));
+  EXPECT_THAT(module->entry_computation()->root_instruction(),
+              GmockMatch(m::Bitcast(all_gather).WithShape(F32, {8, 8})));
 }
 
 TEST_F(AllReduceBlueConnectTest, DifferentNumLocalDevicesWithinReplicaGroup) {
