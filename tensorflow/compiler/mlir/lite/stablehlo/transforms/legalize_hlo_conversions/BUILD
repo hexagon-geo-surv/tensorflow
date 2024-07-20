@@ -58,6 +58,7 @@ cc_library(
         "reduce.h",
     ],
     deps = [
+        ":util",
         "//tensorflow/compiler/mlir/lite:tensorflow_lite",
         "//tensorflow/compiler/mlir/lite/stablehlo:hlo_matchers",
         "//tensorflow/compiler/mlir/tensorflow",
@@ -139,6 +140,34 @@ cc_library(
     name = "conv_util",
     srcs = ["conv_util.cc"],
     hdrs = ["conv_util.h"],
+    deps = [
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
+        "@local_xla//xla/mlir_hlo",
+    ],
+)
+
+cc_library(
+    name = "pad",
+    srcs = ["pad.cc"],
+    hdrs = ["pad.h"],
+    deps = [
+        ":pad_util",
+        "//tensorflow/compiler/mlir/lite:tensorflow_lite",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:ArithDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
+        "@llvm-project//mlir:TransformUtils",
+        "@local_xla//xla/mlir_hlo",
+    ],
+)
+
+cc_library(
+    name = "pad_util",
+    srcs = ["pad_util.cc"],
+    hdrs = ["pad_util.h"],
     deps = [
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
