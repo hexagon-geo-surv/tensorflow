@@ -311,6 +311,7 @@ class HloParserImpl : public HloParser {
     // enclosed in matching curly braces (returned value includes the curlies).
     kStringOrJsonDict,
     kCollectiveDeviceList,
+    kOriginalValue,
   };
 
   struct AttrConfig {
@@ -564,6 +565,7 @@ class HloParserImpl : public HloParser {
   bool ParseBool(bool* result);
   bool ParseToken(TokKind kind, const std::string& msg);
   bool ParseUnsignedIntegerType(PrimitiveType* primitive_type);
+  bool ParseOriginalValue(optional<std::shared_ptr<OriginalValue>>* result);
 
   using AliasingData =
       absl::flat_hash_map<ShapeIndex, HloInputOutputAliasConfig::Alias>;
@@ -1371,6 +1373,11 @@ bool HloParserImpl::ParseInstructionRhs(HloComputation::Builder* builder,
   optional<std::vector<HloInstruction*>> predecessors;
   attrs["control-predecessors"] = {/*required=*/false, AttrTy::kInstructionList,
                                    &predecessors};
+
+  optional<std::shared_ptr<OriginalValue>> original_value;
+  attrs["original_value"] = {/*required=*/false, AttrTy::kOriginalValue,
+                             &original_value};
+
   optional<OpMetadata> metadata;
   attrs["metadata"] = {/*required=*/false, AttrTy::kMetadata, &metadata};
 
@@ -1439,6 +1446,9 @@ bool HloParserImpl::ParseInstructionRhs(HloComputation::Builder* builder,
   }
   if (metadata) {
     instruction->set_metadata(*metadata);
+  }
+  if (original_value) {
+    instruction->set_original_value(*original_value);
   }
   if (backend_config) {
     instruction->set_raw_backend_config_string(std::move(*backend_config));
@@ -4645,6 +4655,7 @@ bool HloParserImpl::ParseAttributes(
                                   attr_it.first));
     }
   }
+
   return true;
 }
 
@@ -4928,6 +4939,11 @@ bool HloParserImpl::ParseAttributeHelper(
         static_cast<optional<std::string>*>(attr_out_ptr)
             ->emplace(std::move(result));
         return true;
+      }
+      case AttrTy::kOriginalValue: {
+        return ParseOriginalValue(
+            static_cast<optional<std::shared_ptr<OriginalValue>>*>(
+                attr_out_ptr));
       }
       case AttrTy::kMetadata: {
         OpMetadata result;
@@ -6221,6 +6237,88 @@ bool HloParserImpl::ParsePaddingConfig(PaddingConfig* padding) {
     dim->set_edge_padding_high(padding_dim[1]);
     dim->set_interior_padding(padding_dim.size() == 3 ? padding_dim[2] : 0);
   }
+  lexer_.Lex();
+  return true;
+}
+
+// Leaves::= Leaves | {' ShapeIndex ',' OrignalArray '}' [',']
+// ::= '{' Shape Leaves'}'
+bool HloParserImpl::ParseOriginalValue(
+    optional<std::shared_ptr<OriginalValue>>* original_value) {
+  VLOG(3) << "ParseOriginalValue";
+
+  if (!ParseToken(TokKind::kLbrace, "Expects '{'")) {
+    return false;
+  }
+  std::string attr_name;
+  if (!ParseAttributeName(&attr_name) || attr_name != "shape") {
+    return TokenError("expect " + attr_name);
+  }
+
+  Shape shape;
+  if (!ParseShape(&shape)) {
+    return false;
+  }
+
+  *original_value = std::make_shared<OriginalValue>(shape);
+
+  if (!ParseAttributeName(&attr_name) || attr_name != "leaves") {
+    return TokenError("expect " + attr_name);
+  }
+
+  if (!ParseToken(TokKind::kLbrace, "Expects '{'")) {
+    return false;
+  }
+  while (lexer_.GetKind() != TokKind::kRbrace) {
+    if (!ParseToken(TokKind::kLbrace,
+                    "Expects '{' at the start of an OriginalArray")) {
+      return false;
+    }
+
+    ShapeIndex leaf_shape_index;
+    if (!ParseShapeIndex(&leaf_shape_index)) {
+      return false;
+    }
+
+    if (!ParseToken(TokKind::kComma, "Expects ','")) {
+      return false;
+    }
+
+    if (!ParseAttributeName(&attr_name) || attr_name != "instruction_name") {
+      return TokenError("expect " + attr_name);
+    }
+
+    std::string instruction_name;
+    if (!ParseString(&instruction_name)) {
+      return false;
+    }
+
+    if (!ParseToken(TokKind::kComma,
+                    "Expected ',' after the value of " + attr_name)) {
+      return false;
+    }
+
+    if (!ParseAttributeName(&attr_name) || attr_name != "shape_index") {
+      return TokenError("expect " + attr_name);
+    }
+    ShapeIndex shape_index;
+    if (!ParseShapeIndex(&shape_index)) {
+      return false;
+    }
+
+    if (!ParseToken(TokKind::kRbrace,
+                    "Expects '}' at the end of an OriginalArray")) {
+      return false;
+    }
+
+    if (lexer_.GetKind() == TokKind::kComma) {
+      lexer_.Lex();
+    }
+    *(**original_value)->mutable_element(leaf_shape_index) = {instruction_name,
+                                                              shape_index};
+  }
+  // Skipping the closing '}'s;
+  lexer_.Lex();
   lexer_.Lex();
   return true;
 }

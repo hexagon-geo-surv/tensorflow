@@ -1392,6 +1392,21 @@ ENTRY %test (p: f32[100]) -> u32[100] {
 
 )"
 },
+
+{
+"OriginalValue",
+R"(HloModule test, entry_computation_layout={(f32[], f32[3]{0}, f32[2,3]{1,0})->((f32[], f32[3]{0}), f32[2,3]{1,0})}
+
+ENTRY %test (v1: f32[], v2: f32[3], v3: f32[2,3]) -> ((f32[], f32[3]), f32[2,3]) {
+  %v1 = f32[] parameter(0), original_value={shape=f32[] leaves={{{}, instruction_name="v1", shape_index={}}}}
+  %v2 = f32[3]{0} parameter(1), original_value={shape=f32[3] leaves={{{}, instruction_name="v2", shape_index={}}}}
+  %tuple = (f32[], f32[3]{0}) tuple(f32[] %v1, f32[3]{0} %v2), original_value={shape=(f32[], f32[3]) leaves={{{0}, instruction_name="v1", shape_index={}}, {{1}, instruction_name="v2", shape_index={}}}}
+  %v3 = f32[2,3]{1,0} parameter(2), original_value={shape=f32[2,3] leaves={{{}, instruction_name="v3", shape_index={}}}}
+  ROOT %nested_tuple = ((f32[], f32[3]{0}), f32[2,3]{1,0}) tuple((f32[], f32[3]{0}) %tuple, f32[2,3]{1,0} %v3), original_value={shape=((f32[], f32[3]), f32[2,3]) leaves={{{0,0}, instruction_name="v1", shape_index={}}, {{0,1}, instruction_name="v2", shape_index={}}, {{1}, instruction_name="v3", shape_index={}}}}
+}
+
+)"
+},
 });
   // clang-format on
 }
