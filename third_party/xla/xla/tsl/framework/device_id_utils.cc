@@ -62,7 +62,7 @@ absl::Status ParseVisibleDeviceList(
     std::iota(visible_device_order->begin(), visible_device_order->end(), 0);
   } else {
     const std::vector<std::string> order_str =
-        tsl::str_util::Split(visible_device_list, ',');
+        tsl::str_util::Split(visible_device_list, ',');  // non-absl ok
     for (const std::string& platform_device_id_str : order_str) {
       int32_t platform_device_id;
       if (!absl::SimpleAtoi(platform_device_id_str, &platform_device_id)) {
@@ -139,6 +139,12 @@ absl::StatusOr<int> GetPlatformDeviceIdFromDeviceParsedName(
 absl::StatusOr<int> GetDeviceIdFromDeviceParsedName(
     const DeviceNameUtils::ParsedName& device_name,
     const DeviceType& device_type) {
+  // TODO(b/355243365): Should rename the method name to
+  // GetPjRtDeviceIdFromDeviceParsedName and support virtual devices in
+  // NextPluggableDevice.
+  if (device_type == DeviceType("GPU")) {
+    return GetTfDeviceIdFromDeviceParsedName(device_name);
+  }
   auto platform_id =
       GetPlatformDeviceIdFromDeviceParsedName(device_name, device_type);
   if (platform_id.ok()) {
