@@ -179,6 +179,17 @@ bool HasSameStridedShape(TFL::Conv2DOp op, ArrayRef<int64_t> pre_pad_shape) {
   return h_strided && w_strided;
 }
 
+bool HasSameStridedShape(TFL::DepthwiseConv2DOp op,
+                         ArrayRef<int64_t> pre_pad_shape) {
+  auto conv_out_shape =
+      llvm::dyn_cast<ShapedType>(op.getResult().getType()).getShape();
+  const bool h_strided =
+      HasSameStridedDim(conv_out_shape[1], op.getStrideH(), pre_pad_shape[1]);
+  const bool w_strided =
+      HasSameStridedDim(conv_out_shape[2], op.getStrideW(), pre_pad_shape[2]);
+  return h_strided && w_strided;
+}
+
 bool HasSameStridedShape(TFL::Conv3DOp op, ArrayRef<int64_t> pre_pad_shape) {
   auto conv_out_shape =
       llvm::dyn_cast<ShapedType>(op.getResult().getType()).getShape();

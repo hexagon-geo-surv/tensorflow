@@ -4248,8 +4248,7 @@ func.func @conv_3d_external_same_padding_strides_no_divide(%arg0: tensor<256x32x
   func.return %1 : tensor<256x11x11x11x16xf32>
 }
 
-
-// CHECK:  %0 = "tfl.conv_3d"(%arg0, %arg1, %arg2) <{dilation_d_factor = 1 : i32, dilation_h_factor = 1 : i32, dilation_w_factor = 1 : i32, fused_activation_function = "NONE", padding = "SAME", stride_d = 3 : i32, stride_h = 3 : i32, stride_w = 3 : i32}> : (tensor<256x32x32x32x3xf32>, tensor<3x3x3x3x16xf32>, tensor<16xf32>) -> tensor<256x11x11x11x16xf32>
+// CHECK: %0 = "tfl.conv_3d"(%arg0, %arg1, %arg2) <{dilation_d_factor = 1 : i32, dilation_h_factor = 1 : i32, dilation_w_factor = 1 : i32, fused_activation_function = "NONE", padding = "SAME", stride_d = 3 : i32, stride_h = 3 : i32, stride_w = 3 : i32}> : (tensor<256x32x32x32x3xf32>, tensor<3x3x3x3x16xf32>, tensor<16xf32>) -> tensor<256x11x11x11x16xf32>
 
 // CHECK-LABEL: conv_3d_external_same_padding_strides_no_divide_2
 func.func @conv_3d_external_same_padding_strides_no_divide_2(%arg0: tensor<256x32x32x33x3xf32>, %arg1: tensor<3x3x3x3x16xf32>, %arg2: tensor<16xf32>) -> tensor<256x11x11x11x16xf32> {
@@ -4269,3 +4268,22 @@ func.func @conv_3d_external_same_padding_strides_no_divide_2(%arg0: tensor<256x3
 }
 
 // CHECK: %0 = "tfl.conv_3d"(%arg0, %arg1, %arg2) <{dilation_d_factor = 1 : i32, dilation_h_factor = 1 : i32, dilation_w_factor = 1 : i32, fused_activation_function = "NONE", padding = "SAME", stride_d = 3 : i32, stride_h = 3 : i32, stride_w = 3 : i32}> : (tensor<256x32x32x33x3xf32>, tensor<3x3x3x3x16xf32>, tensor<16xf32>) -> tensor<256x11x11x11x16xf32>
+
+// CHECK-LABEL: depthwise_conv_external_same_padding
+func.func @depthwise_conv_external_same_padding(%arg0: tensor<1x8x8x64xf32>, %arg1: tensor<1x3x3x64xf32>) -> tensor<1x8x8x64xf32> {
+  %cst = arith.constant dense<0.000000e+00> : tensor<64xf32>
+  %cst_0 = arith.constant dense<[[0, 0], [1, 1], [1, 1], [0, 0]]> : tensor<4x2xi64>
+  %0 = "tfl.pad"(%arg0, %cst_0) : (tensor<1x8x8x64xf32>, tensor<4x2xi64>) -> tensor<1x10x10x64xf32>
+  %1 = "tfl.depthwise_conv_2d"(%0, %arg1, %cst) <{
+    depth_multiplier = 1 : i32,
+    dilation_h_factor = 1 : i32,
+    dilation_w_factor = 1 : i32,
+    fused_activation_function = "NONE",
+    padding = "VALID",
+    stride_h = 1 : i32,
+    stride_w = 1 : i32
+  }> : (tensor<1x10x10x64xf32>, tensor<1x3x3x64xf32>, tensor<64xf32>) -> tensor<1x8x8x64xf32>
+  return %1 : tensor<1x8x8x64xf32>
+}
+
+// CHECK: %0 = "tfl.depthwise_conv_2d"(%arg0, %arg1, %cst) <{depth_multiplier = 1 : i32, dilation_h_factor = 1 : i32, dilation_w_factor = 1 : i32, fused_activation_function = "NONE", padding = "SAME", stride_h = 1 : i32, stride_w = 1 : i32}> : (tensor<1x8x8x64xf32>, tensor<1x3x3x64xf32>, tensor<64xf32>) -> tensor<1x8x8x64xf32>
