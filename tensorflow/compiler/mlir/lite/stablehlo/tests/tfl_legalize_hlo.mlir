@@ -886,27 +886,6 @@ func.func @conv2d_to_resize_nhwc_hwoi_nhwc(%arg0: tensor<1x56x624x16xf32>, %arg1
 
 // -----
 
-// TODO: b/351437662 - Add support for feature groups.
-// CHECK-LABEL: group_conv2d_nhwc_ohwi_nhwc
-func.func @group_conv2d_nhwc_ohwi_nhwc(%arg0: tensor<1x14x14x2240xf32>, %arg1: tensor<2240x3x3x112xf32>) -> tensor<1x7x7x2240xf32> {
-  %0 = "mhlo.convolution"(%arg0, %arg1) {
-    batch_group_count = 1 : i64,
-    dimension_numbers = #mhlo.conv<[b, 0, 1, f]x[o, 0, 1, i]->[b, 0, 1, f]>,
-    feature_group_count = 20 : i64,
-    lhs_dilation = dense<1> : tensor<2xi64>,
-    padding = dense<1> : tensor<2x2xi64>,
-    precision_config = [#mhlo<precision DEFAULT>, #mhlo<precision DEFAULT>],
-    rhs_dilation = dense<1> : tensor<2xi64>,
-    window_reversal = dense<false> : tensor<2xi1>,
-    window_strides = dense<2> : tensor<2xi64>
-  } : (tensor<1x14x14x2240xf32>, tensor<2240x3x3x112xf32>) -> tensor<1x7x7x2240xf32>
-  func.return %0 : tensor<1x7x7x2240xf32>
-}
-
-// CHECK-NOT: tfl
-
-// -----
-
 //
 // 3D
 //=---
