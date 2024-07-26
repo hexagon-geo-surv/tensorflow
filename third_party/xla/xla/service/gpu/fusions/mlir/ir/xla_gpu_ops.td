@@ -23,6 +23,7 @@ include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "xla/service/gpu/fusions/mlir/ir/xla_gpu_dialect.td"
+include "xla/service/gpu/fusions/mlir/ir/xla_gpu_attrs.td"
 
 class XLAGPU_Op<string mnemonic, list<Trait> traits = []> :
       Op<XlaGpuDialect, mnemonic, traits> {
@@ -242,9 +243,7 @@ def ApplyIndexingOp : XLAGPU_Op<"apply_indexing", [Pure]> {
     ```
   }];
   let arguments = (ins Variadic<Index>:$operands,
-                       AffineMapAttr:$map,
-                       DenseI64ArrayAttr:$lower_bounds,
-                       DenseI64ArrayAttr:$upper_bounds);
+                   XLAGPU_IndexingMapAttr:$indexing_map_attr);
   let results = (outs Variadic<Index>);
 
   let builders = [
@@ -263,8 +262,10 @@ def ApplyIndexingOp : XLAGPU_Op<"apply_indexing", [Pure]> {
   let extraClassDeclaration = [{
     // Returns the indexing map constructed from affine_map and the bounds.
     xla::gpu::IndexingMap getIndexingMap();
+    llvm::SmallVector<int64_t> getLowerBounds();
+    llvm::SmallVector<int64_t> getUpperBounds();
     // Extracts the affine map from the attribute.
-    mlir::AffineMap getAffineMap() { return getMapAttr().getAffineMap(); }
+    mlir::AffineMap getAffineMap() { return getIndexingMapAttr().getMap(); }
   }];
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;

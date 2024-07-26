@@ -224,34 +224,41 @@ void ApplyIndexingOp::build(OpBuilder& builder, OperationState& result,
 void ApplyIndexingOp::build(OpBuilder& builder, OperationState& result,
                             ValueRange operands,
                             const IndexingMap& indexing_map) {
-  build(builder, result, operands, indexing_map.GetAffineMap(),
-        indexing_map.GetDimVars(), indexing_map.GetRangeVars());
+  SmallVector<Type, 2> result_types(indexing_map.GetAffineMap().getNumResults(),
+                                    builder.getIndexType());
+  IndexingMapAttr indexing_map_attr =
+      IndexingMapAttr::get(builder.getContext(), indexing_map);
+  build(builder, result, result_types, operands, indexing_map_attr);
 }
 
 void ApplyIndexingOp::build(OpBuilder& builder, OperationState& result,
                             ValueRange operands, AffineMap affine_map,
                             ArrayRef<DimVar> dim_vars,
                             ArrayRef<RangeVar> range_vars) {
-  SmallVector<int64_t, 4> lower_bounds, upper_bounds;
-  for (const DimVar& dim_var : dim_vars) {
-    lower_bounds.push_back(dim_var.bounds.lower);
-    upper_bounds.push_back(dim_var.bounds.upper);
-  }
-  for (const RangeVar& range_var : range_vars) {
-    lower_bounds.push_back(range_var.range.lower);
-    upper_bounds.push_back(range_var.range.upper);
-  }
-  build(builder, result, operands, affine_map, lower_bounds, upper_bounds);
+  IndexingMap indexing_map(affine_map, dim_vars, range_vars, {});
+  build(builder, result, operands, indexing_map);
 }
 
 void ApplyIndexingOp::build(OpBuilder& builder, OperationState& result,
                             ValueRange operands, AffineMap affine_map,
                             ArrayRef<int64_t> lower_bounds,
                             ArrayRef<int64_t> upper_bounds) {
-  SmallVector<Type, 2> result_types(affine_map.getNumResults(),
-                                    builder.getIndexType());
-  build(builder, result, result_types, operands, affine_map, lower_bounds,
-        upper_bounds);
+  unsigned num_dimensions = affine_map.getNumDims();
+  std::vector<DimVar> dim_vars;
+  dim_vars.reserve(num_dimensions);
+  for (unsigned id = 0; id < num_dimensions; ++id) {
+    dim_vars.push_back(DimVar{Interval{lower_bounds[id], upper_bounds[id]}});
+  }
+  unsigned num_symbols = affine_map.getNumSymbols();
+  std::vector<RangeVar> range_vars;
+  range_vars.reserve(num_symbols);
+  for (unsigned id = num_dimensions; id < num_symbols + num_dimensions; ++id) {
+    range_vars.push_back(
+        RangeVar{Interval{lower_bounds[id], upper_bounds[id]}});
+  }
+  IndexingMap indexing_map(affine_map, std::move(dim_vars),
+                           std::move(range_vars), /*rt_vars=*/{});
+  build(builder, result, operands, indexing_map);
 }
 
 // Parser a comma-separated list of type %operand in [lower_bound, upper_bound].
@@ -261,18 +268,12 @@ mlir::ParseResult parseOperandsWithBoundsList(
     SmallVector<mlir::OpAsmParser::UnresolvedOperand, 4>* operands,
     SmallVector<int64_t, 4>* lower_bounds,
     SmallVector<int64_t, 4>* upper_bounds) {
-  int64_t lower_bound, upper_bound;
   mlir::OpAsmParser::UnresolvedOperand operand;
   if (parser.parseCommaSeparatedList([&]() {
-        if (parser.parseOperand(operand) || parser.parseKeyword("in") ||
-            parser.parseLSquare() || parser.parseInteger(lower_bound) ||
-            parser.parseComma() || parser.parseInteger(upper_bound) ||
-            parser.parseRSquare()) {
+        if (parser.parseOperand(operand)) {
           return failure();
         }
         operands->push_back(operand);
-        lower_bounds->push_back(lower_bound);
-        upper_bounds->push_back(upper_bound);
         return success();
       })) {
     return failure();
@@ -285,8 +286,9 @@ mlir::ParseResult ApplyIndexingOp::parse(mlir::OpAsmParser& parser,
   mlir::Builder& builder = parser.getBuilder();
   auto index_type = builder.getIndexType();
 
-  mlir::AffineMapAttr affine_map_attr;
-  if (parser.parseAttribute(affine_map_attr, "map", result.attributes)) {
+  IndexingMapAttr indexing_map_attr;
+  if (parser.parseAttribute(indexing_map_attr, "indexing_map_attr",
+                            result.attributes)) {
     return failure();
   }
 
@@ -310,30 +312,21 @@ mlir::ParseResult ApplyIndexingOp::parse(mlir::OpAsmParser& parser,
       parser.parseOptionalAttrDict(result.attributes)) {
     return failure();
   }
-  result.addAttribute("lower_bounds",
-                      builder.getDenseI64ArrayAttr(lower_bounds));
-  result.addAttribute("upper_bounds",
-                      builder.getDenseI64ArrayAttr(upper_bounds));
-
-  auto map = affine_map_attr.getAffineMap();
+  auto map = indexing_map_attr.getMap();
   result.addTypes(SmallVector<Type, 2>(map.getNumResults(), index_type));
   return success();
 }
 
 void ApplyIndexingOp::print(mlir::OpAsmPrinter& p) {
-  mlir::AffineMapAttr affine_map_attr = getMapAttr();
-  AffineMap affine_map = affine_map_attr.getAffineMap();
-  p << " " << affine_map_attr;
+  AffineMap affine_map = getIndexingMapAttr().getMap();
+  p << " " << getIndexingMapAttr() << " ";
 
-  auto lower_bounds = getLowerBounds();
-  auto upper_bounds = getUpperBounds();
   auto operands = getOperands();
   unsigned num_dimensions = affine_map.getNumDims();
   if (num_dimensions > 0) {
     p << '(';
     for (int dim_id = 0; dim_id < num_dimensions; ++dim_id) {
-      p << operands[dim_id] << " in " << '[' << lower_bounds[dim_id] << ", "
-        << upper_bounds[dim_id] << ']';
+      p << operands[dim_id];
       if (dim_id != num_dimensions - 1) {
         p << ", ";
       }
@@ -345,50 +338,60 @@ void ApplyIndexingOp::print(mlir::OpAsmPrinter& p) {
     p << '[';
     for (int symbol_id = 0; symbol_id < num_symbols; ++symbol_id) {
       unsigned operand_id = num_dimensions + symbol_id;
-      p << operands[operand_id] << " in " << '[' << lower_bounds[operand_id]
-        << ", " << upper_bounds[operand_id] << ']';
+      p << operands[operand_id];
       if (symbol_id != num_symbols - 1) {
         p << ", ";
       }
     }
     p << ']';
   }
-  p.printOptionalAttrDict((*this)->getAttrs(), /*elidedAttrs=*/{
-                              "map", "lower_bounds", "upper_bounds"});
+  p.printOptionalAttrDict((*this)->getAttrs(),
+                          /*elidedAttrs=*/{"indexing_map_attr"});
 }
 
 LogicalResult ApplyIndexingOp::verify() {
-  auto affine_map = getMapAttr().getAffineMap();
+  auto affine_map = getIndexingMapAttr().getMap();
   unsigned num_variables = affine_map.getNumDims() + affine_map.getNumSymbols();
-  if (getOperands().size() != num_variables ||
-      getLowerBounds().size() != num_variables ||
-      getUpperBounds().size() != num_variables) {
+  // TODO: verify this in IndexingMapAttr
+  // getDimVars().size() == getMap().getNumDims();
+  // getRangeVars().size() == getMap().getNumSymbols();
+  if (getOperands().size() != num_variables) {
     return emitOpError(
-        "operand, lower_bounds, upper_bounds count and affine map dimension "
-        "and symbol count must match");
+        "operand count must match the number of dimensions and symbols in the "
+        "affine map");
+  }
+  if (!getIndexingMapAttr().getConstraints().empty()) {
+    return emitOpError("apply indexing op cannot have any constraints");
   }
   return success();
 }
 
-IndexingMap ApplyIndexingOp::getIndexingMap() {
-  auto lower_bounds = getLowerBounds();
-  auto upper_bounds = getUpperBounds();
+llvm::SmallVector<int64_t> ApplyIndexingOp::getLowerBounds() {
+  auto lower_bounds = SmallVector<int64_t>(getNumOperands());
+  for (auto& dim_var : getIndexingMapAttr().getDimVars()) {
+    lower_bounds.push_back(dim_var.bounds.lower);
+  }
+  for (auto& range_var : getIndexingMapAttr().getRangeVars()) {
+    lower_bounds.push_back(range_var.range.lower);
+  }
+  return lower_bounds;
+}
 
-  AffineMap affine_map = getAffineMap();
-  unsigned num_dimensions = affine_map.getNumDims();
-  std::vector<DimVar> dim_vars;
-  dim_vars.reserve(num_dimensions);
-  for (unsigned id = 0; id < num_dimensions; ++id) {
-    dim_vars.push_back(DimVar{Interval{lower_bounds[id], upper_bounds[id]}});
+llvm::SmallVector<int64_t> ApplyIndexingOp::getUpperBounds() {
+  auto upper_bounds = SmallVector<int64_t>(getNumOperands());
+  for (auto& dim_var : getIndexingMapAttr().getDimVars()) {
+    upper_bounds.push_back(dim_var.bounds.upper);
   }
-  unsigned num_symbols = affine_map.getNumSymbols();
-  std::vector<RangeVar> range_vars;
-  range_vars.reserve(num_symbols);
-  for (unsigned id = num_dimensions; id < num_symbols + num_dimensions; ++id) {
-    range_vars.push_back(
-        RangeVar{Interval{lower_bounds[id], upper_bounds[id]}});
+  for (auto& range_var : getIndexingMapAttr().getRangeVars()) {
+    upper_bounds.push_back(range_var.range.upper);
   }
-  return IndexingMap(affine_map, std::move(dim_vars), std::move(range_vars),
+  return upper_bounds;
+}
+
+IndexingMap ApplyIndexingOp::getIndexingMap() {
+  return IndexingMap(getIndexingMapAttr().getMap(),
+                     getIndexingMapAttr().getDimVars(),
+                     getIndexingMapAttr().getRangeVars(),
                      /*rt_vars=*/{});
 }
 

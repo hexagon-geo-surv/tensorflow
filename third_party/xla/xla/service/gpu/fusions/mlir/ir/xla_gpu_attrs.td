@@ -51,6 +51,9 @@ def XLAGPU_IndexingMapAttr : XLAGPU_Attr<"IndexingMap"> {
                         XLAGPU_RangeVarsParameter:$range_vars,
                         XLAGPU_ConstraintsParameter:$constraints);
   let hasCustomAssemblyFormat = 1;
+  let builders =  [
+    AttrBuilder<(ins "const ::xla::gpu::IndexingMap&":$indexing_map)>,
+  ];
 }
 
 #endif // MLIR_HLO_DIALECT_MHLO_IR_HLO_ATTRS

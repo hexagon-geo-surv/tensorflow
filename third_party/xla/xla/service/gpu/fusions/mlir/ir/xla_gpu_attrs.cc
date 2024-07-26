@@ -163,5 +163,15 @@ void IndexingMapAttr::print(mlir::AsmPrinter& printer) const {
   printer << ">";
 }
 
+IndexingMapAttr IndexingMapAttr::get(mlir::MLIRContext* context,
+                                     const IndexingMap& indexing_map) {
+  llvm::SmallVector<std::pair<AffineExpr, Interval>> constraints;
+  for (auto& constraint : indexing_map.GetConstraints()) {
+    constraints.push_back({constraint.first, constraint.second});
+  }
+  return get(context, indexing_map.GetAffineMap(), indexing_map.GetDimVars(),
+             indexing_map.GetRangeVars(), constraints);
+}
+
 }  // namespace gpu
 }  // namespace xla
