@@ -74,6 +74,16 @@ limitations under the License.
 
 namespace xla {
 namespace cpu {
+namespace {
+int GetDeviceOrdinal(const ExecutableRunOptions* run_options) {
+  if (!run_options) {
+    return 0;
+  } else if (run_options->device_ordinal() != -1) {
+    return run_options->device_ordinal();
+  }
+  return run_options->stream()->parent()->device_ordinal();
+}
+}  // namespace
 
 using ConstantAllocation = CpuExecutable::ConstantAllocation;
 using FunctionRegistry = CpuExecutable::FunctionRegistry;
@@ -387,8 +397,7 @@ absl::Status CpuExecutable::ExecuteThunks(
   Thunk::ExecuteParams execute_params = {
       &*function_registry_,
       &allocations,
-      runtime::GetXfeedManager(
-          run_options->stream()->parent()->device_ordinal()),
+      runtime::GetXfeedManager(GetDeviceOrdinal(run_options)),
       run_options->intra_op_thread_pool(),
       &task_runner,
       &collective_execute_params,
