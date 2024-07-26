@@ -29,7 +29,12 @@ void registerSdyRoundTripExportShardingsPass();
 // Creates the pass that converts the shardings from `kShardingAttr` to
 // `kShardingRoundTripAttr` in the HLO frontend attributes and saves the
 // mesh symbols as `kMeshesRoundTripAttr` in the module frontend attributes.
-std::unique_ptr<mlir::Pass> createSdyRoundTripExportShardingsPass();
+//
+// If `keepShardings` is true, the shardings attributes are still kept around,
+// else they are removed. This is necessary for using native Shardy JAX lowering
+// where the backend is Pathways.
+std::unique_ptr<mlir::Pass> createSdyRoundTripExportShardingsPass(
+    bool keepShardings = true);
 
 }  // namespace sdy
 }  // namespace xla

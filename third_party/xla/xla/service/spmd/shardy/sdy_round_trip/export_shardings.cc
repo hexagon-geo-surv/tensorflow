@@ -16,6 +16,7 @@ limitations under the License.
 #include "xla/service/spmd/shardy/sdy_round_trip/export_shardings.h"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 
 #include "llvm/ADT/STLExtras.h"
@@ -87,12 +88,15 @@ void saveOpShardingPerValueAttr(Operation* op,
 
 // Converts the shardings from `kShardingAttr` into
 // `kShardingRoundTripStringAttr`.
-LogicalResult exportFunc(FuncOp funcOp, OpBuilder& builder) {
+LogicalResult exportFunc(FuncOp funcOp, bool keepShardings,
+                         OpBuilder& builder) {
   for (int64_t argNum = 0; argNum < funcOp.getNumArguments(); ++argNum) {
     if (auto oldSharding = funcOp.getArgAttrOfType<TensorShardingAttr>(
             argNum, kShardingAttr)) {
       addFrontendAttribute(funcOp, kShardingRoundTripAttr, oldSharding, argNum);
-      funcOp.removeArgAttr(argNum, kShardingAttr);
+      if (!keepShardings) {
+        funcOp.removeArgAttr(argNum, kShardingAttr);
+      }
     }
   }
 
@@ -122,7 +126,10 @@ LogicalResult exportFunc(FuncOp funcOp, OpBuilder& builder) {
           TensorShardingPerValueAttr::get(customCallOp.getContext(), sharding),
           builder);
       returnOperand.set(customCallOp.getResult(0));
-      funcOp.removeResultAttr(resultNum, builder.getStringAttr(kShardingAttr));
+      if (!keepShardings) {
+        funcOp.removeResultAttr(resultNum,
+                                builder.getStringAttr(kShardingAttr));
+      }
     }
   }
 
@@ -130,7 +137,9 @@ LogicalResult exportFunc(FuncOp funcOp, OpBuilder& builder) {
     if (auto oldShardingPerValue =
             op->getAttrOfType<TensorShardingPerValueAttr>(kShardingAttr)) {
       saveOpShardingPerValueAttr(op, oldShardingPerValue, builder);
-      op->removeAttr(kShardingAttr);
+      if (!keepShardings) {
+        op->removeAttr(kShardingAttr);
+      }
     }
   });
 
@@ -143,13 +152,16 @@ class SdyRoundTripExportShardingsPass
  public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(SdyRoundTripExportShardingsPass)
 
+  SdyRoundTripExportShardingsPass(bool keepShardings = true)
+      : keepShardings(keepShardings) {}
+
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     MLIRContext* context = moduleOp.getContext();
     auto builder = OpBuilder(context);
 
     for (auto funcOp : moduleOp.getOps<FuncOp>()) {
-      if (mlir::failed(exportFunc(funcOp, builder))) {
+      if (mlir::failed(exportFunc(funcOp, keepShardings, builder))) {
         signalPassFailure();
       }
     }
@@ -164,7 +176,9 @@ class SdyRoundTripExportShardingsPass
       mhloMeshes.emplace_back(
           meshOp.getSymNameAttr(),
           getStringAttribute(meshOp.getMeshAttr(), builder));
-      symbolTable.erase(meshOp);
+      if (!keepShardings) {
+        symbolTable.erase(meshOp);
+      }
     }
     addFrontendAttribute(moduleOp, kMeshesRoundTripAttr,
                          DictionaryAttr::get(context, mhloMeshes));
@@ -178,22 +192,27 @@ class SdyRoundTripExportShardingsPass
     return "Converts the shardings from kShardingAttr to "
            "kShardingRoundTripAttr in the HLO frontend attributes and saves "
            "the mesh symbols as kMeshesRoundTripAttr in the module frontend "
-           "attributes.";
+           "attributes. If `keepShardings` is true, the shardings attributes "
+           "are still kept around, else they are removed.";
   }
 
   void getDependentDialects(mlir::DialectRegistry& registry) const final {
     registry.insert<mlir::sdy::SdyDialect, mlir::mhlo::MhloDialect>();
   }
+
+ private:
+  bool keepShardings;
 };
 
 }  // namespace
 
 void registerSdyRoundTripExportShardingsPass() {
-  mlir::registerPass(createSdyRoundTripExportShardingsPass);
+  mlir::registerPass(std::bind(createSdyRoundTripExportShardingsPass, true));
 }
 
-std::unique_ptr<Pass> createSdyRoundTripExportShardingsPass() {
-  return std::make_unique<SdyRoundTripExportShardingsPass>();
+std::unique_ptr<Pass> createSdyRoundTripExportShardingsPass(
+    bool keepShardings) {
+  return std::make_unique<SdyRoundTripExportShardingsPass>(keepShardings);
 }
 
 }  // namespace sdy
