@@ -127,9 +127,11 @@ TEST_P(ParameterizedMetadataTest, BadMetadata) {
   llvm::SmallVector<llvm::SmallVector<std::string, 8>, 8> execution_devices;
   std::optional<xla::DeviceAssignmentProto> xla_device_assignment;
 
+  LOG(ERROR) << "siqiaowu@debug: run 1";
   auto status_or = GetTPUCompilationAndExecutionDevices(
       devices, std::get<0>(GetParam()), std::get<1>(GetParam()),
       std::get<2>(GetParam()), std::get<3>(GetParam()));
+  LOG(ERROR) << "status_or: " << status_or.status().message();
   ASSERT_FALSE(status_or.ok());
   EXPECT_EQ(status_or.status().message(), std::get<4>(GetParam()));
 }
@@ -233,7 +235,7 @@ INSTANTIATE_TEST_SUITE_P(
             2, 1, TopologyWithDeviceCoordinates({0, 0, 0, 0, 0, 0, 0, 0}),
             std::vector<int64_t>(),
             "'topology' has duplicate device coordinate (0, 0, 0, 0)")));
-
+//
 INSTANTIATE_TEST_SUITE_P(
     BadGeneralDeviceAssignmentMetadata, ParameterizedMetadataTest,
     ::testing::Values(
@@ -514,6 +516,75 @@ TEST(TPURewriteDeviceUtilTest, ValidGeneralDeviceAssignmentMesh2x2x2) {
   EXPECT_EQ(computation_device_1.replica_device_ids(1), 5);
   EXPECT_EQ(computation_device_1.replica_device_ids(2), 3);
   EXPECT_EQ(computation_device_1.replica_device_ids(3), 7);
+}
+TEST(TPURewriteDeviceUtilTest, ValidXLADeviceAssignmentMesh1x2x1x3) {
+  tpu::TopologyProto topology_proto;
+  {
+    topology_proto.add_mesh_shape(1);
+    topology_proto.add_mesh_shape(2);
+    topology_proto.add_mesh_shape(1);
+    topology_proto.add_mesh_shape(3);
+    topology_proto.set_num_tasks(3);
+    topology_proto.set_num_tpu_devices_per_task(2);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(1);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(1);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(1);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(1);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(2);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(1);
+    topology_proto.add_device_coordinates(0);
+    topology_proto.add_device_coordinates(2);
+  }
+
+  std::string topology_attr = topology_proto.SerializeAsString();
+  std::vector<int64_t> device_assignment_attr{
+      0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 2, 0, 1, 0, 2, 0, 0, 0, 0, 0, 1, 0, 0};
+
+  llvm::SmallVector<Device, 8> devices;
+  std::vector<std::string> device_names =
+      MakeDeviceSet(/*num_tasks=*/3, /*num_devices_per_task=*/2);
+  ASSERT_TRUE(DeviceNamesToParsedNames(device_names, &devices));
+
+  auto xla_device_assignment = GetXlaDeviceAssignmentProto(
+      topology_attr, /*num_replicas=*/2, /*num_cores_per_replica=*/3,
+      device_assignment_attr);
+
+  TF_ASSERT_OK(xla_device_assignment.status());
+  EXPECT_EQ(xla_device_assignment->replica_count(), 2);
+  EXPECT_EQ(xla_device_assignment->computation_count(), 3);
+  ASSERT_EQ(xla_device_assignment->computation_devices_size(), 3);
+  const auto& computation_device_0 =
+      xla_device_assignment->computation_devices(0);
+  ASSERT_EQ(computation_device_0.replica_device_ids_size(), 2);
+  const auto& computation_device_1 =
+      xla_device_assignment->computation_devices(1);
+  ASSERT_EQ(computation_device_1.replica_device_ids_size(), 2);
+  const auto& computation_device_2 =
+      xla_device_assignment->computation_devices(2);
+  ASSERT_EQ(computation_device_2.replica_device_ids_size(), 2);
+
+  EXPECT_EQ(computation_device_0.replica_device_ids(0), 1);
+  EXPECT_EQ(computation_device_0.replica_device_ids(1), 5);
+  EXPECT_EQ(computation_device_1.replica_device_ids(0), 4);
+  EXPECT_EQ(computation_device_1.replica_device_ids(1), 0);
+  EXPECT_EQ(computation_device_2.replica_device_ids(0), 2);
+  EXPECT_EQ(computation_device_2.replica_device_ids(1), 3);
 }
 
 TEST(TPURewriteDeviceUtilTest, ValidGeneralDeviceAssignmentMesh1x2x1x3) {
