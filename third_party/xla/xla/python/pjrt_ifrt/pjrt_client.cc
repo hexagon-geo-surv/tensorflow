@@ -26,6 +26,7 @@ limitations under the License.
 #include <variant>
 #include <vector>
 
+#include "absl/algorithm/container.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/inlined_vector.h"
@@ -420,6 +421,13 @@ absl::StatusOr<std::unique_ptr<PjRtClient>> PjRtClient::Create(
     }
   }
 
+  // We don't promise anything about the order of these devices, but users may
+  // depend on the current order. Sort into device ordinal order, which is
+  // the historical order these values have appeared.
+  absl::c_sort(devices, [](const std::unique_ptr<PjRtDevice>& a,
+                           const std::unique_ptr<PjRtDevice>& b) {
+    return a->Id() < b->Id();
+  });
   client->devices_.reserve(devices.size());
   client->device_map_.reserve(pjrt_client->addressable_device_count());
   for (auto& ifrt_device : devices) {

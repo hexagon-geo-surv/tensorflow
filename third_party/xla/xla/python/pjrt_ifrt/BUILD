@@ -239,6 +239,7 @@ cc_library(
         "//xla/service:hlo_proto_cc",
         "//xla/translate/mhlo_to_hlo:type_to_shape",
         "//xla/tsl/concurrency:ref_count",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:inlined_vector",
