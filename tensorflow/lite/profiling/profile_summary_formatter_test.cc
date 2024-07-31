@@ -19,8 +19,8 @@ limitations under the License.
 #include <map>
 #include <memory>
 #include <string>
+#include <tuple>
 
-#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/strings/match.h"
 #include "tensorflow/core/util/stat_summarizer_options.h"
@@ -31,6 +31,121 @@ namespace tflite {
 namespace profiling {
 
 namespace {
+
+// LINT.IfChange(OpProfilingStatComparator)
+bool CompareOpProfilingStat(const OpProfilingStat& op_profiling_stat_1,
+                            const OpProfilingStat& op_profiling_stat_2) {
+  auto proto_to_tuple = [](const OpProfilingStat& op_profiling_stat) {
+    return std::make_tuple(op_profiling_stat.first(), op_profiling_stat.last(),
+                           op_profiling_stat.avg(), op_profiling_stat.stddev(),
+                           op_profiling_stat.variance(),
+                           op_profiling_stat.min(), op_profiling_stat.max(),
+                           op_profiling_stat.sum(), op_profiling_stat.count());
+  };
+  return proto_to_tuple(op_profiling_stat_1) ==
+         proto_to_tuple(op_profiling_stat_2);
+}
+// LINT.ThenChange(//tensorflow/lite/profiling/proto/profiling_info.proto:OpProfilingStat)
+
+// LINT.IfChange(OpProfileDataComparator)
+bool CompareOpProfileData(const OpProfileData& op_profile_data_1,
+                          const OpProfileData& op_profile_data_2) {
+  auto proto_to_tuple = [](const OpProfileData& op_profile_data) {
+    return std::make_tuple(op_profile_data.node_type(),
+                           op_profile_data.times_called(),
+                           op_profile_data.name(), op_profile_data.run_order());
+  };
+
+  return (proto_to_tuple(op_profile_data_1) ==
+          proto_to_tuple(op_profile_data_2)) &&
+         CompareOpProfilingStat(op_profile_data_1.inference_microseconds(),
+                                op_profile_data_2.inference_microseconds()) &&
+         (CompareOpProfilingStat(op_profile_data_1.mem_kb(),
+                                 op_profile_data_2.mem_kb()));
+}
+// LINT.ThenChange(//tensorflow/lite/profiling/proto/profiling_info.proto:OpProfileData)
+
+// LINT.IfChange(SubGraphProfilingDataComparator)
+bool CompareSubGraphProfilingData(
+    const SubGraphProfilingData& subgraph_profiling_data_1,
+    const SubGraphProfilingData& subgraph_profiling_data_2) {
+  auto proto_to_tuple =
+      [](const SubGraphProfilingData& subgraph_profiling_data) {
+        return std::make_tuple(
+            subgraph_profiling_data.subgraph_name(),
+            subgraph_profiling_data.per_op_profiles().size());
+      };
+
+  if (proto_to_tuple(subgraph_profiling_data_1) ==
+      proto_to_tuple(subgraph_profiling_data_2)) {
+    for (int i = 0; i < subgraph_profiling_data_1.per_op_profiles().size();
+         ++i) {
+      if (!CompareOpProfileData(subgraph_profiling_data_1.per_op_profiles(i),
+                                subgraph_profiling_data_2.per_op_profiles(i))) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
+}
+// LINT.ThenChange(//tensorflow/lite/profiling/proto/profiling_info.proto:SubGraphProfilingData)
+
+// LINT.IfChange(DelegateProfilingDataComparator)
+bool CompareDelegateProfilingData(
+    const DelegateProfilingData& delegate_profiling_data_1,
+    const DelegateProfilingData& delegate_profiling_data_2) {
+  auto proto_to_tuple =
+      [](const DelegateProfilingData& delegate_profiling_data) {
+        return std::make_tuple(
+            delegate_profiling_data.delegate_name(),
+            delegate_profiling_data.per_op_profiles().size());
+      };
+
+  if (proto_to_tuple(delegate_profiling_data_1) ==
+      proto_to_tuple(delegate_profiling_data_2)) {
+    for (int i = 0; i < delegate_profiling_data_1.per_op_profiles().size();
+         ++i) {
+      if (!CompareOpProfileData(delegate_profiling_data_1.per_op_profiles(i),
+                                delegate_profiling_data_2.per_op_profiles(i))) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
+}
+// LINT.ThenChange(//tensorflow/lite/profiling/proto/profiling_info.proto:DelegateProfilingData)
+
+// LINT.IfChange(ModelProfilingDataComparator)
+bool CompareModelProfilingData(
+    const ModelProfilingData& model_profiling_data_1,
+    const ModelProfilingData& model_profiling_data_2) {
+  if (model_profiling_data_1.subgraph_profiles().size() !=
+      model_profiling_data_2.subgraph_profiles().size()) {
+    return false;
+  }
+  for (int i = 0; i < model_profiling_data_1.subgraph_profiles().size(); ++i) {
+    if (!CompareSubGraphProfilingData(
+            model_profiling_data_1.subgraph_profiles(i),
+            model_profiling_data_2.subgraph_profiles(i))) {
+      return false;
+    }
+  }
+  if (model_profiling_data_1.delegate_profiles().size() !=
+      model_profiling_data_2.delegate_profiles().size()) {
+    return false;
+  }
+  for (int i = 0; i < model_profiling_data_1.delegate_profiles().size(); ++i) {
+    if (!CompareDelegateProfilingData(
+            model_profiling_data_1.delegate_profiles(i),
+            model_profiling_data_2.delegate_profiles(i))) {
+      return false;
+    }
+  }
+  return true;
+}
+// LINT.ThenChange(//tensorflow/lite/profiling/proto/profiling_info.proto:ModelProfilingData)
 
 TEST(SummaryWriterTest, SummaryOptionStdOut) {
   ProfileSummaryDefaultFormatter writer;
@@ -182,8 +297,9 @@ TEST(SummaryWriterTest, MultiSubgraphOutputStringForProto) {
   op_profile_data_1.set_name(kernel_name_1);
   op_profile_data_1.set_run_order(1);
   op_profile_data_1.set_times_called(2);
-  EXPECT_THAT(model_profiling_data.subgraph_profiles(0).per_op_profiles(0),
-              testing::EqualsProto(op_profile_data_1));
+  EXPECT_TRUE(CompareOpProfileData(
+      model_profiling_data.subgraph_profiles(0).per_op_profiles(0),
+      op_profile_data_1));
 
   OpProfileData op_profile_data_2;
   op_profile_data_2.set_node_type(op_name_2);
@@ -212,8 +328,9 @@ TEST(SummaryWriterTest, MultiSubgraphOutputStringForProto) {
   op_profile_data_2.set_name(kernel_name_2);
   op_profile_data_2.set_run_order(2);
 
-  EXPECT_THAT(model_profiling_data.subgraph_profiles(0).per_op_profiles(1),
-              testing::EqualsProto(op_profile_data_2));
+  EXPECT_TRUE(CompareOpProfileData(
+      model_profiling_data.subgraph_profiles(0).per_op_profiles(1),
+      op_profile_data_2));
 
   ASSERT_EQ(model_profiling_data.subgraph_profiles(1).subgraph_name(),
             "Subgraph 1");
@@ -246,8 +363,9 @@ TEST(SummaryWriterTest, MultiSubgraphOutputStringForProto) {
   op_profile_data_3.set_times_called(1);
   op_profile_data_3.set_name(kernel_name_3);
   op_profile_data_3.set_run_order(3);
-  EXPECT_THAT(model_profiling_data.subgraph_profiles(1).per_op_profiles(0),
-              testing::EqualsProto(op_profile_data_3));
+  EXPECT_TRUE(CompareOpProfileData(
+      model_profiling_data.subgraph_profiles(1).per_op_profiles(0),
+      op_profile_data_3));
 }
 
 TEST(SummaryWriterTest, MultiSubgraphHandleOutputForProto) {
@@ -351,10 +469,10 @@ TEST(SummaryWriterTest, MultiSubgraphHandleOutputForProto) {
   file.close();
 
   ASSERT_TRUE(benchmark_profiling_data.model_name().empty());
-  EXPECT_THAT(benchmark_profiling_data.init_profile(),
-              testing::EqualsProto(model_profiling_data_init));
-  EXPECT_THAT(benchmark_profiling_data.runtime_profile(),
-              testing::EqualsProto(model_profiling_data_run));
+  EXPECT_TRUE(CompareModelProfilingData(benchmark_profiling_data.init_profile(),
+                                        model_profiling_data_init));
+  EXPECT_TRUE(CompareModelProfilingData(
+      benchmark_profiling_data.runtime_profile(), model_profiling_data_run));
 }
 
 TEST(SummaryWriterTest, MultiSubgraphShortSummary) {
