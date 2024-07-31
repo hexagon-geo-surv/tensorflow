@@ -19,7 +19,6 @@ limitations under the License.
 #include <algorithm>
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -144,12 +143,14 @@ class IfrtServingExecutable {
       tensorflow::XlaHelpers::ShapeRepresentationFn shape_representation_fn,
       IfrtServingCoreSelector* ifrt_serving_core_selector,
       tensorflow::tpu::TPUCompileMetadataProto original_compile_metadata,
+      const std::vector<xla::ifrt::Device*>& assigned_devices,
       tsl::protobuf::Message* compilation_environment_proto)
       : program_id_(program_id),
         model_name_(std::string(model_name)),
         signature_name_(std::string(signature_name)),
         module_(std::move(module)),
         original_compile_metadata_(std::move(original_compile_metadata)),
+        assigned_devices_(assigned_devices),
         ifrt_client_(std::move(client)),
         thread_pool_(*thread_pool),
         ifrt_loaded_variable_registry_(*ifrt_loaded_variable_registry),
@@ -168,9 +169,10 @@ class IfrtServingExecutable {
 
   mlir::OwningOpRef<mlir::ModuleOp> module_ ABSL_GUARDED_BY(mutex_);
   // The original compile metadata. We need to keep it around to be able to
-  // test portable execution condition even if the Module itsel is already
+  // test portable execution condition even if the Module itself is already
   // released.
   tensorflow::tpu::TPUCompileMetadataProto original_compile_metadata_;
+  const std::vector<xla::ifrt::Device*> assigned_devices_;
 
   std::shared_ptr<xla::ifrt::Client> ifrt_client_;
   tsl::thread::ThreadPool& thread_pool_;
