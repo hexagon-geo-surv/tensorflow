@@ -22,6 +22,21 @@ cc_library(
         "//xla/mlir_hlo",
         "//xla/service:hlo_proto_cc",
         "@com_google_absl//absl/status:statusor",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+    ],
+)
+
+cc_library(
+    name = "async_importer",
+    srcs = ["async_importer.cc"],
+    hdrs = ["async_importer.h"],
+    deps = [
+        ":attribute_importer",
+        ":hlo_utils",
+        "//xla/hlo/ir:hlo",
+        "//xla/mlir_hlo",
+        "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
     ],
 )
@@ -67,6 +82,7 @@ cc_library(
         "hlo_module_importer.h",
     ],
     deps = [
+        ":async_importer",
         ":attribute_importer",
         ":custom_call_importer",
         ":hlo_utils",

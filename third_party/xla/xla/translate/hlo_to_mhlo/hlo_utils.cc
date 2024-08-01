@@ -22,6 +22,7 @@ limitations under the License.
 #include <vector>
 
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/Support/Casting.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -137,6 +138,68 @@ mlir::DenseIntElementsAttr CreateDenseIntElementsAttrFromVector(
       mlir::RankedTensorType::get(shape.empty() ? vector.size() : shape,
                                   builder.getIntegerType(64)),
       vector);
+}
+
+mlir::Value CreateTupleValue(mlir::OpBuilder* func_builder, mlir::Location loc,
+                             mlir::ValueRange& flatten_values,
+                             mlir::Type type) {
+  auto tuple_type = type.dyn_cast<mlir::TupleType>();
+  if (!tuple_type) {
+    assert(!flatten_values.empty());
+    auto retval = flatten_values.front();
+    flatten_values = flatten_values.drop_front();
+    return retval;
+  }
+
+  llvm::SmallVector<mlir::Value> flatten_sub_values;
+  for (auto child_type : tuple_type.getTypes())
+    flatten_sub_values.push_back(
+        CreateTupleValue(func_builder, loc, flatten_values, child_type));
+
+  return func_builder->create<mlir::mhlo::TupleOp>(loc, flatten_sub_values)
+      .getResult();
+}
+
+mlir::Operation* CreateTupleFromOpResults(mlir::OpBuilder* func_builder,
+                                          mlir::Location loc,
+                                          mlir::Operation* op,
+                                          mlir::Type type) {
+  if (!type.isa<mlir::TupleType>()) return op;
+
+  mlir::ValueRange flattened_results_ref(op->getResults());
+  auto result =
+      CreateTupleValue(func_builder, loc, flattened_results_ref, type);
+  auto defining_tuple_op = result.getDefiningOp<mlir::mhlo::TupleOp>();
+  assert(defining_tuple_op && "builder didn't return the right type");
+  auto tupleOp = defining_tuple_op.getOperation();
+  return tupleOp;
+}
+
+mlir::Operation* WrapVariadicResultsInTuple(mlir::OpBuilder* builder,
+                                            mlir::Location loc,
+                                            mlir::Operation* op) {
+  auto result_types = op->getResultTypes();
+  // Consider skipping wrapping result type of size 1.
+  assert(result_types.size() != 1 ||
+         !llvm::isa<mlir::TupleType>(result_types[0]) &&
+             "Cannot wrap single tuple arg in tuple");
+
+  auto tuple_type = builder->getTupleType(result_types);
+  return CreateTupleFromOpResults(builder, loc, op, tuple_type);
+}
+
+bool IsEmptyTuple(const mlir::Type& type) {
+  if (auto tuple_type = llvm::dyn_cast<mlir::TupleType>(type)) {
+    return tuple_type.getTypes().empty();
+  }
+  return false;
+}
+
+mlir::TypeRange Untuple(const mlir::Type& type) {
+  if (llvm::isa<mlir::TupleType>(type)) {
+    return llvm::dyn_cast<mlir::TupleType>(type).getTypes();
+  }
+  return type;
 }
 
 }  // namespace xla

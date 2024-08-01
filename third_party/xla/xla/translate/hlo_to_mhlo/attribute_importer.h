@@ -66,6 +66,20 @@ absl::StatusOr<mlir::mhlo::Transpose> ConvertTranspose(
 absl::StatusOr<mlir::mhlo::CustomCallApiVersion> ConvertCustomCallApiVersion(
     xla::CustomCallApiVersion api_version);
 
+mlir::NamedAttribute ConvertChannelHandle(const ChannelHandle& channel,
+                                          mlir::Builder* builder);
+mlir::NamedAttribute ConvertChannelHandle(std::optional<int64_t> channel_id,
+                                          mlir::Builder* builder);
+
+mlir::NamedAttribute ConvertReplicaGroups(
+    absl::Span<const ReplicaGroup> replica_groups, mlir::Builder* builder);
+
+mlir::NamedAttribute ConvertSourceTargetPairs(
+    const std::vector<std::pair<int64_t, int64_t>>& source_target_pairs,
+    mlir::Builder* builder);
+
+mlir::NamedAttribute ConvertUseGlobalDeviceIds(mlir::Builder* builder);
+
 // Extracts layouts from shapes and converts it into layout attributes (array of
 // rank-1 index tensors). Returns an error if any of the shapes is a tuple.
 absl::StatusOr<mlir::ArrayAttr> ExtractLayoutsFromShapes(
