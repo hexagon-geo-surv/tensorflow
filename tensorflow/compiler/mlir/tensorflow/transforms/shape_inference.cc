@@ -87,6 +87,7 @@ limitations under the License.
 #include "xla/shape.h"
 #include "xla/translate/hlo_to_mhlo/hlo_utils.h"
 #include "xla/translate/mhlo_to_hlo/type_to_shape.h"
+#include "xla/tsl/util/env_var.h"
 #include "xla/window_util.h"
 #include "xla/xla_data.pb.h"
 #include "tensorflow/core/framework/shape_inference.h"
@@ -109,6 +110,20 @@ using tensorflow::shape_inference::ShapeHandle;
 namespace mlir {
 namespace TF {
 namespace {
+
+bool EnableSingleThreadMlirContext() {
+  static bool enable_multi_thread_mlir_context = []() {
+    bool result = false;
+    if (auto status =
+            tsl::ReadBoolFromEnvVar("TF_USE_SINGLE_THREAD_MLIR_CONTEXT",
+                                    /*default_val=*/false, &result);
+        status.ok()) {
+      return result;
+    }
+    return false;
+  }();
+  return enable_multi_thread_mlir_context;
+}
 
 // Compute a refined type between two types `lhs` and `rhs`, the result type
 // is always more refined (i.e. has more static information) than `lhs`
@@ -1024,7 +1039,7 @@ class ShapeInference {
   // each `XlaCallModule` op. Uses its own MLIRContext since the loader needs to
   // load additional dialects, which is not allowed for the main context since
   // shape inference may be called from a pass.
-  MLIRContext xla_call_module_context_;
+  std::unique_ptr<MLIRContext> xla_call_module_context_;
   DenseMap<XlaCallModuleOp, std::unique_ptr<tensorflow::XlaCallModuleLoader>>
       xla_call_module_loaders_;
 };
@@ -1036,6 +1051,12 @@ ShapeInference::ShapeInference(int64_t graph_version, ModuleOp module,
       symbol_users_(symbol_table_, module),
       graph_version_(graph_version),
       propagate_caller_callee_constants_(propagate_caller_callee_constants) {
+  if (EnableSingleThreadMlirContext()) {
+    xla_call_module_context_ =
+        std::make_unique<MLIRContext>(mlir::MLIRContext::Threading::DISABLED);
+  } else {
+    xla_call_module_context_ = std::make_unique<MLIRContext>();
+  }
   for (const auto& op_type : ops_to_skip) {
     ops_to_skip_.insert(op_type);
   }
@@ -1242,10 +1263,10 @@ bool ShapeInference::InferShapeForXlaCallModule(XlaCallModuleOp op) {
     mlir::DialectRegistry registry;
     registry.insert<mlir::func::FuncDialect>();
     mlir::func::registerAllExtensions(registry);
-    xla_call_module_context_.appendDialectRegistry(registry);
+    xla_call_module_context_->appendDialectRegistry(registry);
 
     auto l = tensorflow::XlaCallModuleLoader::Create(
-        &xla_call_module_context_, op.getVersion(), op.getModule().str(),
+        xla_call_module_context_.get(), op.getVersion(), op.getModule().str(),
         std::move(disabled_checks), std::move(platforms),
         /*num_invocation_args=*/op.getArgs().size(),
         op.getHasTokenInputOutput());

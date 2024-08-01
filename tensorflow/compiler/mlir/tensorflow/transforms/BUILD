@@ -829,6 +829,7 @@ cc_library(
         "@local_xla//xla/service:shape_inference",
         "@local_xla//xla/translate/hlo_to_mhlo:hlo_utils",
         "@local_xla//xla/translate/mhlo_to_hlo:type_to_shape",
+        "@local_xla//xla/tsl/util:env_var",
     ],
 )
 
