@@ -2664,6 +2664,37 @@ cc_library(
 )
 
 cc_library(
+    name = "cudnn_custom_call_converter",
+    srcs = ["cudnn_custom_call_converter.cc"],
+    hdrs = ["cudnn_custom_call_converter.h"],
+    deps = [
+        ":backend_configs_cc",
+        ":ir_emission_utils",
+        "//xla/hlo/ir:hlo",
+        "//xla/hlo/utils:hlo_query",
+        "//xla/service:hlo_pass",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+xla_cc_test(
+    name = "cudnn_custom_call_converter_test",
+    srcs = ["cudnn_custom_call_converter_test.cc"],
+    deps = [
+        ":cudnn_custom_call_converter",
+        "//xla/hlo/ir:hlo",
+        "//xla/service:pattern_matcher",
+        "//xla/service:pattern_matcher_gmock",
+        "//xla/tests:hlo_test_base",
+        "//xla/tests:xla_internal_test_main",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_library(
     name = "cudnn_workspace_rewriter",
     srcs = if_cuda_is_configured(["cudnn_workspace_rewriter.cc"]),
     hdrs = if_cuda_is_configured(["cudnn_workspace_rewriter.h"]),
@@ -3164,6 +3195,7 @@ cc_library(
         ":compile_module_to_llvm_ir",
         ":conv_layout_normalization",
         ":copy_fusion",
+        ":cudnn_custom_call_converter",
         ":custom_kernel_fusion_autotuner",
         ":custom_kernel_fusion_rewriter",
         ":dot_dimension_sorter",
