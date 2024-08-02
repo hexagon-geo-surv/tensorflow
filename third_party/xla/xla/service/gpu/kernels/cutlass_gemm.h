@@ -46,6 +46,16 @@ namespace xla::gpu::kernel::gemm_universal {
 
 enum class Arch { kDefault, kSm80, kSm90 };
 
+// Keep in sync with cutlass::gemm::GemmUniversalMode.
+enum class GemmMode {
+  kGemm,
+  kGemmSplitKParallel,
+  kBatched,
+  kArray,
+  kGrouped,
+  kInvalid
+};
+
 template <Arch arch>
 struct Bf16xBf16ToBf16 {};
 
@@ -54,6 +64,9 @@ struct F32xF32ToF32 {};
 
 template <Arch arch>
 struct Bf16xBf16ToF32 {};
+
+template <Arch arch>
+struct Bf16xF32ToF32 {};
 
 template <Arch arch>
 struct Bf16xS8ToF32 {};
@@ -138,6 +151,12 @@ struct DynamicSliceArguments {
 // Type-erased CUTLASS gemm arguments structure that has all of the details
 // required for packing CUTLASS kernel parameters.
 struct Arguments {
+  GemmMode mode;
+
+  // Number of batches when mode is `kBatched`.
+  // Number of k-slices when mode is `kGemmSplitKParallel`.
+  int32_t batch_count;
+
   int32_t m;
   int32_t n;
   int32_t k;
