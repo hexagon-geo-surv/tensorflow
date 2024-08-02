@@ -429,6 +429,10 @@ void BFloat16Propagation::DetermineInstructionPrecision(HloInstruction* hlo,
     return;
   }
 
+  if (!bfloat16_support_->SupportsMixedPrecisions(*hlo)) {
+    return;
+  }
+
   ShapeUtil::ForEachSubshape(
       hlo->shape(),
       [hlo, this](const Shape& /* subshape */, const ShapeIndex& index) {
