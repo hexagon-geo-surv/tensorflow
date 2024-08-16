@@ -1186,7 +1186,11 @@ class BaseSession(SessionInterface):
             np_val = subfeed_val.to_numpy_array()
             feed_handles[subfeed_t.ref()] = subfeed_val
           else:
-            np_val = np.asarray(subfeed_val, dtype=subfeed_dtype)
+            if subfeed_dtype is not None and np.issubdtype(
+                subfeed_dtype, np.number):
+              np_val = np.asarray(subfeed_val).astype(subfeed_dtype)
+            else:
+              np_val = np.asarray(subfeed_val, dtype=subfeed_dtype)
 
           if (not is_tensor_handle_feed and
               not subfeed_t.get_shape().is_compatible_with(np_val.shape)):
