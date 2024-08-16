@@ -116,8 +116,6 @@ class RaggedFactoryOpsTest(test_util.TensorFlowTestCase,
         return it.get_next_as_optional()
 
     t = ragged_factory()
-    if t.dtype == dtypes.string:
-      self.skipTest('b/241136926: fix RaggedTensorFromVariant copy')
     result = dataset_producer(t)
     self.assertAllEqual(
         self.evaluate(t[0]), self.evaluate(result[0].get_value()[0]))
