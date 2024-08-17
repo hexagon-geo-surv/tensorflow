@@ -420,6 +420,32 @@ struct DeferredExecutor : public AsyncValue::Executor {
   std::vector<Task> tasks;
 };
 
+TEST(AsyncValueRefTest, MakeAsyncValueRef) {
+  DeferredExecutor executor;
+
+  {  // Make AsyncValueRef from a function that returns a value.
+    AsyncValueRef<float> ref =
+        MakeAsyncValueRef<float>(executor, []() -> float { return 42.0f; });
+
+    EXPECT_FALSE(ref.IsAvailable());
+    EXPECT_EQ(executor.Quiesce(), 1);
+
+    EXPECT_TRUE(ref.IsAvailable());
+    EXPECT_EQ(ref.get(), 42.0f);
+  }
+
+  {  // Make AsyncValueRef from a function that returns a failable value
+    AsyncValueRef<float> ref = TryMakeAsyncValueRef<float>(
+        executor, []() -> absl::StatusOr<float> { return 42.0f; });
+
+    EXPECT_FALSE(ref.IsAvailable());
+    EXPECT_EQ(executor.Quiesce(), 1);
+
+    EXPECT_TRUE(ref.IsAvailable());
+    EXPECT_EQ(ref.get(), 42.0f);
+  }
+}
+
 TEST(AsyncValueRefTest, MapAvailableOnExecutor) {
   AsyncValueRef<int32_t> ref = MakeAvailableAsyncValueRef<int32_t>(42);
 
