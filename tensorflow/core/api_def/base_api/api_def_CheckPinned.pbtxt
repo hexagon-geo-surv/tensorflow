@@ -1,0 +1,9 @@
+op {
+  graph_op_name: "CheckPinned"
+  summary: "Checks whether a tensor is located in GPU pinned memory."
+  description: <<END
+When run:
+- Reports a `FailedPrecondition` error if the op is not placed on a GPU device.
+- Reports an `InvalidArgument` error if `tensor` is not in GPU pinned memory.
+END
+}
