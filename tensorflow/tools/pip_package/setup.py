@@ -85,8 +85,8 @@ REQUIRED_PACKAGES = [
     'libclang >= 13.0.0',
     'ml_dtypes >= 0.3.1, < 0.5.0',
     # TODO(b/304751256): Adjust the numpy pin to a single version, when ready
-    'numpy >= 1.23.5, < 2.0.0 ; python_version <= "3.11"',
-    'numpy >= 1.26.0, < 2.0.0 ; python_version >= "3.12"',
+    'numpy >= 1.23.5, < 2.2.0 ; python_version <= "3.11"',
+    'numpy >= 1.26.0, < 2.2.0 ; python_version >= "3.12"',
     'opt_einsum >= 2.3.2',
     'packaging',
     # pylint:disable=line-too-long
