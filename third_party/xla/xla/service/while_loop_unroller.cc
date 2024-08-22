@@ -64,11 +64,6 @@ namespace {
 
 using hlo_query::ContainsInstrWithOpcode;
 
-// Parameters for the unroller that can be adjusted.
-const int kUnrollTripCountThreshold = 64;
-const int kUnrollInstructionCountThreshold = 800;
-const int kUnrollExpandFactorThreshold = 10000;
-
 // Helper function to create a condition for a single iteration while loop in
 // the form of 'i <= init_value' where i is the induction variable.
 std::unique_ptr<HloComputation> MakeTrivialLoopCondition(
@@ -232,42 +227,41 @@ UnrollSingleIterationOfTrivialLoop(HloInstruction* while_op,
 // 2. trip count.
 // 3. unroll expansion limit (#_body_instructions * trip_count).
 // These conditions can be changed per usecase.
-bool InitialFeasibilityCheck(HloInstruction* while_op, WhileLoopConfig config) {
+bool InitialFeasibilityCheck(const HloInstruction* while_op,
+                             const WhileLoopConfig config,
+                             const UnrollConfig unroll_config) {
   CHECK_EQ(while_op->opcode(), HloOpcode::kWhile);
 
   VLOG(5) << "Trying to unroll " << while_op->ToShortString();
 
-  // TODO(b/291628533): Extract this parameter to the unroller config. We don't
-  // attempt to unroll loops where the body has more than
+  // We don't attempt to unroll loops where the body has more than
   // kUnrollInstructionCountThreshold instructions.
   if (while_op->while_body()->instruction_count() >
-      kUnrollInstructionCountThreshold) {
+      unroll_config.instruction_count_threshold) {
     VLOG(5) << absl::StrCat(
         "Cannot unroll while loop. Too many instructions in the body: ",
         while_op->while_body()->instruction_count());
     return false;
   }
 
-  // TODO(b/291628533): Extract this parameter to the an unroller config. We
-  // only unroll loops up to a threshold.
-  if (config.trip_count > kUnrollTripCountThreshold) {
+  // We only unroll loops up to a threshold.
+  if (config.trip_count > unroll_config.trip_count_threshold) {
     VLOG(5) << absl::StrCat(
-        "Cannot unroll while loop. The tip count is greater "
+        "Cannot unroll while loop. The trip count is greater "
         "than the threshold: ",
-        config.trip_count, " vs ", kUnrollTripCountThreshold);
+        config.trip_count, " vs ", unroll_config.trip_count_threshold);
     return false;
   }
 
-  // TODO(b/291628533): Extract this parameter to the unroller config. We don't
-  // unroll loops that increase the instruction count by more than
+  // We don't unroll loops that increase the instruction count by more than
   // kUnrollExpandFactorThreshold.
   if (config.trip_count * while_op->while_body()->instruction_count() >
-      kUnrollExpandFactorThreshold) {
+      unroll_config.expand_factor_threshold) {
     VLOG(5) << absl::StrCat(
         "Not attempting to unroll due to instruction count "
         "increase explosion. New instruction count: ",
         config.trip_count * while_op->while_body()->instruction_count(), " vs ",
-        kUnrollExpandFactorThreshold);
+        unroll_config.expand_factor_threshold);
     return false;
   }
   return true;
@@ -278,7 +272,6 @@ absl::StatusOr<bool> UnrollInternal(HloInstruction* while_op,
   VLOG(3) << "Unrolling while instruction " << while_op->ToShortString()
           << " with body instruction count "
           << while_op->while_body()->instruction_count();
-
   HloModule* module = while_op->GetModule();
   HloComputation* computation = while_op->parent();
   HloInstruction* unrolled_body_call_op;
@@ -589,7 +582,6 @@ std::optional<int64_t> MatchShapeCoveringDynamicIndexInstruction(
             << while_op->ToShortString();
     return std::nullopt;
   }
-
   std::optional<int64_t> indvar_tuple_idx =
       GetLoopInductionVarTupleIdx(while_op);
   if (!indvar_tuple_idx.has_value()) {
@@ -606,7 +598,6 @@ std::optional<int64_t> MatchShapeCoveringDynamicIndexInstruction(
     return std::nullopt;
   }
   Literal indvar_iter_val = std::move(indvar_init_result).value();
-
   std::optional<int64_t> trip_count =
       MatchTrivialLoopTripCount(while_op, *indvar_tuple_idx, indvar_iter_val);
   if (!trip_count.has_value()) {
@@ -661,7 +652,8 @@ std::optional<int64_t> MatchShapeCoveringDynamicIndexInstruction(
 /*static*/ std::vector<std::pair<HloInstruction*, WhileLoopConfig>>
 WhileLoopUnroller::GetUnrollableLoops(
     HloModule* module,
-    const absl::flat_hash_set<absl::string_view>& execution_threads) {
+    const absl::flat_hash_set<absl::string_view>& execution_threads,
+    const UnrollConfig& unroll_config) {
   // Processing the while loops in the reverse topological order. If the body
   // of while loop A calls while loop B, B comes before A.
   std::vector<HloInstruction*> all_while_ops;
@@ -669,12 +661,11 @@ WhileLoopUnroller::GetUnrollableLoops(
     absl::c_copy_if(comp->instructions(), std::back_inserter(all_while_ops),
                     HloPredicateIsOp<HloOpcode::kWhile>);
   }
-
   std::vector<std::pair<HloInstruction*, WhileLoopConfig>> while_loop_configs;
   for (HloInstruction* instr : all_while_ops) {
     std::optional<WhileLoopConfig> config = IsLoopUnrollable(instr);
     if (config.has_value()) {
-      if (!InitialFeasibilityCheck(instr, config.value())) {
+      if (!InitialFeasibilityCheck(instr, config.value(), unroll_config)) {
         VLOG(3) << "Initial feasibility check failed for " << instr->name();
         continue;
       }
@@ -686,7 +677,7 @@ WhileLoopUnroller::GetUnrollableLoops(
 
 /*static*/ absl::StatusOr<bool> WhileLoopUnroller::Unroll(
     HloInstruction* while_op, int64_t unroll_factor, bool wrap_in_trivial_loop,
-    bool force_unroll, bool prepare) {
+    bool force_unroll, bool prepare, const UnrollConfig& unroll_config) {
   bool changed = false;
   HloModule* module = while_op->GetModule();
   // TODO(b/288130138): For now, we only support full unrolling. Will add
@@ -713,7 +704,8 @@ WhileLoopUnroller::GetUnrollableLoops(
     return false;
   }
 
-  if (!force_unroll && !InitialFeasibilityCheck(while_op, config.value())) {
+  if (!force_unroll &&
+      !InitialFeasibilityCheck(while_op, config.value(), unroll_config)) {
     return false;
   }
 
@@ -743,12 +735,10 @@ absl::StatusOr<bool> WhileLoopUnroller::Run(
   }
   XLA_VLOG_LINES(3, "WhileLoopUnroller::Run(), before:\n" + module->ToString());
   bool changed = false;
-
   // Make sure all the necessary passes are executed before unrolling in order
   // to unroll every possible loop.
   TF_ASSIGN_OR_RETURN(changed,
                       PrepareModuleForUnrolling(module, execution_threads));
-
   // Processing the while loops in the reverse of topological order. If the body
   // of while loop A calls while loop B, B comes before A.
   std::vector<HloInstruction*> all_while_ops;
@@ -756,13 +746,12 @@ absl::StatusOr<bool> WhileLoopUnroller::Run(
     absl::c_copy_if(comp->instructions(), std::back_inserter(all_while_ops),
                     HloPredicateIsOp<HloOpcode::kWhile>);
   }
-
   // Gather a preliminary vector of all the while ops that we think we can
   // unroll. We do this ahead of time so we don't have to worry about mutating
   // the lists of computations or instructions while we iterate.
   std::vector<std::pair<HloInstruction*, WhileLoopConfig>>
-      unrollable_while_ops = GetUnrollableLoops(module, execution_threads);
-
+      unrollable_while_ops =
+          GetUnrollableLoops(module, execution_threads, unroll_config_);
   VLOG(3) << "Number of while instructions in the module to unroll: "
           << unrollable_while_ops.size();
 
