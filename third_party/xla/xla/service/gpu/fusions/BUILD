@@ -78,6 +78,7 @@ cc_library(
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
     deps = [
         ":fusion_emitter",
+        "//xla:literal",
         "//xla:shape_util",
         "//xla:status_macros",
         "//xla:util",
