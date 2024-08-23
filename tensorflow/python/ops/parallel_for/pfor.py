@@ -2257,6 +2257,29 @@ def _convert_reshape(pfor_input: _PforInput):
   return wrap(array_ops.reshape(t, new_shape), True)
 
 
+@RegisterPFor("TopK")
+def _convert_topk(pfor_input: _PforInput):
+  inp = pfor_input.stacked_input(0)
+  outputs = _create_op(
+      op_type=pfor_input.op_type,
+      inputs=[inp],
+      op_dtypes=[x.dtype for x in pfor_input.outputs],
+      attrs=pfor_input.op.node_def.attr).outputs
+  return [wrap(x, True) for x in outputs]
+
+
+@RegisterPFor("TopKV2")
+def _convert_topk_v2(pfor_input: _PforInput):
+  inp = pfor_input.stacked_input(0)
+  k = pfor_input.unstacked_input(1)
+  outputs = _create_op(
+      op_type=pfor_input.op_type,
+      inputs=[inp, k],
+      op_dtypes=[x.dtype for x in pfor_input.outputs],
+      attrs=pfor_input.op.node_def.attr).outputs
+  return [wrap(x, True) for x in outputs]
+
+
 @RegisterPFor("Fill")
 def _convert_fill(pfor_input: _PforInput):
   dims = pfor_input.unstacked_input(0)
