@@ -1535,8 +1535,17 @@ absl::Status GpuCompiler::OptimizeHloPostLayoutAssignment(
   TF_RETURN_IF_ERROR(AddGemmFusionAutotuningPasses(&pipeline, hlo_module,
                                                    autotune_config, thread_pool,
                                                    options.key_value_store));
-  // Inline back the calls which have better performance with cuBLAS.
+  // Inline back the calls which have better performance with cuBLAS or Custom
+  // Kernel Fusions.
   pipeline.AddPass<CallInliner>();
+
+  // // Greedily pattern match and replace with Custom Kernel Fusions (e.g.
+  // Cutlass kernels with upcasts).
+  pipeline.AddPass<SimplifyFPConversions>();
+  pipeline.AddPass<CustomKernelFusionRewriter>(
+      &gpu_target_config.device_description);
+  pipeline.AddPass<CustomKernelFusionAutotuner>(autotune_config);
+
   // TODO(tdanyluk): Apply CublasPadForGemms to the cuBLAS GEMMs generated
   // here for possibly better cuBLAS performance.
   AddGemmRewriterPasses(pipeline, debug_options, gpu_version,
