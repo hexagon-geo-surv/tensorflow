@@ -380,8 +380,9 @@ enum class CompilerOptions : int8_t {
   CL_OPT_DISABLE = 3,
   CL_2_0 = 4,
   CL_3_0 = 5,
+  CL_REGISTER_ALLOCATION_64 = 6,
   MIN = ADRENO_FULL_SIMD_LINE,
-  MAX = CL_3_0
+  MAX = CL_REGISTER_ALLOCATION_64
 };
 
 inline const CompilerOptions (&EnumValuesCompilerOptions())[6] {
@@ -391,7 +392,8 @@ inline const CompilerOptions (&EnumValuesCompilerOptions())[6] {
     CompilerOptions::CL_FAST_RELAXED_MATH,
     CompilerOptions::CL_OPT_DISABLE,
     CompilerOptions::CL_2_0,
-    CompilerOptions::CL_3_0
+    CompilerOptions::CL_3_0,
+    CompilerOptions::CL_REGISTER_ALLOCATION_64
   };
   return values;
 }
@@ -404,6 +406,7 @@ inline const char * const *EnumNamesCompilerOptions() {
     "CL_OPT_DISABLE",
     "CL_2_0",
     "CL_3_0",
+    "CL_REGISTER_ALLOCATION_64",
     nullptr
   };
   return names;
