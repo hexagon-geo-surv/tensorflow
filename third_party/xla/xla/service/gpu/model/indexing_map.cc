@@ -2061,11 +2061,6 @@ bool IndexingMap::ReplaceConstantRTVars() {
       did_simplify = true;
     }
   }
-
-  for (auto index : llvm::reverse(to_delete)) {
-    rt_vars_.erase(rt_vars_.begin() + index);
-  }
-
   return did_simplify;
 }
 
