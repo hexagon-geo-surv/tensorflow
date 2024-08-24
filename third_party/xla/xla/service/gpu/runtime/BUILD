@@ -310,6 +310,8 @@ xla_cc_test(
         ":nccl_clique_key",
         "//xla/service:global_device_id",
         "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest_main",
         "@local_tsl//tsl/platform:test",
         "@local_tsl//tsl/platform:test_main",
     ],
