@@ -241,21 +241,25 @@ struct RewriteXlaGpuLoop : mlir::OpRewritePattern<LoopOp> {
   }
 };
 
+mlir::VectorType getThreadLevelVectorType(IndexedVectorType indexed_vector) {
+  SmallVector<int64_t> vector_dims;
+  IndexingMap map = indexed_vector.getIndexingMapAttr().getIndexingMap();
+  for (auto bound : map.GetSymbolBounds()) {
+    vector_dims.push_back(bound.GetLoopTripCount());
+  }
+  auto data_type = indexed_vector.getElementType();
+  return mlir::VectorType::get(vector_dims, data_type);
+}
+
 struct RewriteMaterialize : mlir::OpRewritePattern<MaterializeOp> {
   using OpRewritePattern::OpRewritePattern;
 
   mlir::LogicalResult matchAndRewrite(
       MaterializeOp op, mlir::PatternRewriter& rewriter) const override {
-    mlir::ImplicitLocOpBuilder b(op.getLoc(), rewriter);
+    ImplicitLocOpBuilder b(op.getLoc(), rewriter);
 
-    SmallVector<int64_t> vector_dims;
-    IndexingMap out_map =
-        op.getResult().getType().getIndexingMapAttr().getIndexingMap();
-    for (auto bound : out_map.GetSymbolBounds()) {
-      vector_dims.push_back(bound.GetLoopTripCount());
-    }
     auto data_type = op.getResult().getType().getElementType();
-    mlir::VectorType vec_type = mlir::VectorType::get(vector_dims, data_type);
+    auto vec_type = getThreadLevelVectorType(op.getResult().getType());
     Value init_vec;
     if (mlir::isa<mlir::IntegerType>(data_type)) {
       init_vec = b.create<mlir::arith::ConstantOp>(mlir::DenseElementsAttr::get(
@@ -269,13 +273,15 @@ struct RewriteMaterialize : mlir::OpRewritePattern<MaterializeOp> {
 
     auto loop = b.create<LoopOp>(
         op.getMapAttr(), op.getIndices(), ValueRange{init_vec},
-        [&](mlir::OpBuilder&, mlir::Location, ValueRange ivs,
-            ValueRange map_results, ValueRange iter_args) {
+        [&](OpBuilder&, Location, ValueRange ivs, ValueRange map_results,
+            ValueRange iter_args) {
           auto args = SmallVector<Value, 4>(op.getInput());
           args.insert(args.end(), map_results.begin(), map_results.end());
           SmallVector<mlir::Type, 1> types{data_type};
           auto call =
               b.create<PureCallOp>(op.getCalleeAttr(), ValueRange{args}, types);
+          IndexingMap out_map =
+              op.getResult().getType().getIndexingMapAttr().getIndexingMap();
           auto out_indexing =
               b.create<ApplyIndexingOp>(op.getIndices(), ivs, out_map);
           SmallVector<mlir::OpFoldResult> offset(out_indexing->getResults());
@@ -292,6 +298,39 @@ struct RewriteMaterialize : mlir::OpRewritePattern<MaterializeOp> {
   }
 };
 
+struct RewriteInsert : mlir::OpRewritePattern<InsertOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  mlir::LogicalResult matchAndRewrite(
+      InsertOp op, mlir::PatternRewriter& rewriter) const override {
+    ImplicitLocOpBuilder b(op.getLoc(), rewriter);
+    auto convert =
+        b.create<mlir::UnrealizedConversionCastOp>(
+             getThreadLevelVectorType(op.getSource().getType()), op.getSource())
+            .getResult(0);
+    IndexingMap source_map =
+        op.getSource().getType().getIndexingMapAttr().getIndexingMap();
+    auto loop = b.create<LoopOp>(
+        op.getMapAttr(), op.getIndices(), ValueRange{op.getDest()},
+        [&](OpBuilder&, Location, ValueRange ivs, ValueRange map_results,
+            ValueRange iter_args) {
+          // TODO: I don't think we should be apply indexing to this lil 2x2
+          // vector...but how do we extract from it? Can we assume ivs starts at
+          // 0 and counts up perfectly?
+          SmallVector<mlir::OpFoldResult> vector_offset(ivs);
+          auto scalar =
+              b.create<mlir::vector::ExtractOp>(convert, vector_offset);
+          auto new_tensor = b.create<mlir::tensor::InsertOp>(
+              scalar.getResult(), iter_args.back(),
+              ValueRange(map_results.begin(), map_results.end()));
+          b.create<YieldOp>(new_tensor);
+        });
+    rewriter.replaceOp(op, loop->getResults());
+
+    return success();
+  }
+};
+
 class LowerXlaGpuToScfPass
     : public impl::LowerXlaGpuToScfPassBase<LowerXlaGpuToScfPass> {
  public:
@@ -299,7 +338,7 @@ class LowerXlaGpuToScfPass
     auto* ctx = &getContext();
     mlir::RewritePatternSet patterns(ctx);
     patterns.add<RewritePredicatedInsert, RewritePredicatedExtract,
-                 RewriteShuffleReduce, RewriteMaterialize>(ctx);
+                 RewriteShuffleReduce, RewriteMaterialize, RewriteInsert>(ctx);
     if (mlir::failed(mlir::applyPatternsAndFoldGreedily(getOperation(),
                                                         std::move(patterns)))) {
       signalPassFailure();
