@@ -1745,9 +1745,6 @@ cc_library(
 xla_test(
     name = "compiler_test",
     srcs = ["compiler_test.cc"],
-    backend_tags = {
-        "gpu": if_google(["requires-gpu-nvidia"]),
-    },
     backends = [
         "gpu",
         "cpu",
