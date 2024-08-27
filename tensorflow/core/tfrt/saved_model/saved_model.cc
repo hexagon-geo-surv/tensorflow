@@ -24,6 +24,7 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "base/timer.h"
 #include "absl/cleanup/cleanup.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
@@ -637,10 +638,16 @@ absl::StatusOr<std::unique_ptr<SavedModel>> SavedModelImpl::LoadSavedModel(
     if (*model_restore_context == nullptr) {
       return absl::InternalError("IfrtModelRestoreContexts must not be null.");
     }
+    WallTimer prepare_restore_timer;
+    prepare_restore_timer.Start();
     TF_RETURN_IF_ERROR(
         PrepareRestore(&context, &model_context, meta_graph_def,
                        *fallback_state, std::string(saved_model_dir), options,
                        (*model_restore_context)->checkpoint_loader()));
+
+    LOG(INFO) << "TFRT finished prepare restore. Took "
+              << absl::ToInt64Milliseconds(prepare_restore_timer.GetDuration())
+              << " ms.";
   }
 
   GetDefaultInputValue(meta_graph_def.signature_def(), model_context,

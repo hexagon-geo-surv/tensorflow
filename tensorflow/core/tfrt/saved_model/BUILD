@@ -101,6 +101,7 @@ cc_library(
     visibility = ["//visibility:private"],
     deps = [
         ":saved_model_util",
+        "//base:timer",
         "//tensorflow/cc/saved_model:reader",
         "//tensorflow/compiler/jit:flags_headers",
         "//tensorflow/compiler/mlir/tensorflow",
