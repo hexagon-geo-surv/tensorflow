@@ -1,0 +1,150 @@
+diff --git shardy/dialect/sdy/ir/BUILD shardy/dialect/sdy/ir/BUILD
+index dd34491..d1325c7 100644
+--- shardy/dialect/sdy/ir/BUILD
++++ shardy/dialect/sdy/ir/BUILD
+@@ -177,7 +177,6 @@ cc_library(
+         "@llvm-project//llvm:Support",
+         "@llvm-project//mlir:BytecodeOpInterface",
+         "@llvm-project//mlir:FuncDialect",
+-        "@llvm-project//mlir:FuncExtensions",
+         "@llvm-project//mlir:IR",
+         "@llvm-project//mlir:InferTypeOpInterface",
+         "@llvm-project//mlir:SideEffectInterfaces",
+@@ -198,3 +197,17 @@ cc_test(
+         "@llvm-project//mlir:Support",
+     ],
+ )
++
++cc_library(
++    name = "register",
++    srcs = ["register.cc"],
++    hdrs = ["register.h"],
++    deps = [
++        ":dialect",
++        "//third_party/openxla/shardy/src:defs",
++        "@llvm-project//mlir:FuncDialect",
++        "@llvm-project//mlir:FuncExtensions",
++        "@llvm-project//mlir:IR",
++        "@stablehlo//:stablehlo_ops",
++    ],
++)
+diff --git shardy/dialect/sdy/ir/dialect_test.cc shardy/dialect/sdy/ir/dialect_test.cc
+index 6c5c595..7b85428 100644
+--- shardy/dialect/sdy/ir/dialect_test.cc
++++ shardy/dialect/sdy/ir/dialect_test.cc
+@@ -20,7 +20,7 @@ limitations under the License.
+ 
+ #include "mlir/IR/MLIRContext.h"
+ #include "mlir/Support/LLVM.h"
+-#include "shardy/dialect/sdy/ir/utils.h"
++#include "shardy/dialect/sdy/ir/dialect.h"
+ #include <gmock/gmock.h>
+ #include <gtest/gtest.h>
+ 
+@@ -33,7 +33,7 @@ using ::testing::HasSubstr;
+ 
+ class DialectTest : public ::testing::Test {
+  protected:
+-  void SetUp() override { loadAllRequiredDialects(&context); }
++  void SetUp() override { context.loadDialect<SdyDialect>(); }
+ 
+   MeshAttr createMesh(ArrayRef<StringRef> axisNames) {
+     SmallVector<MeshAxisAttr> meshAxisAttrs;
+diff --git shardy/dialect/sdy/ir/utils.cc shardy/dialect/sdy/ir/utils.cc
+index 5a000af..3c31046 100644
+--- shardy/dialect/sdy/ir/utils.cc
++++ shardy/dialect/sdy/ir/utils.cc
+@@ -24,7 +24,6 @@ limitations under the License.
+ #include "llvm/Support/ErrorHandling.h"
+ #include "llvm/Support/Threading.h"
+ #include "llvm/Support/raw_ostream.h"
+-#include "mlir/Dialect/Func/Extensions/AllExtensions.h"
+ #include "mlir/Dialect/Func/IR/FuncOps.h"
+ #include "mlir/IR/Attributes.h"
+ #include "mlir/IR/BuiltinAttributes.h"
+@@ -40,7 +39,6 @@ limitations under the License.
+ #include "shardy/dialect/sdy/ir/constants.h"
+ #include "shardy/dialect/sdy/ir/data_flow_utils.h"
+ #include "shardy/dialect/sdy/ir/dialect.h"
+-#include "stablehlo/dialect/StablehloOps.h"
+ 
+ namespace mlir {
+ namespace sdy {
+@@ -325,13 +323,5 @@ void removeShardingRules(Operation* rootOp) {
+   });
+ }
+ 
+-void loadAllRequiredDialects(MLIRContext* context) {
+-  DialectRegistry registry;
+-  func::registerAllExtensions(registry);
+-  registry.insert<SdyDialect, func::FuncDialect, stablehlo::StablehloDialect>();
+-  context->appendDialectRegistry(registry);
+-  context->loadAllAvailableDialects();
+-}
+-
+ }  // namespace sdy
+ }  // namespace mlir
+diff --git shardy/dialect/sdy/ir/utils.h shardy/dialect/sdy/ir/utils.h
+index c151955..b4337b6 100644
+--- shardy/dialect/sdy/ir/utils.h
++++ shardy/dialect/sdy/ir/utils.h
+@@ -178,8 +178,6 @@ SmallVector<TensorShardingAttr> getShardings(ValueRange values);
+ // ones.
+ void removeShardingRules(Operation* rootOp);
+ 
+-void loadAllRequiredDialects(MLIRContext* context);
+-
+ // Gets the `op` body's terminator.
+ template <typename RegionOpTy>
+ Operation* getBodyTerminator(RegionOpTy op) {
+diff --git shardy/dialect/sdy/transforms/common/BUILD shardy/dialect/sdy/transforms/common/BUILD
+index b1d8a75..a465e48 100644
+--- shardy/dialect/sdy/transforms/common/BUILD
++++ shardy/dialect/sdy/transforms/common/BUILD
+@@ -25,7 +25,7 @@ cc_test(
+     srcs = ["op_properties_test.cc"],
+     deps = [
+         ":op_properties",
+-        "//shardy/dialect/sdy/ir:dialect",
++        "//shardy/dialect/sdy/ir:register",
+         "@com_google_googletest//:gtest_main",
+         "@llvm-project//mlir:FuncDialect",
+         "@llvm-project//mlir:IR",
+diff --git shardy/dialect/sdy/transforms/common/op_properties_test.cc shardy/dialect/sdy/transforms/common/op_properties_test.cc
+index b40bdc7..90e1de6 100644
+--- shardy/dialect/sdy/transforms/common/op_properties_test.cc
++++ shardy/dialect/sdy/transforms/common/op_properties_test.cc
+@@ -24,7 +24,7 @@ limitations under the License.
+ #include "mlir/IR/OwningOpRef.h"
+ #include "mlir/Parser/Parser.h"
+ #include "mlir/Support/LLVM.h"
+-#include "shardy/dialect/sdy/ir/utils.h"
++#include "shardy/dialect/sdy/ir/register.h"
+ #include "stablehlo/dialect/StablehloOps.h"
+ #include <gtest/gtest.h>
+ 
+diff --git shardy/dialect/sdy/transforms/propagation/BUILD shardy/dialect/sdy/transforms/propagation/BUILD
+index dae695a..51f27f5 100644
+--- shardy/dialect/sdy/transforms/propagation/BUILD
++++ shardy/dialect/sdy/transforms/propagation/BUILD
+@@ -177,6 +177,7 @@ cc_library(
+         ":sharding_projection",
+         ":utils",
+         "//shardy/dialect/sdy/ir:dialect",
++        "//shardy/dialect/sdy/ir:register",
+         "@com_google_googletest//:gtest",
+         "@llvm-project//llvm:Support",
+         "@llvm-project//mlir:IR",
+diff --git shardy/dialect/sdy/transforms/propagation/testing_utils.h shardy/dialect/sdy/transforms/propagation/testing_utils.h
+index 5a7bb71..12661e4 100644
+--- shardy/dialect/sdy/transforms/propagation/testing_utils.h
++++ shardy/dialect/sdy/transforms/propagation/testing_utils.h
+@@ -21,7 +21,7 @@ limitations under the License.
+ #include "mlir/IR/MLIRContext.h"
+ #include "mlir/Support/LLVM.h"
+ #include "shardy/dialect/sdy/ir/dialect.h"
+-#include "shardy/dialect/sdy/ir/utils.h"
++#include "shardy/dialect/sdy/ir/register.h"
+ #include "shardy/dialect/sdy/transforms/propagation/sharding_projection.h"
+ #include <gmock/gmock.h>
+ #include <gtest/gtest.h>
