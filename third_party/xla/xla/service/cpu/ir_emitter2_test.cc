@@ -160,7 +160,7 @@ TEST_F(IrEmitter2Test, BuildKernelPrototype) {
     CHECK-NEXT: getelementptr inbounds nuw %SE_HOST_KernelCallFrame, {{.*}} i32 3
     CHECK:      load ptr
     CHECK:      getelementptr %SE_HOST_KernelArg, {{.*}} i32 0, i32 0
-    CHECK:      %[[ARG0:.+]] = load ptr, {{.*}}, !invariant.load ![[SCOPE0:.+]], !dereferenceable ![[DEREF_BYTES:.*]], !align ![[ALIGNMENT:.+]]
+    CHECK:      %[[ARG0:.+]] = load ptr, {{.*}}, !invariant.load ![[SCOPE0:.+]], !dereferenceable ![[DEREF_BYTES:.+]], !align ![[ALIGNMENT:.+]]
 
     CHECK-NEXT: getelementptr inbounds nuw %SE_HOST_KernelCallFrame, {{.*}} i32 3
     CHECK:      load ptr
@@ -199,8 +199,7 @@ TEST_F(IrEmitter2Test, BuildKernelPrototype) {
     CHECK: }
 
     #0 = { uwtable "frame-pointer"="all" "prefer-vector-width"="256" }
-    CHECK-DAG: ![[DEREF_BYTES]] = !{i64 32}
-    CHECK-DAG: ![[ALIGNMENT]] = !{i64 16}
+    CHECK-DAG: ![[ALIGNMENT]] = !{i64 {{[0-9]+}}}
     CHECK-DAG: ![[SCOPE0]] = !{}
     CHECK-DAG: ![[SCOPE1]] = !{![[RES0:.+]], ![[RES1:.+]]}
     CHECK-DAG: ![[SCOPE2]] = !{![[RES0]]}
@@ -208,6 +207,14 @@ TEST_F(IrEmitter2Test, BuildKernelPrototype) {
     CHECK-DAG: ![[RES0]] = !{!"{{.*}}, offset:512, {{.*}}", ![[DOMAIN:.+]]}
     CHECK-DAG: ![[RES1]] = !{!"{{.*}}, offset:768, {{.*}}", ![[DOMAIN]]}
     CHECK-DAG: ![[DOMAIN]] = !{!"XLA host kernel test AA domain"}
+  )"));
+
+  // Match for dereferenceable metadata in separate check, because depending on
+  // the alignment value, it may be the same scope as align, and may be
+  // separate. It's impossible to match both these cases in one FileCheck.
+  ASSERT_TRUE(*RunFileCheck(llvm_ir::DumpToString(module.get()), R"(
+    CHECK:      {{.+}} = load ptr, {{.*}}, !dereferenceable ![[DEREF_BYTES:.+]],
+    CHECK: ![[DEREF_BYTES]] = !{i64 32}
   )"));
 }
 
