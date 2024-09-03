@@ -297,9 +297,20 @@ GpuPerformanceModelWithIndexingAnalysis::EstimateRunTimeForTiledHloComputation(
   int64_t num_blocks = launch_dimensions.num_blocks();
 
   for (const auto& tiled_hlo : tiled_hlo_computation.instructions()) {
+    // Number of elements in the tile.
+    int64_t tile_size = Product(tiled_hlo->tile_sizes());
+
+    // We'll need to at least 1 register to store 1 element of the tile. If the
+    // tile is too large, the registers are guaranteed to spill. Here we make an
+    // that we don't want to generate a spilling kernel and would rather try
+    // different tiling or a different fusion.
+    if (tile_size > device_info_->registers_per_block_limit()) {
+      return EstimateRunTimeData::Infinite();
+    }
+
     // Total number of elements that are read from memory or computed for this
     // tile across all blocks.
-    int64_t num_elements = num_blocks * Product(tiled_hlo->tile_sizes());
+    int64_t num_elements = num_blocks * tile_size;
 
     const HloInstruction* hlo = tiled_hlo->hlo();
 
