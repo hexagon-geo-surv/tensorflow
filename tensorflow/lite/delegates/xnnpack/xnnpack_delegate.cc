@@ -4213,11 +4213,12 @@ class Subgraph {
       return kTfLiteError;
     }
 
-    if (NumDimensions(&input_tensor) == 0) {
+    const int num_input_dims = NumDimensions(&input_tensor);
+    if (num_input_dims == 0) {
       TF_LITE_MAYBE_KERNEL_LOG(
           logging_context,
           "unexpected number of shape dimensions %d in tensor #%d",
-          NumDimensions(&input_tensor), node->inputs->data[0]);
+          num_input_dims, node->inputs->data[0]);
       return kTfLiteError;
     }
 
@@ -4237,6 +4238,26 @@ class Subgraph {
         &output_max));
 
     uint32_t dq_quantized_id = XNN_INVALID_VALUE_ID;
+    size_t num_nonbatch_dims = 1;
+    // Which input dimensions are part of input_channels.
+    if (dynamically_quantized) {
+      int ic = input_tensor.dims->data[num_input_dims - 1];
+      for (int input_dims_remaining = num_input_dims - 2;
+           ic != input_channels && input_dims_remaining >= 0;
+           input_dims_remaining--) {
+        ic *= input_tensor.dims->data[input_dims_remaining];
+        ++num_nonbatch_dims;
+      }
+      if (ic != input_channels) {
+        TF_LITE_MAYBE_KERNEL_LOG(
+            logging_context,
+            "Could not determine how many input dimensions to use for "
+            "input_channels: %s node #%d, assuming 1",
+            EnumNameBuiltinOperator(BuiltinOperator_FULLY_CONNECTED),
+            node_index);
+        num_nonbatch_dims = 1;
+      }
+    }
     if (subgraph != nullptr) {
       if (dynamically_quantized) {
         TfLiteAffineQuantization* filter_params =
@@ -4259,10 +4280,10 @@ class Subgraph {
         }
         std::vector<size_t> input_dims(
             &input_tensor.dims->data[0],
-            &input_tensor.dims->data[NumDimensions(&input_tensor)]);
+            &input_tensor.dims->data[num_input_dims]);
         xnn_status status = xnn_define_dynamically_quantized_tensor_value(
-            subgraph, xnn_datatype_qdint8, input_dims.size(),
-            /*num_non_batch_dims=*/1, input_dims.data(), XNN_INVALID_VALUE_ID,
+            subgraph, xnn_datatype_qdint8, input_dims.size(), num_nonbatch_dims,
+            input_dims.data(), XNN_INVALID_VALUE_ID,
             /*flags=*/0, &dq_quantized_id);
         if (status != xnn_status_success) {
           TF_LITE_KERNEL_LOG(logging_context,
