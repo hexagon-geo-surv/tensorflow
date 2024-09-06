@@ -95,22 +95,6 @@ ContextMap<hipCtx_t, GpuContext>* GetContextMap() {
   return context_map;
 }
 
-absl::StatusOr<GpuContext*> GetPointerContext(hipDeviceptr_t pointer) {
-  GpuContext* context = nullptr;
-  hipError_t result = wrap::hipPointerGetAttribute(
-      &context, HIP_POINTER_ATTRIBUTE_CONTEXT, pointer);
-  if (result == hipSuccess) {
-    if (context == nullptr) {
-      return absl::UnavailableError(
-          "Empty context returned while querying context for device pointer");
-    }
-    return context;
-  }
-
-  return absl::InternalError(absl::StrCat(
-      "failed to query context for device pointer: ", ToString(result)));
-}
-
 }  // namespace
 
 // Formats hipError_t to output prettified values into a log stream.
@@ -239,54 +223,6 @@ void GpuContext::SetActive() {
 bool GpuContext::IsActive() const { return CurrentContext() == context_; }
 
 namespace {
-
-// Returns a stringified device number associated with pointer, primarily for
-// logging purposes. Returns "?" if the device could not be successfully
-// queried.
-std::string ROCMPointerToDeviceString(hipDeviceptr_t pointer) {
-  auto value = GpuDriver::GetPointerDevice(pointer);
-  if (value.ok()) {
-    return absl::StrCat(value.value());
-  }
-  LOG(ERROR) << "could not query device: " << value.status();
-  return "?";
-}
-
-// Returns a stringified memory space associated with pointer, primarily for
-// logging purposes. Returns "?" if the memory space could not be successfully
-// queried.
-std::string ROCMPointerToMemorySpaceString(hipDeviceptr_t pointer) {
-  auto value = GpuDriver::GetPointerMemorySpace(pointer);
-  if (value.ok()) {
-    return MemoryTypeString(value.value());
-  }
-  LOG(ERROR) << "could not query device: " << value.status();
-  return "?";
-}
-
-// Returns a stringified representation of whether or not peer access is
-// permitted between the "from" and "to" pointers' associated contexts,
-// primarily for logging purposes. Returns "error" if an error is encountered
-// in the process of querying.
-std::string ROCMPointersToCanAccessString(hipDeviceptr_t from,
-                                          hipDeviceptr_t to) {
-  auto from_context = GetPointerContext(from);
-  if (!from_context.ok()) {
-    LOG(ERROR) << "could not retrieve source pointer's context: "
-               << from_context.status();
-    return "source ptr error";
-  }
-  auto to_context = GetPointerContext(to);
-  if (!to_context.ok()) {
-    LOG(ERROR) << "could not retrieve destination pointer's context: "
-               << to_context.status();
-    return "destination ptr error";
-  }
-  return GpuDriver::CanEnablePeerAccess(from_context.value(),
-                                        to_context.value())
-             ? "true"
-             : "false";
-}
 
 // Actually performs the work of ROCM initialization. Wrapped up in one-time
 // execution guard.
@@ -835,99 +771,6 @@ absl::Status GpuDriver::GraphAddChildNode(hipGraphNode_t* node,
   return absl::OkStatus();
 }
 
-static hipMemAccessFlags ToHipMemAccessFlags(
-    GpuDriver::MemAccessFlags access_flags) {
-  switch (access_flags) {
-    case GpuDriver::MemAccessFlags::kNone:
-      return hipMemAccessFlagsProtNone;
-    case GpuDriver::MemAccessFlags::kRead:
-      return hipMemAccessFlagsProtRead;
-    case GpuDriver::MemAccessFlags::kReadWrite:
-      return hipMemAccessFlagsProtReadWrite;
-  }
-}
-
-static hipMemLocationType ToHipLocationType(
-    GpuDriver::MemLocationType location_type) {
-  switch (location_type) {
-    case GpuDriver::MemLocationType::kInvalid:
-      return hipMemLocationTypeInvalid;
-    case GpuDriver::MemLocationType::kDevice:
-      return hipMemLocationTypeDevice;
-    case GpuDriver::MemLocationType::kHost:
-    case GpuDriver::MemLocationType::kHostNuma:
-    case GpuDriver::MemLocationType::kHostNumaCurrent:
-      return hipMemLocationTypeInvalid;
-  }
-}
-
-static hipMemAllocationType ToHipAllocationType(
-    GpuDriver::MemAllocationType allocation_type) {
-  switch (allocation_type) {
-    case GpuDriver::MemAllocationType::kInvalid:
-      return hipMemAllocationTypeInvalid;
-    case GpuDriver::MemAllocationType::kPinned:
-      return hipMemAllocationTypePinned;
-  }
-}
-
-/*static*/ absl::Status GpuDriver::GraphAddMemFreeNode(
-    GpuGraphNodeHandle* node, GpuGraphHandle graph,
-    absl::Span<const GpuGraphNodeHandle> deps, GpuDevicePtr gpu_dst) {
-  RETURN_IF_ROCM_ERROR(wrap::hipGraphAddMemFreeNode(node, graph, deps.data(),
-                                                    deps.size(), gpu_dst),
-                       "Failed to add memory free node to a HIP graph");
-  return absl::OkStatus();
-}
-
-/*static*/ absl::Status GpuDriver::GraphAddMemAllocNode(
-    GpuGraphNodeHandle* node, GpuGraphHandle graph,
-    absl::Span<const GpuGraphNodeHandle> deps, MemAccessFlags access_flags,
-    MemLocationType location_type, int device_id,
-    MemAllocationType allocation_type, uint64_t size, GpuDevicePtr* d_ptr,
-    uint64_t max_pool_size) {
-  hipMemLocation mem_loc = {
-      .type = ToHipLocationType(location_type),
-      .id = device_id,
-  };
-
-  hipMemPoolProps props{};
-  props.allocType = ToHipAllocationType(allocation_type);
-  props.handleTypes = hipMemHandleTypeNone;
-  props.location = mem_loc;
-
-  hipMemAccessDesc mem_desc = {
-      .location = mem_loc,
-      .flags = ToHipMemAccessFlags(access_flags),
-  };
-
-  hipMemAllocNodeParams params{
-      .poolProps = props,
-      .accessDescs = &mem_desc,
-      .accessDescCount = 1,
-      .bytesize = size,
-      .dptr = nullptr,
-  };
-
-  RETURN_IF_ROCM_ERROR(wrap::hipGraphAddMemAllocNode(node, graph, deps.data(),
-                                                     deps.size(), &params),
-                       "Failed to add memory allocation node to a HIP graph");
-
-  VLOG(2) << "Add MemAllocNode to a graph " << graph << " size " << size
-          << " address " << reinterpret_cast<void*>(params.dptr);
-
-  *d_ptr = params.dptr;
-  return absl::OkStatus();
-}
-
-/*static*/ absl::StatusOr<std::pair<GpuDevicePtr, uint64_t>>
-GpuDriver::GraphGetMemAllocNodeParams(GpuGraphNodeHandle node) {
-  hipMemAllocNodeParams params;
-  RETURN_IF_ROCM_ERROR(wrap::hipGraphMemAllocNodeGetParams(node, &params),
-                       "Failed to get memory allocation node parameter");
-  return std::pair<GpuDevicePtr, uint64_t>{params.dptr, params.bytesize};
-}
-
 absl::Status GpuDriver::GraphAddMemcpyD2DNode(
     Context* context, GpuGraphNodeHandle* node, GpuGraphHandle graph,
     absl::Span<const GpuGraphNodeHandle> deps, GpuDevicePtr gpu_dst,
@@ -1249,9 +1092,13 @@ void GpuDriver::DestroyStream(Context* context, GpuStreamHandle stream) {
   if (stream == nullptr) {
     return;
   }
+  hipError_t res = wrap::hipStreamQuery(stream);
+  if (res != hipSuccess) {
+    LOG(ERROR) << "stream not idle on destroy: " << ToString(res);
+  }
 
   ScopedActivateContext activated(context);
-  hipError_t res = wrap::hipStreamDestroy(stream);
+  res = wrap::hipStreamDestroy(stream);
   if (res != hipSuccess) {
     LOG(ERROR) << "failed to destroy ROCM stream for device "
                << context->device_ordinal() << ": " << ToString(res);
@@ -1406,9 +1253,9 @@ absl::Status GpuDriver::RecordEvent(Context* context, GpuEventHandle event,
   }
 }
 
-bool GpuDriver::GetEventElapsedTime(Context* context,
-                                    float* elapsed_milliseconds,
-                                    GpuEventHandle start, GpuEventHandle stop) {
+absl::StatusOr<float> GpuDriver::GetEventElapsedTime(Context* context,
+                                                     GpuEventHandle start,
+                                                     GpuEventHandle stop) {
   ScopedActivateContext activated{context};
   // The stop event must have completed in order for hipEventElapsedTime to
   // work.
@@ -1417,14 +1264,12 @@ bool GpuDriver::GetEventElapsedTime(Context* context,
     LOG(ERROR) << "failed to synchronize the stop event: " << ToString(res);
     return false;
   }
-  res = wrap::hipEventElapsedTime(elapsed_milliseconds, start, stop);
-  if (res != hipSuccess) {
-    LOG(ERROR) << "failed to get elapsed time between events: "
-               << ToString(res);
-    return false;
-  }
+  float elapsed_milliseconds;
+  RETURN_IF_ROCM_ERROR(
+      wrap::hipEventElapsedTime(&elapsed_milliseconds, start, stop),
+      "failed to get elapsed time between events");
 
-  return true;
+  return elapsed_milliseconds;
 }
 
 absl::Status GpuDriver::WaitStreamOnEvent(Context* context,
@@ -1452,20 +1297,6 @@ absl::Status GpuDriver::SynchronizeStream(Context* context,
   VLOG(2) << "successfully synchronized stream " << stream << " on device "
           << context->device_ordinal();
   return absl::OkStatus();
-}
-
-bool GpuDriver::IsStreamIdle(Context* context, GpuStreamHandle stream) {
-  ScopedActivateContext activated{context};
-  CHECK(stream != nullptr);
-  hipError_t res = wrap::hipStreamQuery(stream);
-  if (res == hipSuccess) {
-    return true;
-  }
-
-  if (res != hipErrorNotReady) {
-    LOG(ERROR) << "stream in bad state on status query: " << ToString(res);
-  }
-  return false;
 }
 
 absl::Status GpuDriver::SynchronousMemcpyD2H(Context* context, void* host_dst,
@@ -1645,26 +1476,6 @@ absl::StatusOr<MemoryType> GpuDriver::GetPointerMemorySpace(
       "failed to query device pointer for memory space: ", ToString(result)));
 }
 
-absl::StatusOr<hipDevice_t> GpuDriver::GetPointerDevice(
-    hipDeviceptr_t pointer) {
-  hipPointerAttribute_t pointerAttributes;
-  hipError_t result =
-      wrap::hipPointerGetAttributes(&pointerAttributes, pointer);
-  if (result != hipSuccess) {
-    return absl::InternalError(
-        absl::StrCat("failed to get device for pointer: ", ToString(result)));
-  }
-
-  hipDevice_t device;
-  result = wrap::hipDeviceGet(&device, pointerAttributes.device);
-  if (result != hipSuccess) {
-    return absl::InternalError(
-        absl::StrCat("failed to get device for pointer: ", ToString(result)));
-  }
-
-  return device;
-}
-
 absl::Status GpuDriver::GetGpuISAVersion(int* version, hipDevice_t device) {
   hipDeviceProp_t props;
   hipError_t result = wrap::hipGetDeviceProperties(&props, device);
@@ -1694,22 +1505,6 @@ absl::Status GpuDriver::GetGpuGCNArchName(hipDevice_t device,
   *gcnArchName = "";
   return absl::InternalError(absl::StrFormat(
       "failed to determine AMDGpu GCN Arch Name for device %d", device));
-}
-
-absl::StatusOr<bool> GpuDriver::GetMFMASupport() {
-  hipDeviceProp_t props;
-  int dev = 0;
-  hipError_t result = wrap::hipGetDevice(&dev);
-  result = wrap::hipGetDeviceProperties(&props, dev);
-  if (result == hipSuccess) {
-    std::string gcnArchName = props.gcnArchName;
-    VLOG(3) << "GCN arch name " << gcnArchName;
-    auto compute_capability = RocmComputeCapability(gcnArchName);
-    VLOG(3) << "GCN arch name (stripped) " << compute_capability.gfx_version();
-    return compute_capability.gfx9_mi100_or_later();
-  }
-  return absl::InternalError(absl::StrFormat(
-      "failed to determine AMDGpu GCN Arch Name for device %d", dev));
 }
 
 // Helper function that turns the integer output of hipDeviceGetAttribute to
