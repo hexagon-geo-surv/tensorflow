@@ -602,7 +602,8 @@ class Interpreter:
     Returns:
       A dictionary containing the following fields of the tensor:
         'name': The tensor name.
-        'index': The tensor index in the interpreter.
+        'index': The tensor index in the subgraph.
+        'subgraph_index': The subgraph index the tensor belongs to.
         'shape': The shape of the tensor.
         'quantization': Deprecated, use 'quantization_parameters'. This field
             only works for per-tensor quantization, whereas
@@ -636,6 +637,7 @@ class Interpreter:
     details = {
         'name': tensor_name,
         'index': tensor_index,
+        'subgraph_index': subgraph_index,
         'shape': tensor_size,
         'shape_signature': tensor_size_signature,
         'dtype': tensor_type,
@@ -645,7 +647,7 @@ class Interpreter:
             'zero_points': tensor_quantization_params[1],
             'quantized_dimension': tensor_quantization_params[2],
         },
-        'sparsity_parameters': tensor_sparsity_params
+        'sparsity_parameters': tensor_sparsity_params,
     }
 
     return details
@@ -672,11 +674,12 @@ class Interpreter:
       A list of dictionaries containing tensor information.
     """
     tensor_details = []
-    for idx in range(self._interpreter.NumTensors(0)):
-      try:
-        tensor_details.append(self._get_tensor_details(idx, subgraph_index=0))
-      except ValueError:
-        pass
+    for subgraph_index in range(self._interpreter.NumSubgraphs()):
+      for idx in range(self._interpreter.NumTensors(subgraph_index)):
+        try:
+          tensor_details.append(self._get_tensor_details(idx, subgraph_index))
+        except ValueError:
+          pass
     return tensor_details
 
   def get_input_details(self):
