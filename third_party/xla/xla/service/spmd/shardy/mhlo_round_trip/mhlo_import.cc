@@ -510,7 +510,7 @@ LogicalResult importShardings(
           argNum, kShardingAttr,
           convertToNewSharding(parseShardingFromString(oldSharding), globalMesh,
                                deviceIdToMaximalMeshName,
-                               mlir::cast<RankedTensorType>(argType).getRank(),
+                               mlir::cast<mlir::ShapedType>(argType).getRank(),
                                shouldOpenDims(allowPropagationToArgs, argNum)));
       funcOp.removeArgAttr(argNum, kXlaShardingAttr);
     }
@@ -524,7 +524,7 @@ LogicalResult importShardings(
           convertToNewSharding(
               parseShardingFromString(oldSharding), globalMesh,
               deviceIdToMaximalMeshName,
-              mlir::cast<RankedTensorType>(resType).getRank(),
+              mlir::cast<mlir::ShapedType>(resType).getRank(),
               shouldOpenDims(allowPropagationToResults, resNum)));
       funcOp.removeResultAttr(
           resNum, StringAttr::get(funcOp.getContext(), kXlaShardingAttr));
@@ -544,7 +544,7 @@ LogicalResult importShardings(
            llvm::zip_equal(flatHloSharding, op->getResultTypes())) {
         newShardings.push_back(convertToNewSharding(
             resHloSharding, globalMesh, deviceIdToMaximalMeshName,
-            mlir::cast<RankedTensorType>(resType).getRank(),
+            mlir::cast<mlir::ShapedType>(resType).getRank(),
             /*openDims=*/false));
       }
       op->setAttr(kShardingAttr, TensorShardingPerValueAttr::get(
