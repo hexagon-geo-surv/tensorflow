@@ -14,7 +14,10 @@ load(
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
-    default_visibility = ["//tensorflow/lite:__subpackages__"],
+    default_visibility = [
+        "//tensorflow/compiler/mlir/lite/experimental/lrt:__subpackages__",
+        "//tensorflow/lite:__subpackages__",
+    ],
     licenses = ["notice"],
 )
 
