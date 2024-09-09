@@ -785,22 +785,6 @@ bool AbsComplexSkip(NativeRefT real, NativeRefT imag) {
 }
 
 template <typename NativeRefT>
-double AbsComplexPreV6TpuRelErr(NativeRefT real, NativeRefT imag) {
-  NativeRefT abs_max = std::max(std::abs(real), std::abs(imag));
-  NativeRefT kOne(1);
-  NativeRefT reciprocal = kOne / abs_max;
-  if (IsSubnormalOrMinNormal(reciprocal)) {
-    // In this case, the reciprocal erroneously returns zero, and
-    // we get max(|real|, |imag|) instead of sqrt(real^2 + imag^2),
-    // so the relative error can be as large as (sqrt(2)-1)/sqrt(2) ~= 0.293,
-    // when using the typical hypot implementation hypot(max, min) = max *
-    // sqrt(1 + min / max).
-    return 0.293;
-  }
-  return 0.0;
-}
-
-template <typename NativeRefT>
 double AbsComplexTpuRelErr(NativeRefT real, NativeRefT imag) {
   NativeRefT abs_max = std::max(std::abs(real), std::abs(imag));
   NativeRefT kOne(1);
@@ -869,7 +853,7 @@ BINARY_TEST_COMPLEX(AbsComplex, {
   if (IsPreV6Tpu(platform_)) {
     error_spec_gen = +[](NativeRefT real, NativeRefT imag) {
       return ErrorSpec::Builder()
-          .rel_err(AbsComplexPreV6TpuRelErr(real, imag))
+          .rel_err(AbsComplexTpuRelErr(real, imag))
           .distance_err(125)
           .skip_comparison(AbsComplexSkip(real, imag))
           .build();
