@@ -15,9 +15,11 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/lite/stablehlo/transforms/legalize_hlo_conversions/reduce_window.h"
 
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <tuple>
+#include <vector>
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Sequence.h"
@@ -27,6 +29,7 @@ limitations under the License.
 #include "mlir/IR/Attributes.h"  // from @llvm-project
 #include "mlir/IR/Builders.h"  // from @llvm-project
 #include "mlir/IR/BuiltinAttributes.h"  // from @llvm-project
+#include "mlir/IR/BuiltinTypeInterfaces.h"  // from @llvm-project
 #include "mlir/IR/IRMapping.h"  // from @llvm-project
 #include "mlir/IR/MLIRContext.h"  // from @llvm-project
 #include "mlir/IR/Matchers.h"  // from @llvm-project
@@ -438,6 +441,54 @@ bool isFloatMinusInfinity(Value value) {
   return element.isInfinity() && element.isNegative();
 }
 
+TFL::PadV2Op get_explicit_pad_op(mhlo::ReduceWindowOp op, const Layout& layout,
+                                 ShapedType& input_type,
+                                 ShapedType& output_type, Value input,
+                                 const ReduceWindowView& view,
+                                 PatternRewriter& rewriter) {
+  // The following works only for rank=4 which is checked above.
+
+  std::vector<int64_t> shape = {layout.Rank(), layout.NumSpatials()};
+
+  // Create attribute 1: padding_values
+  // For an NHWC with this padding: [[a, b], [c, d], [e, f], [g, h]]
+  // we want [a, b, c, d, e, f, g, h]
+  llvm::SmallVector<int64_t, 8> values;
+  for (auto& padding : view.Paddings()) {
+    values.push_back(padding.Lo());
+    values.push_back(padding.Hi());
+  }
+
+  auto padding_dense_attr = mlir::DenseElementsAttr::get(
+      mlir::RankedTensorType::get(shape, rewriter.getIntegerType(64)),
+      llvm::ArrayRef<int64_t>(values));
+
+  auto padding_values =
+      rewriter.create<arith::ConstantOp>(op.getLoc(), padding_dense_attr);
+
+  // Create attribute 2: padding_constant
+  auto padding_constant_dense_attr = mlir::DenseElementsAttr::get(
+      mlir::RankedTensorType::get({}, rewriter.getF32Type()),
+      std::numeric_limits<float>::lowest());
+  auto padding_constant = rewriter.create<arith::ConstantOp>(
+      op.getLoc(), padding_constant_dense_attr);
+
+  // Replace the hard-coded shape
+  llvm::SmallVector<int64_t, 4> pad_output_shape_vector;
+  pad_output_shape_vector.push_back(input_type.getDimSize(0));
+  pad_output_shape_vector.push_back(input_type.getDimSize(1) +
+                                    view.Paddings()[1].Lo() +
+                                    view.Paddings()[1].Hi());
+  pad_output_shape_vector.push_back(input_type.getDimSize(2) +
+                                    view.Paddings()[2].Lo() +
+                                    view.Paddings()[2].Hi());
+  pad_output_shape_vector.push_back(input_type.getDimSize(3));
+  auto pad_output_type = mlir::RankedTensorType::get(
+      pad_output_shape_vector, output_type.getElementType());
+  return rewriter.create<TFL::PadV2Op>(op.getLoc(), pad_output_type, input,
+                                       padding_values, padding_constant);
+}
+
 class LegalizeMaxPool : public OpConversionPattern<mhlo::ReduceWindowOp> {
  public:
   using OpConversionPattern::OpConversionPattern;
@@ -494,15 +545,23 @@ LogicalResult LegalizeMaxPool::matchAndRewrite(
   auto opt_tfl_padding =
       GetTFLPadding(view.Paddings(), view.WindowStrides(),
                     input_type.getShape(), view.WindowDims());
-  if (!opt_tfl_padding.has_value()) {
-    return rewriter.notifyMatchFailure(op, "Padding not SAME or VALID.");
+
+  Value max_pool_input;
+  std::string tfl_padding_attr;
+  if (opt_tfl_padding.has_value()) {
+    max_pool_input = input;
+    tfl_padding_attr = opt_tfl_padding.value();
+  } else {
+    max_pool_input = get_explicit_pad_op(op, layout, input_type, type, input,
+                                         view, rewriter);
+    tfl_padding_attr = "VALID";
   }
-  const auto& tfl_padding = opt_tfl_padding.value();
 
   auto [fh, fw, sh, sw, p, faf] =
-      BuildTFLPoolAttrs(rewriter, view, tfl_padding);
-  rewriter.replaceOpWithNewOp<TFL::MaxPool2DOp>(op, type, input, p, sw, sh, fw,
-                                                fh, faf);
+      BuildTFLPoolAttrs(rewriter, view, tfl_padding_attr);
+
+  rewriter.replaceOpWithNewOp<TFL::MaxPool2DOp>(op, type, max_pool_input, p, sw,
+                                                sh, fw, fh, faf);
 
   return success();
 }
