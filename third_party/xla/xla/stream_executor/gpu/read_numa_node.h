@@ -13,29 +13,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef XLA_STREAM_EXECUTOR_GPU_SCOPED_ACTIVATE_CONTEXT_H_
-#define XLA_STREAM_EXECUTOR_GPU_SCOPED_ACTIVATE_CONTEXT_H_
+#ifndef XLA_STREAM_EXECUTOR_GPU_READ_NUMA_NODE_H_
+#define XLA_STREAM_EXECUTOR_GPU_READ_NUMA_NODE_H_
 
-#include "xla/stream_executor/gpu/context.h"
-#include "xla/stream_executor/gpu/gpu_executor.h"
+#include <string>
 
 namespace stream_executor::gpu {
 
-// Ensures a context is activated within a scope.
-class ScopedActivateContext {
- public:
-  // Activates the context Context::SetActive.
-  explicit ScopedActivateContext(Context* gpu_context);
-  explicit ScopedActivateContext(GpuExecutor* gpu_executor);
-
-  // Checks that the context has remained activated for the duration of the
-  // scope.
-  ~ScopedActivateContext();
-
- private:
-  Context* to_restore_ = nullptr;
-};
+// Attempts to read the NUMA node corresponding to the GPU device's PCI bus out
+// of SysFS. Returns -1 if it cannot.
+int ReadNumaNode(const std::string& pci_bus_id, int device_ordinal);
 
 }  // namespace stream_executor::gpu
 
-#endif  // XLA_STREAM_EXECUTOR_GPU_SCOPED_ACTIVATE_CONTEXT_H_
+#endif  // XLA_STREAM_EXECUTOR_GPU_READ_NUMA_NODE_H_
