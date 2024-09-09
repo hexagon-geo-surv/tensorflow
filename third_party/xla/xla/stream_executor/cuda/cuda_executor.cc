@@ -36,6 +36,7 @@ limitations under the License.
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
 #include "third_party/gpus/cuda/include/cuda.h"
+#include "xla/layout.h"
 #include "xla/stream_executor/blas.h"
 #include "xla/stream_executor/command_buffer.h"
 #include "xla/stream_executor/cuda/cuda_diagnostics.h"
@@ -446,7 +447,7 @@ absl::Status GpuExecutor::GetKernelMetadata(GpuKernel* cuda_kernel,
 }
 
 DeviceMemoryBase GpuExecutor::Allocate(uint64_t size, int64_t memory_space) {
-  if (memory_space == 1) {
+  if (memory_space == xla::Layout::kCollectiveMemorySpace) {
     auto result = GpuCollectives::CollectiveMemoryAllocate(context_, size);
     if (!result.ok()) {
       LOG(ERROR) << result.status();

@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "absl/status/status.h"
 #include "xla/hlo/ir/hlo_opcode.h"
+#include "xla/layout.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/service/hlo_alias_analysis.h"
 #include "xla/service/hlo_ordering.h"
@@ -28,10 +29,9 @@ limitations under the License.
 namespace xla {
 namespace gpu {
 
-inline constexpr int64_t kCollectiveMemorySpaceColor = 1;
 inline constexpr int64_t kTempBufferMemorySpaceColor = 2;
 
-// Set memory space to kCollectiveMemorySpaceColor for all allocations used by
+// Set memory space to kCollectiveMemorySpace for all allocations used by
 // all-reduce, all-gather, and reduce-scatter. This memory space maps to
 // collective memory using ncclMemAlloc in the runtime.
 inline BufferAssigner::Colorer CollectiveColorer() {
@@ -58,7 +58,7 @@ inline BufferAssigner::Colorer CollectiveColorer() {
               alias->instruction()->opcode() == HloOpcode::kAsyncDone) &&
              kSupportedOpcodes->contains(
                  alias->instruction()->async_wrapped_opcode()))) {
-          value->set_color(kCollectiveMemorySpaceColor);
+          value->set_color(Layout::kCollectiveMemorySpace);
         }
       }
       if (!value->has_color()) {

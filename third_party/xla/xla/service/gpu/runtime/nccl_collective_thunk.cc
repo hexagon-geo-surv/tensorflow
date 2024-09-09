@@ -37,6 +37,7 @@ limitations under the License.
 #include "mlir/IR/Value.h"
 #include "xla/debug_options_flags.h"
 #include "xla/hlo/ir/hlo_instructions.h"
+#include "xla/layout.h"
 #include "xla/layout_util.h"
 #include "xla/primitive_util.h"
 #include "xla/service/collective_ops_utils.h"
@@ -66,7 +67,6 @@ namespace xla {
 namespace gpu {
 namespace {
 
-static constexpr int64_t kCollectiveMemorySpaceColor = 1;
 static constexpr NcclStreamId kNoStreamId = NcclStreamId(0);
 
 bool IsTypeSupportedByNccl(PrimitiveType element_type,
@@ -347,11 +347,11 @@ absl::Status MaybeRegisterBuffers(NcclApi* nccl_api, int device_ordinal,
                                   const std::vector<DeviceBufferPair>& buffers,
                                   NcclApi::NcclCommHandle comm) {
   for (int i = 0; i < buffers.size(); ++i) {
-    if (buffers[i].source_memory_space == kCollectiveMemorySpaceColor) {
+    if (buffers[i].source_memory_space == Layout::kCollectiveMemorySpace) {
       TF_RETURN_IF_ERROR(RegisterBufferOnce(nccl_api, device_ordinal, comm,
                                             buffers[i].source_buffer));
     }
-    if (buffers[i].destination_memory_space == kCollectiveMemorySpaceColor) {
+    if (buffers[i].destination_memory_space == Layout::kCollectiveMemorySpace) {
       TF_RETURN_IF_ERROR(RegisterBufferOnce(nccl_api, device_ordinal, comm,
                                             buffers[i].destination_buffer));
     }

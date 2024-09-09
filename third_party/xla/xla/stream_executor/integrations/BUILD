@@ -86,6 +86,7 @@ xla_cc_test(
     srcs = ["tf_allocator_adapter_test.cc"],
     deps = [
         ":tf_allocator_adapter",
+        "//xla:shape_util",
         "//xla/service:cpu_plugin",
         "//xla/service:platform_util",
         "//xla/stream_executor",

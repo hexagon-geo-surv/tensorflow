@@ -859,6 +859,7 @@ cuda_only_cc_library(
         ":cuda_platform_id",
         ":cuda_runtime",  # buildcleaner: keep
         ":cuda_version_parser",
+        "//xla:shape_util",
         "//xla/stream_executor",
         "//xla/stream_executor:blas",
         "//xla/stream_executor:command_buffer",

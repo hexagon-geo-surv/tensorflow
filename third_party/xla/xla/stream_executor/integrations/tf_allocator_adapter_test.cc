@@ -24,6 +24,7 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "absl/container/node_hash_set.h"
 #include "absl/log/check.h"
+#include "xla/layout.h"
 #include "xla/service/platform_util.h"
 #include "xla/stream_executor/device_memory_allocator.h"
 #include "xla/stream_executor/platform.h"
@@ -79,35 +80,46 @@ TEST(MultiDeviceAdapter, UsesCorrectAllocator) {
 
   std::vector<se::MultiDeviceAdapter::AllocatorInfo> infos;
   infos.emplace_back(std::make_unique<TestAllocator>(0x1000), stream.get(),
-                     /*memory_space=*/0, /*device_ordinal=*/0);
+                     /*memory_space=*/xla::Layout::kDefaultMemorySpace,
+                     /*device_ordinal=*/0);
   infos.emplace_back(std::make_unique<TestAllocator>(0x2000), stream.get(),
-                     /*memory_space=*/0, /*device_ordinal=*/1);
+                     /*memory_space=*/xla::Layout::kDefaultMemorySpace,
+                     /*device_ordinal=*/1);
   infos.emplace_back(std::make_unique<TestAllocator>(0x3000), stream.get(),
-                     /*memory_space=*/1, /*device_ordinal=*/0);
+                     /*memory_space=*/xla::Layout::kCollectiveMemorySpace,
+                     /*device_ordinal=*/0);
   infos.emplace_back(std::make_unique<TestAllocator>(0x4000), stream.get(),
-                     /*memory_space=*/1, /*device_ordinal=*/1);
+                     /*memory_space=*/xla::Layout::kCollectiveMemorySpace,
+                     /*device_ordinal=*/1);
   std::unique_ptr<se::DeviceMemoryAllocator> allocator =
       std::make_unique<se::MultiDeviceAdapter>(platform, std::move(infos));
 
   TF_ASSERT_OK_AND_ASSIGN(
       se::OwningDeviceMemory buff0,
-      allocator->Allocate(/*device_ordinal=*/0, 4, false, /*memory_space=*/0));
+      allocator->Allocate(/*device_ordinal=*/0, 4, false,
+                          /*memory_space=*/xla::Layout::kDefaultMemorySpace));
   CHECK_EQ(reinterpret_cast<size_t>(buff0->opaque()), 0x1001);
   TF_ASSERT_OK_AND_ASSIGN(
       se::OwningDeviceMemory buff1,
-      allocator->Allocate(/*device_ordinal=*/0, 4, false, /*memory_space=*/0));
+      allocator->Allocate(/*device_ordinal=*/0, 4, false,
+                          /*memory_space=*/xla::Layout::kDefaultMemorySpace));
   CHECK_EQ(reinterpret_cast<size_t>(buff1->opaque()), 0x1002);
   TF_ASSERT_OK_AND_ASSIGN(
       se::OwningDeviceMemory buff2,
-      allocator->Allocate(/*device_ordinal=*/0, 4, false, /*memory_space=*/1));
+      allocator->Allocate(
+          /*device_ordinal=*/0, 4, false,
+          /*memory_space=*/xla::Layout::kCollectiveMemorySpace));
   CHECK_EQ(reinterpret_cast<size_t>(buff2->opaque()), 0x3001);
   TF_ASSERT_OK_AND_ASSIGN(
       se::OwningDeviceMemory buff3,
-      allocator->Allocate(/*device_ordinal=*/1, 4, false, /*memory_space=*/0));
+      allocator->Allocate(/*device_ordinal=*/1, 4, false,
+                          /*memory_space=*/xla::Layout::kDefaultMemorySpace));
   CHECK_EQ(reinterpret_cast<size_t>(buff3->opaque()), 0x2001);
   TF_ASSERT_OK_AND_ASSIGN(
       se::OwningDeviceMemory buff4,
-      allocator->Allocate(/*device_ordinal=*/1, 4, false, /*memory_space=*/1));
+      allocator->Allocate(
+          /*device_ordinal=*/1, 4, false,
+          /*memory_space=*/xla::Layout::kCollectiveMemorySpace));
   CHECK_EQ(reinterpret_cast<size_t>(buff4->opaque()), 0x4001);
 }
 
@@ -123,7 +135,7 @@ TEST(MultiDeviceAdapter, DeallocationWithDifferentAllocator) {
   std::vector<se::MultiDeviceAdapter::AllocatorInfo> info_allocator;
   info_allocator.emplace_back(
       std::make_unique<TestAllocator>(0x1000, allocations), stream.get(),
-      /*memory_space=*/0, /*device_ordinal=*/0);
+      /*memory_space=*/xla::Layout::kDefaultMemorySpace, /*device_ordinal=*/0);
 
   std::unique_ptr<se::DeviceMemoryAllocator> allocator =
       std::make_unique<se::MultiDeviceAdapter>(platform,
@@ -132,14 +144,15 @@ TEST(MultiDeviceAdapter, DeallocationWithDifferentAllocator) {
   std::vector<se::MultiDeviceAdapter::AllocatorInfo> info_deallocator;
   info_deallocator.emplace_back(
       std::make_unique<TestAllocator>(0x1000, allocations), stream.get(),
-      /*memory_space=*/0, /*device_ordinal=*/0);
+      /*memory_space=*/xla::Layout::kDefaultMemorySpace, /*device_ordinal=*/0);
   std::unique_ptr<se::DeviceMemoryAllocator> deallocator =
       std::make_unique<se::MultiDeviceAdapter>(platform,
                                                std::move(info_deallocator));
 
   TF_ASSERT_OK_AND_ASSIGN(
       se::OwningDeviceMemory buff0,
-      allocator->Allocate(/*device_ordinal=*/0, 4, false, /*memory_space=*/0));
+      allocator->Allocate(/*device_ordinal=*/0, 4, false,
+                          /*memory_space=*/xla::Layout::kDefaultMemorySpace));
   CHECK_EQ(allocations->size(), 1);
   CHECK_EQ(reinterpret_cast<size_t>(buff0->opaque()), 0x1001);
 

@@ -933,7 +933,7 @@ GetStreamExecutorGpuDeviceAllocator(
                 allocator_config.preallocate, false, false, true));
         allocators.emplace_back(std::move(async_allocator),
                                 ordinal_and_device.second->compute_stream(),
-                                /*memory_space=*/0);
+                                /*memory_space=*/Layout::kDefaultMemorySpace);
       }
       break;
     }
@@ -950,7 +950,7 @@ GetStreamExecutorGpuDeviceAllocator(
                                allocator_config.gpu_system_memory_size));
         allocators.emplace_back(std::move(bfc_allocator),
                                 ordinal_and_device.second->compute_stream(),
-                                /*memory_space=*/0);
+                                /*memory_space=*/Layout::kDefaultMemorySpace);
       }
       break;
     }
@@ -977,7 +977,7 @@ GetStreamExecutorGpuDeviceAllocator(
             allocator_config.collective_memory_size));
     allocators.emplace_back(std::move(collective_bfc_allocator),
                             ordinal_and_device.second->compute_stream(),
-                            /*memory_space=*/1);
+                            /*memory_space=*/Layout::kCollectiveMemorySpace);
   }
 
   for (const auto& ordinal_and_device : addressable_devices) {
@@ -986,7 +986,7 @@ GetStreamExecutorGpuDeviceAllocator(
     allocators.emplace_back(std::move(host_allocator),
                             ordinal_and_device.second->compute_stream(),
                             /*memory_space=*/
-                            static_cast<int>(se::MemoryType::kHost));
+                            Layout::kHostMemorySpace);
   }
 
 #if defined(GOOGLE_CUDA) && CUDA_VERSION >= 11020

@@ -2298,6 +2298,7 @@ absl::StatusOr<std::unique_ptr<PjRtBuffer>> OutputBufferHelper(
       device->default_memory_space().value_or(nullptr);
   if (shape.has_layout()) {
     switch (shape.layout().memory_space()) {
+      case Layout::kCollectiveMemorySpace:
       case Layout::kDefaultMemorySpace:
         // Nothing to do, we have already set the default memory space.
         break;
@@ -3334,6 +3335,7 @@ absl::StatusOr<absl::string_view> MemoryKindFromSimpleShape(
   switch (shape.layout().memory_space()) {
     case Layout::kHostMemorySpace:
       return PinnedHostMemorySpace::kKind;
+    case Layout::kCollectiveMemorySpace:
     case Layout::kDefaultMemorySpace:
       return default_memory_kind;
     default:
