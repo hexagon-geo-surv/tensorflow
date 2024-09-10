@@ -1,3 +1,4 @@
+#include "xla/pjrt/pjrt_layout.h"
 /* Copyright 2022 The OpenXLA Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -115,13 +116,13 @@ class PjRtExecutable final
     return pjrt_executable_->GetOutputShardings();
   }
 
-  absl::StatusOr<std::vector<std::shared_ptr<const PjRtLayout>>>
+  absl::StatusOr<std::vector<std::shared_ptr<const xla::PjRtLayout>>>
   GetParameterLayouts() const override {
     DCHECK(this);
     return pjrt_executable_->GetParameterLayouts();
   }
 
-  absl::StatusOr<std::vector<std::shared_ptr<const PjRtLayout>>>
+  absl::StatusOr<std::vector<std::shared_ptr<const xla::PjRtLayout>>>
   GetOutputLayouts() const override {
     DCHECK(this);
     return pjrt_executable_->GetOutputLayouts();
@@ -240,13 +241,13 @@ class PjRtLoadedExecutable final
     return pjrt_loaded_executable_->GetOutputShardings();
   }
 
-  absl::StatusOr<std::vector<std::shared_ptr<const PjRtLayout>>>
+  absl::StatusOr<std::vector<std::shared_ptr<const xla::PjRtLayout>>>
   GetParameterLayouts() const override {
     DCHECK(this);
     return pjrt_loaded_executable_->GetParameterLayouts();
   }
 
-  absl::StatusOr<std::vector<std::shared_ptr<const PjRtLayout>>>
+  absl::StatusOr<std::vector<std::shared_ptr<const xla::PjRtLayout>>>
   GetOutputLayouts() const override {
     DCHECK(this);
     return pjrt_loaded_executable_->GetOutputLayouts();
