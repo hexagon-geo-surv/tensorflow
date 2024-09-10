@@ -418,7 +418,6 @@ absl::StatusOr<bool> ShardyXLA::Run(
   removeFrontendAttributes(
       hloModule,
       {kUseTupleArgs, kPythonIntegrationComplete, kMeshesRoundTripAttr});
-
   return true;
 }
 
