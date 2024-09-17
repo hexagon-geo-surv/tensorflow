@@ -13,13 +13,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "xla/stream_executor/cuda/cuda_collectives.h"
+
 #include <cstdint>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
 #include "xla/stream_executor/gpu/context.h"
-#include "xla/stream_executor/gpu/gpu_collectives.h"
 #include "xla/stream_executor/gpu/scoped_activate_context.h"
 #include "tsl/platform/logging.h"
 #include "tsl/platform/numbers.h"
@@ -30,7 +31,7 @@ limitations under the License.
 
 namespace stream_executor::gpu {
 
-/* static */ absl::StatusOr<void*> GpuCollectives::CollectiveMemoryAllocate(
+/* static */ absl::StatusOr<void*> CudaCollectives::CollectiveMemoryAllocate(
     Context* context, uint64_t bytes) {
   if (bytes == 0) return nullptr;
 
@@ -54,7 +55,7 @@ namespace stream_executor::gpu {
 #endif
 }
 
-/* static */ absl::Status GpuCollectives::CollectiveMemoryDeallocate(
+/* static */ absl::Status CudaCollectives::CollectiveMemoryDeallocate(
     Context* context, void* location) {
   ScopedActivateContext activation(context);
 

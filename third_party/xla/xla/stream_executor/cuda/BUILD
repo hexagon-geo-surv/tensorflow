@@ -214,9 +214,8 @@ cuda_only_cc_library(
 cuda_only_cc_library(
     name = "cuda_runtime",
     srcs = ["cuda_runtime.cc"],
+    hdrs = ["cuda_runtime.h"],
     deps = [
-        "//xla/stream_executor/gpu:gpu_runtime_header",
-        "//xla/stream_executor/gpu:gpu_types_header",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
@@ -224,18 +223,17 @@ cuda_only_cc_library(
         "@com_google_absl//absl/strings",
         "@local_config_cuda//cuda:cuda_headers",
         "@local_tsl//tsl/platform:logging",
-        "@local_tsl//tsl/platform:statusor",
     ],
 )
 
 cuda_only_cc_library(
     name = "cuda_collectives",
     srcs = ["cuda_collectives.cc"],
+    hdrs = ["cuda_collectives.h"],
     defines = if_nccl(["STREAM_EXECUTOR_GPU_ENABLE_XCCL"]),
     deps = [
         ":cuda_driver",
         "//xla/stream_executor/gpu:context",
-        "//xla/stream_executor/gpu:gpu_collectives_header",
         "//xla/stream_executor/gpu:scoped_activate_context",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -845,13 +843,13 @@ cuda_only_cc_library(
         "cuda_executor.h",
     ],
     deps = [
-        ":cuda_collectives",  # buildcleaner: keep
+        ":cuda_collectives",
         ":cuda_diagnostics",
         ":cuda_driver",
         ":cuda_event",  # buildcleaner: keep
         ":cuda_kernel",  # buildcleaner: keep
         ":cuda_platform_id",
-        ":cuda_runtime",  # buildcleaner: keep
+        ":cuda_runtime",
         ":cuda_version_parser",
         "//xla/stream_executor",
         "//xla/stream_executor:blas",
@@ -868,14 +866,12 @@ cuda_only_cc_library(
         "//xla/stream_executor:semantic_version",
         "//xla/stream_executor:stream_executor_h",
         "//xla/stream_executor/gpu:context",
-        "//xla/stream_executor/gpu:gpu_collectives_header",
         "//xla/stream_executor/gpu:gpu_command_buffer",
         "//xla/stream_executor/gpu:gpu_diagnostics_header",
         "//xla/stream_executor/gpu:gpu_driver_header",
         "//xla/stream_executor/gpu:gpu_event_header",
         "//xla/stream_executor/gpu:gpu_executor_header",
         "//xla/stream_executor/gpu:gpu_kernel_header",
-        "//xla/stream_executor/gpu:gpu_runtime_header",
         "//xla/stream_executor/gpu:gpu_semaphore",
         "//xla/stream_executor/gpu:gpu_stream_header",
         "//xla/stream_executor/gpu:gpu_timer",
