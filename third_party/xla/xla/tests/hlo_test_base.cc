@@ -21,6 +21,7 @@ limitations under the License.
 #include <memory>
 #include <set>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -28,10 +29,13 @@ limitations under the License.
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_replace.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "xla/debug_options_flags.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_opcode.h"
+#include "xla/hlo/pass/hlo_pass_interface.h"
 #include "xla/hlo/utils/hlo_query.h"
 #include "xla/layout_util.h"
 #include "xla/service/hlo_module_util.h"
@@ -52,6 +56,7 @@ limitations under the License.
 #include "xla/types.h"
 #include "tsl/platform/errors.h"
 #include "tsl/platform/logging.h"
+#include "tsl/platform/statusor.h"
 #include "tsl/platform/test.h"
 
 namespace xla {
@@ -148,6 +153,45 @@ HloTestBase::ParseAndReturnVerifiedModule(absl::string_view hlo_text,
                                           int64_t num_partitions) {
   return ParseAndReturnVerifiedModule(
       hlo_text, GetModuleConfigForTest(replica_count, num_partitions));
+}
+
+std::unique_ptr<HloPassInterface> HloTestBase::CreateHloTranformationPass() {
+  CHECK(false) << "Implement CreateHloTranformationPass() to return your pass";
+}
+
+using UniqueModule = absl::StatusOr<std::unique_ptr<HloModule>>;
+
+UniqueModule HloTestBase::Transform(bool expect_change,
+                                    absl::string_view hlo_template,
+                                    FixedMapping params) {
+  std::string hlo_string = absl::StrReplaceAll(hlo_template, params);
+  SCOPED_TRACE("Input HLO: " + hlo_string);
+  VLOG(7) << "Input HLO: " << hlo_string;
+  TF_ASSIGN_OR_RETURN(std::unique_ptr<HloModule> module,
+                      ParseAndReturnVerifiedModule(hlo_string));
+  std::unique_ptr<HloPassInterface> pass = CreateHloTranformationPass();
+  TF_ASSIGN_OR_RETURN(bool changed, RunHloPass(pass.get(), module.get()));
+  VLOG(7) << "Output HLO: "
+          << module->ToString(HloPrintOptions::ShortParsable());
+  EXPECT_EQ(changed, expect_change);
+  return module;
+}
+
+UniqueModule HloTestBase::TransformTrue(absl::string_view hlo_template,
+                                        FixedMapping params) {
+  return Transform(true, hlo_template, params);
+}
+
+UniqueModule HloTestBase::TransformFalse(absl::string_view hlo_template,
+                                         FixedMapping params) {
+  return Transform(false, hlo_template, params);
+}
+UniqueModule HloTestBase::TransformTrue(absl::string_view hlo) {
+  return Transform(true, hlo, {});
+}
+
+UniqueModule HloTestBase::TransformFalse(absl::string_view hlo) {
+  return Transform(false, hlo, {});
 }
 
 absl::Status HloTestBase::UpdateEntryComputationLayoutToMatchProgramLayout(
@@ -665,7 +709,8 @@ HloTestBase::RunAndCompareTwoModulesInternalReplicated(
   auto num_args = module_0->entry_computation()->num_parameters();
   if (num_args != options.arguments.size()) {
     return ::testing::AssertionFailure()
-           << "Mismatch in number of arguments passed while running replicated "
+           << "Mismatch in number of arguments passed while running "
+              "replicated "
               "hlo module. Expected: "
            << num_args << ", actual: " << options.arguments.size();
   }

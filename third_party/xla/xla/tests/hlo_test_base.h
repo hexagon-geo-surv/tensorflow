@@ -16,21 +16,30 @@ limitations under the License.
 #ifndef XLA_TESTS_HLO_TEST_BASE_H_
 #define XLA_TESTS_HLO_TEST_BASE_H_
 
+#include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/attributes.h"
+#include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_replace.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/ir/hlo_module_group.h"
 #include "xla/hlo/ir/hlo_opcode.h"
+#include "xla/hlo/pass/hlo_pass_interface.h"
 #include "xla/service/backend.h"
 #include "xla/service/computation_layout.h"
+#include "xla/service/hlo_module_config.h"
 #include "xla/service/hlo_runner.h"
 #include "xla/service/hlo_verifier.h"
 #include "xla/service/platform_util.h"
@@ -41,6 +50,7 @@ limitations under the License.
 #include "xla/tests/verified_hlo_module.h"
 #include "xla/types.h"
 #include "xla/xla_data.pb.h"
+#include "tsl/platform/statusor.h"
 #include "tsl/platform/test.h"
 
 namespace xla {
@@ -99,6 +109,25 @@ class HloTestBase : public ::testing::Test {
   absl::StatusOr<std::unique_ptr<VerifiedHloModule>>
   ParseAndReturnVerifiedModule(absl::string_view hlo_text,
                                const HloModuleConfig& config);
+
+  using FixedMapping =
+      std::initializer_list<std::pair<absl::string_view, absl::string_view>>;
+  using UniqueModule = absl::StatusOr<std::unique_ptr<HloModule>>;
+
+  //  To be overriden by subclasses to return the principal tested HLO pass.
+  virtual std::unique_ptr<HloPassInterface> CreateHloTranformationPass();
+
+  // Convenience methods for running a pass on a parameterized HLO string.
+  // Many of the HLO transformation tests take HLO string as an input, create
+  // HLO module, tun the pass and assert whether transformation taken place.
+  UniqueModule Transform(bool expect_change, absl::string_view hlo_template,
+                         FixedMapping params);
+  UniqueModule TransformTrue(absl::string_view hlo_template,
+                             FixedMapping params);
+  UniqueModule TransformFalse(absl::string_view hlo_template,
+                              FixedMapping params);
+  UniqueModule TransformTrue(absl::string_view hlo);
+  UniqueModule TransformFalse(absl::string_view hlo);
 
   // Runs the hlo_pass with the provided module and returns the result. This
   // function also verifies that the module remains unchanged when hlo_pass
