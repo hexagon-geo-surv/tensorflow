@@ -46,6 +46,10 @@
     for TFLite. The TF Lite Runtime source will be moved later this year,
     and sometime after that we will start accepting contributions through that repo.
 
+*   TensorFlow now supports and is compiled with NumPy 2.0 by default.
+    Compatibility with NumPy 1.26 will be maintained until 2025, aligning with
+    community standard deprecation timeline [here](https://scientific-python.org/specs/spec-0000/).
+
 ### Bug Fixes and Other Changes
 
 * <SIMILAR TO ABOVE SECTION, BUT FOR OTHER IMPORTANT CHANGES / BUG FIXES>
