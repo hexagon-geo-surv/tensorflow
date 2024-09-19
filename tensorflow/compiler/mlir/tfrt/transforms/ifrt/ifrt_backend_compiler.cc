@@ -70,6 +70,12 @@ CompileAndRegisterIfrtPrograms(absl::string_view model_name,
       continue;
     }
 
+    if (ifrt_model_context.IsFrozen()) {
+      return absl::FailedPreconditionError(
+          "Cannot compile IFRT programs after the model is frozen. Make sure "
+          "all signatures are compiled before freezing the model.");
+    }
+
     mlir::StatusScopedDiagnosticHandler diag_handler(module->getContext());
     auto entry_function_name = func.getSymName();
     auto submodule = mlir::TF::CreatePrunedModule(module, entry_function_name);
