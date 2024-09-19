@@ -2925,6 +2925,21 @@ static absl::Status TransformLoopBackward(
   return absl::OkStatus();
 }
 
+std::optional<bool> HasOneIteration(const WhileLoopAnalysis& loop_analysis) {
+  if (!loop_analysis.GetLoopIterationCount() || !loop_analysis.GetLoopStart()) {
+    // Do not know how many iterations left
+    return std::nullopt;
+  }
+  if (loop_analysis.GetLoopIterationCount()->GetSignedValue() -
+          loop_analysis.GetLoopStart()->GetSignedValue() <=
+      1) {
+    // Only one iteration left (or fewer)
+    return true;
+  }
+  // Multiple iterations left
+  return false;
+}
+
 absl::StatusOr<bool> CollectivePipeliner::RunPipeliner(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
@@ -2979,6 +2994,14 @@ absl::StatusOr<bool> CollectivePipeliner::RunPipeliner(
         config_.should_allow_control_dependencies,
         config_.should_add_loop_invariant_op_in_chain);
     if (loop_analysis->GetMoveInfos().empty()) {
+      continue;
+    }
+    std::optional<bool> maybe_has_one_iteration =
+        HasOneIteration(*loop_analysis.get());
+    if (maybe_has_one_iteration.value_or(false)) {
+      VLOG(1) << absl::StreamFormat(
+          "Loop %s has only one iteration, skipping pipelining.",
+          instruction->name());
       continue;
     }
     transformed_instructions += loop_analysis->GetMoveInfos().size();
