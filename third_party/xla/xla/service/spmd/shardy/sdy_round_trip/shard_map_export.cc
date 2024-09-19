@@ -31,7 +31,9 @@ limitations under the License.
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/IR/TypeRange.h"
 #include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
@@ -52,6 +54,7 @@ namespace {
 using ::mlir::MLIRContext;
 using ::mlir::ModuleOp;
 using ::mlir::StringRef;
+using ::mlir::func::CallOp;
 using ::mlir::func::FuncOp;
 
 namespace stablehlo = ::mlir::stablehlo;
@@ -72,29 +75,47 @@ class SdyRoundTripShardMapExportPass
     auto rewriter = mlir::IRRewriter(context);
     moduleOp->walk([&](sdy::ManualComputationOp manualComputation) {
       rewriter.setInsertionPointToEnd(&moduleOp.getRegion().front());
+      mlir::TypeRange localResultTypes =
+          sdy::getBodyTerminatorOpOperandTypes(manualComputation);
       auto funcOp = rewriter.create<FuncOp>(
           manualComputation.getLoc(), kManualComputationBodyFuncName,
           rewriter.getFunctionType(
               manualComputation.getBody().getArgumentTypes(),
-              sdy::getBodyTerminatorOpOperandTypes(manualComputation)));
-      sdy::inlineRegionAndConvertTerminatorOp<mlir::func::ReturnOp>(
-          manualComputation.getBody(), funcOp.getBody());
-      mlir::StringAttr funcName = symbolTable.insert(funcOp);
+              localResultTypes));
 
       rewriter.setInsertionPoint(manualComputation);
-      auto customCallOp = rewriter.create<stablehlo::CustomCallOp>(
-          manualComputation.getLoc(), manualComputation.getResultTypes(),
-          manualComputation->getOperands());
-      customCallOp.setCallTargetName(kManualComputationCustomCallTargetName);
-      customCallOp.setCalledComputationsAttr(
-          rewriter.getArrayAttr(mlir::FlatSymbolRefAttr::get(funcName)));
-      addFrontendAttribute(customCallOp, kInShardings,
+      stablehlo::CustomCallOp fullToShard;
+      mlir::ValueRange operands = manualComputation->getOperands();
+      if (manualComputation->getNumOperands() > 0) {
+        fullToShard = rewriter.create<stablehlo::CustomCallOp>(
+            manualComputation.getLoc(),
+            manualComputation.getBody().getArgumentTypes(),
+            manualComputation->getOperands());
+        fullToShard.setCallTargetName(kSPMDFullToShardShapeCallTargetName);
+        operands = fullToShard->getResults();
+      }
+
+      auto callOp = rewriter.create<CallOp>(manualComputation.getLoc(),
+                                            localResultTypes, operands);
+      callOp.setCallee(symbolTable.insert(funcOp));
+      addFrontendAttribute(callOp, kInShardings,
                            manualComputation.getInShardings());
-      addFrontendAttribute(customCallOp, kOutShardings,
+      addFrontendAttribute(callOp, kOutShardings,
                            manualComputation.getOutShardings());
-      addFrontendAttribute(customCallOp, kManualAxes,
+      addFrontendAttribute(callOp, kManualAxes,
                            manualComputation.getManualAxesAttr());
-      rewriter.replaceOp(manualComputation, customCallOp->getResults());
+
+      mlir::ResultRange results = manualComputation->getResults();
+      if (manualComputation->getNumResults() > 0) {
+        auto shardToFull = rewriter.create<stablehlo::CustomCallOp>(
+            manualComputation.getLoc(), manualComputation.getResultTypes(),
+            callOp->getResults());
+        shardToFull.setCallTargetName(kSPMDShardToFullShapeCallTargetName);
+        results = shardToFull->getResults();
+      }
+      sdy::inlineRegionAndConvertTerminatorOp<mlir::func::ReturnOp>(
+          manualComputation.getBody(), funcOp.getBody());
+      rewriter.replaceOp(manualComputation, results);
     });
   }
 
@@ -104,9 +125,9 @@ class SdyRoundTripShardMapExportPass
 
   StringRef getDescription() const override {
     return "Converts the body of a ManualComputationOp to a separate function "
-           "with a CustomCallOp of the same name referring to it. The "
-           "CustomCallOp saves the in/out shardings and manual axes as "
-           "frontend attrs for HLO round tripping.";
+           "with a CallOp and a pair of CustomCallOps that change the shape of "
+           "the arguments/results. The CallOp saves the in/out shardings and "
+           "manual axes as frontend attrs.";
   }
   void getDependentDialects(mlir::DialectRegistry& registry) const final {
     registry.insert<stablehlo::StablehloDialect>();
