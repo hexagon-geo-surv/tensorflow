@@ -36,6 +36,7 @@ cc_library(
     deps = [
         ":lite_rt_cc_api",
         "//tensorflow/lite/experimental/lrt/c:lite_rt_c_api",
+        "//tensorflow/lite/experimental/lrt/core:graph_tools",
         "@com_google_absl//absl/types:span",
     ],
 )
@@ -49,6 +50,25 @@ cc_test(
         "//tensorflow/lite/experimental/lrt/core:graph_tools",
         "//tensorflow/lite/experimental/lrt/test_data:test_data_util",
         "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "lite_rt_op",
+    srcs = ["lite_rt_op.cc"],
+    hdrs = ["lite_rt_op.h"],
+    deps = ["//tensorflow/lite/experimental/lrt/c:lite_rt_c_api"],
+)
+
+cc_test(
+    name = "lite_rt_op_test",
+    srcs = ["lite_rt_op_test.cc"],
+    deps = [
+        ":lite_rt_op",
+        "//tensorflow/lite/experimental/lrt/c:lite_rt_c_api",
+        "//tensorflow/lite/experimental/lrt/core:graph_tools",
+        "//tensorflow/lite/experimental/lrt/test_data:test_data_util",
         "@com_google_googletest//:gtest_main",
     ],
 )
