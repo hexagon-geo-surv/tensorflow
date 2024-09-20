@@ -181,5 +181,13 @@ TEST_F(GenericTransferManagerTest, TransferLiteralFromDeviceInt4) {
   }
 }
 
+TEST_F(GenericTransferManagerTest, ChooseCompactLayoutForShape) {
+  Literal literal = LiteralUtil::CreateR2<s4>({{s4{1}, s4{2}}, {s4{3}, s4{4}}});
+  auto s = transfer_manager_.ChooseCompactLayoutForShape(literal.shape());
+  EXPECT_TRUE(s.ok());
+  EXPECT_TRUE(Shape::Equal().IgnoreLayout()(s.value(), literal.shape()));
+  EXPECT_EQ(s.value().layout().element_size_in_bits(), 4);
+}
+
 }  // namespace
 }  // namespace xla

@@ -300,4 +300,15 @@ Shape GenericTransferManager::HostShapeToDeviceShape(
   return device_shape;
 }
 
+absl::StatusOr<Shape> GenericTransferManager::ChooseCompactLayoutForShape(
+    const Shape& host_shape) const {
+  Shape compact_shape = LayoutUtil::GetWithDefaultLayout(host_shape);
+  if (PackSubbyteTypes() &&
+      primitive_util::IsSubByteNonPredType(compact_shape.element_type())) {
+    compact_shape.mutable_layout()->set_element_size_in_bits(
+        primitive_util::BitWidth(compact_shape.element_type()));
+  }
+  return compact_shape;
+}
+
 }  // namespace xla
