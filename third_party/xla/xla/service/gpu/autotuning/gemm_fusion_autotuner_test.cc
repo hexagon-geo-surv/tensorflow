@@ -473,7 +473,6 @@ ENTRY e {
   EXPECT_TRUE(RunAndCompare(kHloText, ErrorSpec{/*aabs=*/1e-3, /*arel=*/1e-3}));
 }
 
-// Modify block_k back to 16 once b/337839570 is fixed.
 // TODO(b/344770374): Make this test not fragile.
 TEST_F(GemmFusionAutotunerTest, DoNotRunAutotuningKernelSpillingRegisters) {
   const std::string kHloText = R"(
@@ -492,7 +491,7 @@ ENTRY %e {
   %get-tuple-element.7020 = s8[12288,1536]{1,0} parameter(0)
   %convert = s8[4,12288]{1,0} parameter(1)
   ROOT %triton = s8[4,1536]{1,0} fusion(s8[12288,1536]{1,0} %get-tuple-element.7020, s8[4,12288]{1,0} %convert), kind=kCustom, calls=%triton_gemm_dot,
-    backend_config={"fusion_backend_config":{"kind":"__triton_gemm","triton_gemm_config":{"block_m":"256","block_n":"256","block_k":"32","split_k":"1","num_stages":"1","num_warps":"16","num_ctas":"1"}}}
+    backend_config={"fusion_backend_config":{"kind":"__triton_gemm","triton_gemm_config":{"block_m":"256","block_n":"256","block_k":"16","split_k":"1","num_stages":"1","num_warps":"16","num_ctas":"1"}}}
 })";
 
   auto module = ParseAndReturnVerifiedModule(kHloText).value();
@@ -516,7 +515,6 @@ ENTRY %e {
                       ::testing::HasSubstr("Insufficient registers"))));
 }
 
-// Modify block_k back to 16 once b/337839570 is fixed.
 // TODO(b/344770374): Make this test not fragile.
 TEST_F(GemmFusionAutotunerTest,
        DoNotFilterOutAutotuningKernelSpillingRegisters) {
@@ -539,7 +537,7 @@ ENTRY %e {
   %get-tuple-element.7020 = s8[12288,1536]{1,0} parameter(0)
   %convert = s8[4,12288]{1,0} parameter(1)
   ROOT %triton = s8[4,1536]{1,0} fusion(s8[12288,1536]{1,0} %get-tuple-element.7020, s8[4,12288]{1,0} %convert), kind=kCustom, calls=%triton_gemm_dot,
-    backend_config={"fusion_backend_config":{"kind":"__triton_gemm","triton_gemm_config":{"block_m":"256","block_n":"256","block_k":"32","split_k":"1","num_stages":"1","num_warps":"16","num_ctas":"1"}}}
+    backend_config={"fusion_backend_config":{"kind":"__triton_gemm","triton_gemm_config":{"block_m":"256","block_n":"256","block_k":"16","split_k":"1","num_stages":"1","num_warps":"16","num_ctas":"1"}}}
 })";
 
   auto module = ParseAndReturnVerifiedModule(kHloText).value();
@@ -578,7 +576,7 @@ ENTRY %e {
   %p0 = s8[12288,1536]{1,0} parameter(0)
   %p1 = f16[4,12288]{1,0} parameter(1)
   ROOT %triton_dot = f16[4,1536]{1,0} fusion(s8[12288,1536]{1,0} %p0, f16[4,12288]{1,0} %p1), kind=kCustom, calls=%triton_gemm_dot,
-    backend_config={"fusion_backend_config":{"kind":"__triton_gemm","triton_gemm_config":{"block_m":"16","block_n":"32","block_k":"32","split_k":"1","num_stages":"1","num_warps":"2","num_ctas":"1"}}}
+    backend_config={"fusion_backend_config":{"kind":"__triton_gemm","triton_gemm_config":{"block_m":"16","block_n":"32","block_k":"16","split_k":"1","num_stages":"1","num_warps":"2","num_ctas":"1"}}}
 })";
 
   auto module = ParseAndReturnVerifiedModule(kHloText).value();
@@ -833,7 +831,7 @@ ENTRY e {
         RunFileCheck(
             module->ToString(HloPrintOptions{}.set_print_operand_shape(false)),
             R"(
-// CHECK: backend_config={"operation_queue_id":"0","wait_on_operation_queues":[],"fusion_backend_config":{"kind":"__triton_gemm","triton_gemm_config":{"block_m":"16","block_n":"16","block_k":"32","split_k":"1","num_stages":"1","num_warps":"4","num_ctas":"1"}},"force_earliest_schedule":false}
+// CHECK: backend_config={"operation_queue_id":"0","wait_on_operation_queues":[],"fusion_backend_config":{"kind":"__triton_gemm","triton_gemm_config":{"block_m":"16","block_n":"16","block_k":"16","split_k":"1","num_stages":"1","num_warps":"4","num_ctas":"1"}},"force_earliest_schedule":false}
             )"));
     EXPECT_TRUE(filecheck_matches);
   } else {
@@ -876,34 +874,6 @@ ENTRY e {
 // CHECK:   ROOT %triton_gemm_out = f16[16,16]{1,0} fusion(%x, %y), kind=kCustom, calls=%triton_gemm_out_computation
 // CHECK-SAME: "block_m":
 )");
-}
-
-// TODO(b/337839570): Triton currently has a limitation where it crashes
-// on small block_k values depending on the bit-width of the inputs to the
-// dot. For this test case, it should skip any block_k values that are <= 16
-// since the smallest type has a bit-width of 8.
-TEST_F(GemmFusionAutotunerExhaustiveTest, SkipsCrashingTileKConfig) {
-  std::unique_ptr<VerifiedHloModule> module = ParseAndReturnVerifiedModule(R"(
-HloModule module
-ENTRY e {
-  x = s8[33,33]{1,0} parameter(0)
-  c = f16[33,33]{1,0} convert(x)
-  y = f16[33,33]{1,0} parameter(1)
-  ROOT out = f16[33,33]{1,0} dot(c, y), lhs_contracting_dims={1}, rhs_contracting_dims={0}
-}
-)")
-                                                  .value();
-  const se::CudaComputeCapability compute_capability{
-      se::CudaComputeCapability::AMPERE, /*minor=*/0};
-  TF_ASSERT_OK_AND_ASSIGN(
-      const std::vector<TritonGemmConfig> configs,
-      GetPossibleMatmulAutotuneTritonConfigs(
-          *Cast<HloDotInstruction>(
-              module->entry_computation()->root_instruction()),
-          compute_capability, GetToolkitVersion(), GetDebugOptionsForTest()));
-  EXPECT_TRUE(std::all_of(
-      configs.begin(), configs.end(),
-      [](const TritonGemmConfig& config) { return config.block_k > 16; }));
 }
 
 class GemmFusionAutotunerDisableSplitK : public GemmFusionAutotunerTest {
