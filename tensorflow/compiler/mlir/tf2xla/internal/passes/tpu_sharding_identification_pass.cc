@@ -135,7 +135,22 @@ bool DoTypesHaveSameShape(Value value_0, Value value_1) {
   auto shape_1 =
       mlir::dyn_cast_or_null<mlir::RankedTensorType>(value_1.getType());
   if (shape_0 && shape_1) {
-    return shape_0.getShape() == shape_1.getShape();
+    if (shape_0.getShape().size() == shape_1.getShape().size())
+      return shape_0.getShape() == shape_1.getShape();
+    if (shape_0.getShape().size() < shape_1.getShape().size()) {
+      std::swap(shape_0, shape_1);
+    }
+    for (const auto& shape_1_dim : shape_1.getShape()) {
+      bool found = false;
+      for (const auto& shape_0_dim : shape_0.getShape()) {
+        if (shape_1_dim == shape_0_dim) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) return false;
+    }
+    return true;
   }
   return false;
 }
