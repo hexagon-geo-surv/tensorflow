@@ -73,12 +73,31 @@ bool IsNopInstruction(const HloInstruction& hlo) {
          (op == HloOpcode::kTuple && hlo.user_count() == 1 &&
           hlo.users().front()->opcode() == HloOpcode::kWhile);
 }
+
+const HloInstruction* UnwrapAsyncCall(const HloInstruction* instruction) {
+  if ((instruction->opcode() == HloOpcode::kAsyncStart ||
+       instruction->opcode() == HloOpcode::kAsyncDone) &&
+      instruction->async_execution_thread() !=
+          instruction->parent()->execution_thread() &&
+      instruction->async_wrapped_opcode() == HloOpcode::kCall) {
+    return instruction->async_wrapped_instruction()
+        ->called_computations()[0]
+        ->root_instruction();
+  }
+  return instruction;
+}
 }  // namespace
 
 CanonicalAsyncOp DefaultGetCanonicalAsyncOp(const HloInstruction& hlo) {
   switch (hlo.opcode()) {
     case HloOpcode::kAsyncStart:
     case HloOpcode::kAsyncDone:
+      if (hlo.async_wrapped_opcode() == HloOpcode::kCall) {
+        return {hlo.opcode(), hlo.async_wrapped_instruction()
+                                  ->called_computations()[0]
+                                  ->root_instruction()
+                                  ->opcode()};
+      }
       return {hlo.opcode(), hlo.async_wrapped_opcode()};
     case HloOpcode::kAllReduceStart:
       return {HloOpcode::kAsyncStart, HloOpcode::kAllReduce};
@@ -596,7 +615,8 @@ void MemoryPressureTracker::Initialize(
             output_values.push_back(std::make_pair(
                 buffer_tracker_.GetBufferInfo(buffer->id()), index));
             if (absl::c_any_of(buffer->values(), [&](const HloValue* value) {
-                  return value->defining_instruction() == instruction;
+                  return value->defining_instruction() ==
+                         UnwrapAsyncCall(instruction);
                 })) {
               defined_values.push_back(
                   buffer_tracker_.GetBufferInfo(buffer->id()));
@@ -663,7 +683,7 @@ void MemoryPressureTracker::UpdateBuffers(const HloInstruction* instruction) {
         continue;
       }
       if (live_buffers_[b.value->id()] != 0) {
-        if (b.first_definition == instruction) {
+        if (b.first_definition == UnwrapAsyncCall(instruction)) {
           live_memory_usage_ -= b.buffer_size;
           live_buffers_set_.erase(b.value->id());
         }
@@ -721,7 +741,7 @@ std::pair<int64_t, int64_t> MemoryPressureTracker::MemoryPressureDifference(
         continue;
       }
       if (live_buffers_[b.value->id()]) {
-        if (b.first_definition == instruction) {
+        if (b.first_definition == UnwrapAsyncCall(instruction)) {
           increase -= b.buffer_size;
         }
       }
