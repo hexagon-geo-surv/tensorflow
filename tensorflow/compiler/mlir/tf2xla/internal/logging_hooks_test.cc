@@ -65,6 +65,7 @@ class LoggingHooksTest : public ::testing::Test {
     test_group_name_ = "TestGroup";
     test_dir_ = testing::TmpDir();
     setenv("TF_DUMP_GRAPH_PREFIX", test_dir_.c_str(), 1);
+    setenv("MLIR_BRIDGE_LOG_ENABLE_ONLY_TOP_LEVEL_PASSES", "0", 1);
   }
 
   absl::Status CreateMlirModule(std::string mlir_module_filename) {
@@ -89,6 +90,7 @@ class LoggingHooksTest : public ::testing::Test {
 
 TEST_F(LoggingHooksTest, DumpsPassData) {
   std::vector<std::string> files;
+  setenv("MLIR_BRIDGE_LOG_ENABLE_ONLY_TOP_LEVEL_PASSES", "0", 1);
   TF_ASSERT_OK(env_->GetChildren(test_dir_, &files));
   EXPECT_THAT(files, ::testing::IsEmpty());
 

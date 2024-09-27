@@ -75,6 +75,8 @@ class LowerClusterToRuntimeOpsTest : public ::testing::Test {
     test_group_name_ = "TestGroup";
     test_dir_ = testing::TmpDir();
     setenv("TF_DUMP_GRAPH_PREFIX", test_dir_.c_str(), /*overwrite=*/1);
+    setenv("MLIR_BRIDGE_LOG_ENABLE_ONLY_TOP_LEVEL_PASSES", "0",
+           /*overwrite=*/1);
   }
 
   absl::Status CreateMlirModule(std::string mlir_module_filename) {
@@ -181,6 +183,8 @@ TEST_F(LowerClusterToRuntimeOpsTest, DumpsPipelinePasses) {
   EXPECT_THAT(files, ::testing::IsEmpty());
   setenv("TF_DUMP_GRAPH_NAME_FILTER", "*", /*overwrite=*/1);
   setenv("TF_DUMP_GRAPH_GROUPS", "main,runtime_lowering", /*overwrite=*/1);
+  setenv("MLIR_BRIDGE_LOG_ENABLE_ONLY_TOP_LEVEL_PASSES", "0",
+         /*overwrite=*/1);
   DEBUG_DATA_DUMPER()->LoadEnvvars();
 
   TF_ASSERT_OK(CreateMlirModule("basic_cluster.mlir"));
