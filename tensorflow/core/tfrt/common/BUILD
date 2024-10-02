@@ -235,6 +235,10 @@ cc_library(
     name = "pjrt_client_factory_registry",
     srcs = ["pjrt_client_factory_registry.cc"],
     hdrs = ["pjrt_client_factory_registry.h"],
+    visibility = [
+        ":friends",
+        "@local_xla//xla/tests:__pkg__",
+    ],
     deps = [
         ":pjrt_client_factory_options",
         "//tensorflow/core:framework",
