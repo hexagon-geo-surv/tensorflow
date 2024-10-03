@@ -22,15 +22,22 @@ limitations under the License.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
+#include "mlir/Pass/Pass.h"  // from @llvm-project
+#include "tensorflow/compiler/mlir/tf2xla/api/v2/legalize_tf_test_util.h"
 #include "tensorflow/compiler/mlir/tf2xla/internal/test_matchers.h"
-#include "tensorflow/compiler/mlir/tf2xla/internal/utils/test_metadata_config.h"
 #include "tensorflow/compiler/tf2xla/xla_compiler.h"
-#include "tensorflow/compiler/tf2xla/xla_helpers.h"
 #include "xla/client/client_library.h"
+#include "xla/shape.h"
+#include "xla/stream_executor/platform.h"
 #include "xla/stream_executor/platform_manager.h"
 #include "xla/tsl/lib/core/status_test_util.h"
 #include "xla/tsl/lib/monitoring/test_utils.h"
+#include "tensorflow/core/framework/function.h"
+#include "tensorflow/core/framework/op.h"
+#include "tensorflow/core/framework/op_kernel.h"
+#include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/lib/monitoring/cell_reader.h"
 #include "tensorflow/core/lib/monitoring/test_utils.h"
 #include "tensorflow/core/platform/env.h"
@@ -49,7 +56,6 @@ using ::tensorflow::monitoring::testing::CellReader;
 using ::testing::Not;
 using ::testing::TestWithParam;
 using tpu::FunctionToHloArgs;
-using tpu::MlirToHloArgs;
 using tpu::ShardingAndIndex;
 using tpu::TPUCompileMetadataProto;
 
@@ -101,38 +107,6 @@ static constexpr char kUnsupportedMlirBridgeModuleStr[] = R"(
     func.return
   }
 })";
-
-absl::StatusOr<XlaCompiler::CompilationResult> CompileMlirModule(
-    const char* mlir_module_str,
-    ConfigProto::Experimental::MlirBridgeRollout rollout_state) {
-  MlirToHloArgs mlir_to_hlo_args;
-  mlir_to_hlo_args.rollout_state = rollout_state;
-  mlir_to_hlo_args.mlir_module = mlir_module_str;
-
-  se::Platform* platform =
-      se::PlatformManager::PlatformWithName("Host").value();
-  auto client =
-      xla::ClientLibrary::GetOrCreateCompileOnlyClient(platform).value();
-
-  std::vector<TensorShape> arg_shapes;
-  TPUCompileMetadataProto metadata_proto;
-  // Configure metadata requires parsing the module and if we are testing a
-  // failure, we ignore this particular set up error assuming we'll not get
-  // far enough to need valid metadata.
-  tensorflow::tf2xla::internal::ConfigureMetadata(mlir_module_str, arg_shapes,
-                                                  metadata_proto)
-      .IgnoreError();
-  bool use_tuple_args = true;
-  std::vector<ShardingAndIndex> arg_core_mapping;
-  std::vector<std::vector<xla::Shape>> per_core_arg_shapes;
-  std::vector<std::unique_ptr<mlir::Pass>> custom_legalization_passes;
-
-  return LegalizeMlirToHlo(mlir_to_hlo_args, metadata_proto, use_tuple_args,
-                           /*device_type=*/"XLA_TPU_JIT",
-                           custom_legalization_passes,
-                           /*shape_determination_fns=*/{}, arg_shapes,
-                           &arg_core_mapping, &per_core_arg_shapes, client);
-}
 
 TEST(LegalizeTFTest, RecordsStreamzForSuccessfulLegalizeWithMlirBridge) {
   CellReader<int64_t> compilation_status(kCompilationStatusStreamzName);
