@@ -8133,6 +8133,30 @@ ENTRY DotFunc {
 )");
 }
 
+TEST_F(SmallDotGemmRewriteTest, RewriteForALG_BF16_BF16_F32) {
+  const char* hlo_text = R"(
+    HloModule RewriteForALG_BF16_BF16_F32
+
+    ENTRY DotFunc {
+      x = f32[1024,1024] parameter(0)
+      y = f32[1024,1024] parameter(1)
+      ROOT out = f32[1024,1024] dot(x, y),
+        algorithm=dot_bf16_bf16_f32,
+        lhs_contracting_dims={1},
+        rhs_contracting_dims={0}
+    }
+  )";
+
+  MatchOptimizedHlo(hlo_text,
+                    R"(
+; CHECK-LABEL: ENTRY %DotFunc ({{.*}}: f32[3,3], {{.*}}: f32[3,3]) -> f32[3,3] {
+; CHECK-NEXT:    [[P0:%[^ ]+]] = f32[3,3]{1,0} parameter(0)
+; CHECK-NEXT:    [[P1:%[^ ]+]] = f32[3,3]{1,0} parameter(1)
+; CHECK-NEXT:    [[GEMM:%[^ ]+]] = {{.*}} dot([[P0]], [[P1]]),
+; CHECK:           lhs_contracting_dims={1}, rhs_contracting_dims={0}
+)");
+}
+
 }  // namespace
 }  // namespace gpu
 }  // namespace xla
