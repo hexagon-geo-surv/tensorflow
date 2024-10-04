@@ -18,10 +18,23 @@ cc_library(
     name = "platform",
     textual_hdrs = [
         "initialize.h",
-        "platform.h",
         "port.h",
     ],
     deps = [
+        "@local_tsl//tsl/platform",
+        "@local_tsl//tsl/platform:logging",
+        "@local_tsl//tsl/platform:macros",
+        "@local_tsl//tsl/platform:types",
+    ] + tf_stream_executor_deps("platform", "//xla/stream_executor/platform/"),
+)
+
+cc_library(
+    name = "initialize",
+    hdrs = [
+        "initialize.h",
+    ],
+    deps = [
+        "@local_tsl//tsl/platform",
         "@local_tsl//tsl/platform:logging",
         "@local_tsl//tsl/platform:macros",
         "@local_tsl//tsl/platform:types",
@@ -32,6 +45,6 @@ cc_library(
     name = "dso_loader",
     hdrs = ["dso_loader.h"],
     deps = [
-        ":platform",
+        "@local_tsl//tsl/platform",
     ] + tf_stream_executor_deps("dso_loader", "//xla/stream_executor/platform/"),
 )
