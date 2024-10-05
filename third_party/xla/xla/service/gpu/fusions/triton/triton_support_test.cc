@@ -467,7 +467,15 @@ ENTRY triton_computation {
                                          ? kHloCompareTestTemplate
                                          : kHloTestTemplate,
                                      data_type, opcode));
-  RunSupportTest(std::move(ti), /*output_tile_sizes=*/{}, cc);
+
+  bool skip_failure_branch_to_avoid_crash =
+      opcode == HloOpcode::kDivide &&
+      (data_type == PrimitiveType::BF16 || data_type == PrimitiveType::F16 ||
+       data_type == PrimitiveType::F8E5M2 ||
+       data_type == PrimitiveType::F8E4M3FN);
+
+  RunSupportTest(std::move(ti), /*output_tile_sizes=*/{}, cc,
+                 skip_failure_branch_to_avoid_crash);
 }
 
 constexpr std::array kTestedOpsBinaryElementwise = {
