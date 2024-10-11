@@ -17,7 +17,6 @@ limitations under the License.
 #include <utility>
 
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -25,6 +24,7 @@ limitations under the License.
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Iterators.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OperationSupport.h"
@@ -44,53 +44,6 @@ namespace {
 
 #define GEN_PASS_DEF_IFRTPOPULATEATOMPROGRAMMETADATAPASS
 #include "xla/python/ifrt/ir/transforms/passes.h.inc"
-
-// Used for comparing CallOps without including control dependencies.
-struct IfrtCallOpInfo : llvm::DenseMapInfo<xla::ifrt::CallOp> {
-  static unsigned getHashValue(xla::ifrt::CallOp call_op) {
-    llvm::hash_code hash = {};
-    // Use `getInputs()/getOutputs()` instead of `getOperands()/getResults()` to
-    // ensure that the control dependencies are not included in the hash.
-    for (auto input_type : call_op.getInputs().getTypes()) {
-      hash = llvm::hash_combine(hash, input_type);
-    }
-    for (auto output_type : call_op.getOutputs().getTypes()) {
-      hash = llvm::hash_combine(hash, output_type);
-    }
-    for (mlir::NamedAttribute attr : call_op->getAttrs()) {
-      // Exclude `operandSegmentSizes` because its value changes depending on
-      // how many control dependencies a CallOp has.
-      if (attr.getName() == "operandSegmentSizes") {
-        continue;
-      }
-      hash = llvm::hash_combine(hash, attr);
-    }
-    return hash;
-  }
-
-  static bool isEqual(xla::ifrt::CallOp lhs, xla::ifrt::CallOp rhs) {
-    if (lhs == rhs) {
-      return true;
-    }
-    if (lhs == getEmptyKey() || lhs == getTombstoneKey() ||
-        rhs == getEmptyKey() || rhs == getTombstoneKey()) {
-      return false;
-    }
-    // Verify that the input and output types are the same.
-    if (lhs.getInputs().getTypes() != rhs.getInputs().getTypes()) {
-      return false;
-    }
-    if (lhs.getOutputs().getTypes() != rhs.getOutputs().getTypes()) {
-      return false;
-    }
-    mlir::NamedAttrList lattrs = lhs->getAttrDictionary();
-    mlir::NamedAttrList rattrs = rhs->getAttrDictionary();
-    lattrs.erase("operandSegmentSizes");
-    rattrs.erase("operandSegmentSizes");
-    // Verify that the attributes are the same.
-    return lattrs == rattrs;
-  }
-};
 
 // Populates the metadata on the atom program ModuleOp and `main` FuncOp.
 mlir::LogicalResult PopulateMetadata(xla::ifrt::CallOp call_op,
@@ -126,8 +79,6 @@ mlir::LogicalResult PopulateMetadata(xla::ifrt::CallOp call_op,
     }
     arg_attrs.push_back(
         builder.getNamedAttr(kIfrtShardingAttrName, array.getShardingAttr()));
-    arg_attrs.push_back(
-        builder.getNamedAttr(kIfrtDevicesAttrName, array.getDevicesAttr()));
     callee_op.setArgAttrs(i, arg_attrs);
   }
 
@@ -147,8 +98,6 @@ mlir::LogicalResult PopulateMetadata(xla::ifrt::CallOp call_op,
     }
     res_attrs.push_back(
         builder.getNamedAttr(kIfrtShardingAttrName, array.getShardingAttr()));
-    res_attrs.push_back(
-        builder.getNamedAttr(kIfrtDevicesAttrName, array.getDevicesAttr()));
     callee_op.setResultAttrs(i, res_attrs);
   }
 
@@ -190,8 +139,13 @@ void IfrtPopulateAtomProgramMetadataPass::runOnOperation() {
 
   llvm::DenseMap<xla::ifrt::CallOp, mlir::SymbolRefAttr, IfrtCallOpInfo>
       visited_call_ops;
-  auto result = main_func.walk([&](xla::ifrt::CallOp call_op)
-                                   -> mlir::WalkResult {
+  // Walk the CallOps in reverse order to ensure that the first CallOp using a
+  // callee uses the original callee. Otherwise, the walk would modify the name
+  // of the default callee.
+  auto result = main_func.walk<mlir::WalkOrder::PreOrder,
+                               mlir::ReverseIterator>([&](xla::ifrt::CallOp
+                                                              call_op)
+                                                          -> mlir::WalkResult {
     mlir::func::FuncOp callee = call_op.getCalleeOp(symbol_table);
     if (callee == nullptr) {
       return call_op->emitOpError()
@@ -218,7 +172,6 @@ void IfrtPopulateAtomProgramMetadataPass::runOnOperation() {
         mlir::ModuleOp cloned_module = callee_module.clone();
         mlir::func::FuncOp cloned_callee =
             xla::ifrt::GetMainFunction(cloned_module);
-        cloned_callee.setPrivate();
         // Insert new cloned atom program module in the SymbolTable.
         symbol_table
             .getSymbolTable(
