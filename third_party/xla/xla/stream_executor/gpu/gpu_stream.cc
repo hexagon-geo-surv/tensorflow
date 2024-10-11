@@ -39,68 +39,11 @@ limitations under the License.
 namespace stream_executor {
 namespace gpu {
 
-namespace {
-void InternalHostCallback(void* data) {
-  auto* callback = reinterpret_cast<absl::AnyInvocable<void() &&>*>(data);
-  std::move (*callback)();
-  delete callback;
-}
-}  // namespace
-
 
 Stream::PlatformSpecificHandle GpuStream::platform_specific_handle() const {
   PlatformSpecificHandle handle;
   handle.stream = gpu_stream_;
   return handle;
-}
-
-absl::Status GpuStream::MemZero(DeviceMemoryBase* location, uint64_t size) {
-  if (reinterpret_cast<uintptr_t>(location->opaque()) % 4 == 0 &&
-      size % 4 == 0) {
-    return Memset32(location, 0x0, size);
-  } else {
-    return GpuDriver::AsynchronousMemsetUint8(
-        parent_->gpu_context(),
-        reinterpret_cast<GpuDevicePtr>(location->opaque()), 0x0, size,
-        gpu_stream());
-  }
-}
-
-absl::Status GpuStream::Memcpy(DeviceMemoryBase* gpu_dst,
-                               const DeviceMemoryBase& gpu_src, uint64_t size) {
-  return GpuDriver::AsynchronousMemcpyD2D(
-      parent_->gpu_context(),
-      reinterpret_cast<GpuDevicePtr>(const_cast<void*>(gpu_dst->opaque())),
-      reinterpret_cast<GpuDevicePtr>(const_cast<void*>(gpu_src.opaque())), size,
-      gpu_stream());
-}
-
-absl::Status GpuStream::Memcpy(DeviceMemoryBase* gpu_dst, const void* host_src,
-                               uint64_t size) {
-  return GpuDriver::AsynchronousMemcpyH2D(
-      parent_->gpu_context(), reinterpret_cast<GpuDevicePtr>(gpu_dst->opaque()),
-      host_src, size, gpu_stream());
-}
-
-absl::Status GpuStream::Memcpy(void* host_dst, const DeviceMemoryBase& gpu_src,
-                               uint64_t size) {
-  return GpuDriver::AsynchronousMemcpyD2H(
-      parent_->gpu_context(), host_dst,
-      reinterpret_cast<GpuDevicePtr>(const_cast<void*>(gpu_src.opaque())), size,
-      gpu_stream());
-}
-
-absl::Status GpuStream::DoHostCallbackWithStatus(
-    absl::AnyInvocable<absl::Status() &&> callback) {
-  auto callback_ptr =
-      new absl::AnyInvocable<void() &&>([cb = std::move(callback)]() mutable {
-        absl::Status s = std::move(cb)();
-        if (!s.ok()) {
-          LOG(WARNING) << "Host callback failed: " << s;
-        }
-      });
-  return GpuDriver::AddStreamCallback(parent_->gpu_context(), gpu_stream(),
-                                      InternalHostCallback, callback_ptr);
 }
 
 GpuStream::~GpuStream() {

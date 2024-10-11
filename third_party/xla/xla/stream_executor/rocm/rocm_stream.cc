@@ -22,11 +22,13 @@ limitations under the License.
 #include <variant>
 
 #include "absl/base/casts.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
+#include "rocm/include/hip/driver_types.h"
 #include "rocm/include/hip/hip_runtime.h"
 #include "xla/stream_executor/device_memory.h"
 #include "xla/stream_executor/event.h"
@@ -106,6 +108,61 @@ absl::Status WaitStreamOnEvent(Context* context, hipStream_t stream,
   return absl::OkStatus();
 }
 
+absl::Status AsynchronousMemcpyD2H(Context* context, void* host_dst,
+                                   hipDeviceptr_t gpu_src, uint64_t size,
+                                   hipStream_t stream) {
+  ScopedActivateContext activation{context};
+  TF_RETURN_IF_ERROR(ToStatus(
+      wrap::hipMemcpyDtoHAsync(host_dst, gpu_src, size, stream),
+      absl::StrFormat(
+          "failed to enqueue async memcpy from device to host: host dst: %p; "
+          "Gpu src: %p; size: %llu=0x%llx",
+          host_dst, absl::bit_cast<void*>(gpu_src), size, size)));
+
+  VLOG(2) << "successfully enqueued async memcpy d2h of " << size
+          << " bytes from " << absl::bit_cast<void*>(gpu_src) << " to "
+          << host_dst << " on stream " << stream
+          << " device: " << context->device_ordinal();
+  return absl::OkStatus();
+}
+
+absl::Status AsynchronousMemcpyH2D(Context* context, hipDeviceptr_t gpu_dst,
+                                   const void* host_src, uint64_t size,
+                                   hipStream_t stream) {
+  ScopedActivateContext activation{context};
+  TF_RETURN_IF_ERROR(ToStatus(
+      wrap::hipMemcpyHtoDAsync(gpu_dst, const_cast<void*>(host_src), size,
+                               stream),
+      absl::StrFormat(
+          "failed to enqueue async memcpy from host to device: Gpu dst: %p; "
+          "host src: %p; size: %llu=0x%llx",
+          absl::bit_cast<void*>(gpu_dst), host_src, size, size)));
+
+  VLOG(2) << "successfully enqueued async memcpy h2d of " << size
+          << " bytes from " << host_src << " to "
+          << absl::bit_cast<void*>(gpu_dst) << " on stream " << stream
+          << " device: " << context->device_ordinal();
+  return absl::OkStatus();
+}
+
+absl::Status AsynchronousMemcpyD2D(Context* context, hipDeviceptr_t gpu_dst,
+                                   hipDeviceptr_t gpu_src, uint64_t size,
+                                   hipStream_t stream) {
+  ScopedActivateContext activation{context};
+  TF_RETURN_IF_ERROR(ToStatus(
+      wrap::hipMemcpyDtoDAsync(gpu_dst, gpu_src, size, stream),
+      absl::StrFormat("failed to enqueue async memcpy from device to device: "
+                      "Gpu dst: %p ; Gpu src: %p ; size: %llu=0x%llx",
+                      absl::bit_cast<void*>(gpu_dst),
+                      absl::bit_cast<void*>(gpu_src), size, size)));
+
+  VLOG(2) << "successfully enqueued async memcpy d2d of " << size
+          << " bytes from " << absl::bit_cast<void*>(gpu_src) << " to "
+          << absl::bit_cast<void*>(gpu_dst) << " on stream " << stream
+          << " device: " << context->device_ordinal();
+  return absl::OkStatus();
+}
+
 }  // namespace
 
 absl::StatusOr<std::unique_ptr<RocmStream>> RocmStream::Create(
@@ -161,15 +218,74 @@ RocmStream::~RocmStream() {
 
 absl::Status RocmStream::Memset32(DeviceMemoryBase* location, uint32_t pattern,
                                   uint64_t size) {
-  if (absl::bit_cast<uintptr_t>(location->opaque()) % 4 != 0) {
+  if (absl::bit_cast<uintptr_t>(location->opaque()) % alignof(uint32_t) != 0) {
     return absl::InvalidArgumentError("location must be 4 byte aligned.");
   }
-  if (size % 4 != 0) {
+  if (size % sizeof(uint32_t) != 0) {
     return absl::InvalidArgumentError("size must be a multiple of 4 bytes.");
   }
   return ToStatus(wrap::hipMemsetD32Async(location->opaque(), pattern, size / 4,
                                           gpu_stream()),
                   "Failed to memset memory");
+}
+
+absl::Status RocmStream::MemZero(DeviceMemoryBase* location, uint64_t size) {
+  if (absl::bit_cast<uintptr_t>(location->opaque()) % alignof(uint32_t) == 0 &&
+      size % sizeof(uint32_t) == 0) {
+    return Memset32(location, 0x0, size);
+  } else {
+    ScopedActivateContext activation{executor_->gpu_context()};
+    return ToStatus(
+        wrap::hipMemsetAsync(location->opaque(), 0x0, size, gpu_stream()),
+        "Failed to enqueue async memset operation");
+  }
+}
+
+absl::Status RocmStream::Memcpy(DeviceMemoryBase* gpu_dst,
+                                const DeviceMemoryBase& gpu_src,
+                                uint64_t size) {
+  return AsynchronousMemcpyD2D(
+      executor_->gpu_context(),
+      absl::bit_cast<hipDeviceptr_t>(gpu_dst->opaque()),
+      absl::bit_cast<hipDeviceptr_t>(gpu_src.opaque()), size, gpu_stream());
+}
+
+absl::Status RocmStream::Memcpy(DeviceMemoryBase* gpu_dst, const void* host_src,
+                                uint64_t size) {
+  return AsynchronousMemcpyH2D(
+      executor_->gpu_context(),
+      absl::bit_cast<hipDeviceptr_t>(gpu_dst->opaque()), host_src, size,
+      gpu_stream());
+}
+
+absl::Status RocmStream::Memcpy(void* host_dst, const DeviceMemoryBase& gpu_src,
+                                uint64_t size) {
+  return AsynchronousMemcpyD2H(executor_->gpu_context(), host_dst,
+                               absl::bit_cast<hipDeviceptr_t>(gpu_src.opaque()),
+                               size, gpu_stream());
+}
+
+namespace {
+void InternalHostCallback(void* data) {
+  auto* callback = reinterpret_cast<absl::AnyInvocable<void() &&>*>(data);
+  std::move (*callback)();
+  delete callback;
+}
+}  // namespace
+
+absl::Status RocmStream::DoHostCallbackWithStatus(
+    absl::AnyInvocable<absl::Status() &&> callback) {
+  auto callback_ptr =
+      new absl::AnyInvocable<void() &&>([cb = std::move(callback)]() mutable {
+        absl::Status s = std::move(cb)();
+        if (!s.ok()) {
+          LOG(WARNING) << "Host callback failed: " << s;
+        }
+      });
+  return ToStatus(
+      wrap::hipLaunchHostFunc(gpu_stream(), (hipHostFn_t)InternalHostCallback,
+                              callback_ptr),
+      "unable to add host callback");
 }
 
 }  // namespace stream_executor::gpu

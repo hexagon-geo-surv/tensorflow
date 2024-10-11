@@ -19,17 +19,12 @@ limitations under the License.
 #ifndef XLA_STREAM_EXECUTOR_GPU_GPU_STREAM_H_
 #define XLA_STREAM_EXECUTOR_GPU_GPU_STREAM_H_
 
-#include <cstdint>
 #include <memory>
 #include <optional>
-#include <utility>
 #include <variant>
 
-#include "absl/functional/any_invocable.h"
 #include "absl/log/check.h"
 #include "absl/strings/string_view.h"
-#include "xla/stream_executor/device_memory.h"
-#include "xla/stream_executor/event.h"
 #include "xla/stream_executor/event_based_timer.h"
 #include "xla/stream_executor/gpu/gpu_executor.h"
 #include "xla/stream_executor/gpu/gpu_types.h"
@@ -73,16 +68,6 @@ class GpuStream : public StreamCommon {
     DCHECK(gpu_stream_ != nullptr);
     return gpu_stream_;
   }
-
-  absl::Status MemZero(DeviceMemoryBase* location, uint64_t size) override;
-  absl::Status Memcpy(DeviceMemoryBase* gpu_dst, const void* host_src,
-                      uint64_t size) override;
-  absl::Status Memcpy(void* host_dst, const DeviceMemoryBase& gpu_src,
-                      uint64_t size) override;
-  absl::Status Memcpy(DeviceMemoryBase* gpu_dst,
-                      const DeviceMemoryBase& gpu_src, uint64_t size) override;
-  absl::Status DoHostCallbackWithStatus(
-      absl::AnyInvocable<absl::Status() &&> callback) override;
 
   void set_name(absl::string_view name) override;
   absl::StatusOr<std::unique_ptr<EventBasedTimer>> CreateEventBasedTimer(
