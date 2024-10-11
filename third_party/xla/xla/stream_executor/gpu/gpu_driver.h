@@ -121,28 +121,6 @@ class GpuDriver {
   // previously registered.
   static bool HostUnregister(Context* context, void* location);
 
-  // Launches a CUDA/ROCm kernel via cuLaunchKernel/hipModuleLaunchKernel.
-  // http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__EXEC.html#group__CUDA__EXEC_1gb8f3dc3031b40da29d5f9a7139e52e15
-  // https://rocm.docs.amd.com/projects/HIPIFY/en/latest/tables/CUDA_Driver_API_functions_supported_by_HIP.html#execution-control
-  static absl::Status LaunchKernel(
-      Context* context, absl::string_view kernel_name,
-      GpuFunctionHandle function, unsigned int grid_dim_x,
-      unsigned int grid_dim_y, unsigned int grid_dim_z,
-      unsigned int block_dim_x, unsigned int block_dim_y,
-      unsigned int block_dim_z, unsigned int shared_mem_bytes,
-      GpuStreamHandle stream, void** kernel_params, void** extra);
-
-  // Launches a CUDA/ROCm kernel via cuLaunchKernelEx/hipModuleLaunchKernelEx.
-  // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__EXEC.html#group__CUDA__EXEC_1gb9c891eb6bb8f4089758e64c9c976db9
-  static absl::Status LaunchKernel(
-      Context* context, absl::string_view kernel_name,
-      GpuFunctionHandle function, unsigned int cluster_dim_x,
-      unsigned int cluster_dim_y, unsigned int cluster_dim_z,
-      unsigned int grid_dim_x, unsigned int grid_dim_y, unsigned int grid_dim_z,
-      unsigned int block_dim_x, unsigned int block_dim_y,
-      unsigned int block_dim_z, unsigned int shared_mem_bytes,
-      GpuStreamHandle stream, void** kernel_params, void** extra);
-
   // Creates a new GPU graph.
   // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__GRAPH.html#group__CUDA__GRAPH_1gd885f719186010727b75c3315f865fdf
   // https://rocm.docs.amd.com/projects/HIPIFY/en/latest/tables/CUDA_Driver_API_functions_supported_by_HIP.html#graph-management
@@ -400,13 +378,6 @@ class GpuDriver {
   //   be serialized.
   // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__EXEC.html#group__CUDA__EXEC_1gab95a78143bae7f21eebb978f91e7f3f
   typedef void (*StreamCallback)(void* data);
-
-  // Enqueues a callback operation into stream.
-  // See StreamCallback above and the NVIDIA documentation for additional
-  // details.
-  static absl::Status AddStreamCallback(Context* context,
-                                        GpuStreamHandle stream,
-                                        StreamCallback callback, void* data);
 
   // Blocks the calling thread until the operations enqueued onto stream have
   // been completed, via cuStreamSynchronize.
