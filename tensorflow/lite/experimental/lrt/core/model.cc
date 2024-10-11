@@ -19,6 +19,7 @@
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_common.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_model.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_op_code.h"
+#include "tensorflow/lite/experimental/lrt/c/lite_rt_options.h"
 
 //
 // Model
@@ -99,6 +100,214 @@ LrtStatus GetOpInputs(LrtOp op, lrt_param_index_t* num_inputs,
 
 LrtStatus GetOpCode(LrtOp op, LrtOpCode* code) {
   *code = op->op_code;
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetFusedActivationOption(
+    LrtOp op, LrtFusedActivationOption* fused_activation) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflAdd:
+      *fused_activation = op->option.AsAddOptions()->fused_activation_function;
+      break;
+    case kLrtOpCodeTflConcatenation:
+      *fused_activation =
+          op->option.AsConcatenationOptions()->fused_activation_function;
+      break;
+    case kLrtOpCodeTflDiv:
+      *fused_activation = op->option.AsDivOptions()->fused_activation_function;
+      break;
+    case kLrtOpCodeTflFullyConnected:
+      *fused_activation =
+          op->option.AsFullyConnectedOptions()->fused_activation_function;
+      break;
+    case kLrtOpCodeTflMul:
+      *fused_activation = op->option.AsMulOptions()->fused_activation_function;
+      break;
+    case kLrtOpCodeTflSub:
+      *fused_activation = op->option.AsSubOptions()->fused_activation_function;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetAxisOption(LrtOp op, LrtAxisOption* axis) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflConcatenation:
+      *axis = op->option.AsConcatenationOptions()->axis;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetAdjXOption(LrtOp op, LrtAdjXOption* adj_x) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflBatchMatmul:
+      *adj_x = op->option.AsBatchMatMulOptions()->adj_x;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetAdjYOption(LrtOp op, LrtAdjYOption* adj_y) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflBatchMatmul:
+      *adj_y = op->option.AsBatchMatMulOptions()->adj_y;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetAsymmetricQuantizeInputOption(
+    LrtOp op, LrtAsymmetricQuantizeInputOption* asymmetric_quantize_input) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflBatchMatmul:
+      *asymmetric_quantize_input =
+          op->option.AsBatchMatMulOptions()->asymmetric_quantize_inputs;
+      break;
+    case kLrtOpCodeTflFullyConnected:
+      *asymmetric_quantize_input =
+          op->option.AsFullyConnectedOptions()->asymmetric_quantize_inputs;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetWeightsFormatOption(LrtOp op,
+                                      LrtWeightsFormatOption* weights_format) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflFullyConnected:
+      *weights_format = op->option.AsFullyConnectedOptions()->weights_format;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetKeepNumDimsOption(LrtOp op,
+                                    LrtKeepNumDimsOption* keep_num_dims) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflFullyConnected:
+      *keep_num_dims = op->option.AsFullyConnectedOptions()->keep_num_dims;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetQuantizedBiasTypeOption(
+    LrtOp op, LrtQuantizedBiasTypeOption* quantized_bias_type) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflFullyConnected:
+      *quantized_bias_type =
+          op->option.AsFullyConnectedOptions()->quantized_bias_type;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetBetaOption(LrtOp op, LrtBetaOption* beta) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflSoftmax:
+      *beta = op->option.AsSoftmaxOptions()->beta;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetBeginMaskOption(LrtOp op, LrtBeginMaskOption* begin_mask) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflStridedSlice:
+      *begin_mask = op->option.AsStridedSliceOptions()->begin_mask;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetEndMaskOption(LrtOp op, LrtEndMaskOption* end_mask) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflStridedSlice:
+      *end_mask = op->option.AsStridedSliceOptions()->end_mask;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetEllipsisMaskOption(LrtOp op,
+                                     LrtEllipsisMaskOption* ellipsis_mask) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflStridedSlice:
+      *ellipsis_mask = op->option.AsStridedSliceOptions()->ellipsis_mask;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetNewAxisMaskOption(LrtOp op,
+                                    LrtNewAxisMaskOption* new_axis_mask) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflStridedSlice:
+      *new_axis_mask = op->option.AsStridedSliceOptions()->new_axis_mask;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetShrinkAxisMaskOption(
+    LrtOp op, LrtShrinkAxisMaskOption* shrink_axis_mask) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflStridedSlice:
+      *shrink_axis_mask = op->option.AsStridedSliceOptions()->shrink_axis_mask;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetOffsetOption(LrtOp op, LrtOffsetOption* offset) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflStridedSlice:
+      *offset = op->option.AsStridedSliceOptions()->offset;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
+  return kLrtStatusOk;
+}
+
+LrtStatus LrtOpGetPotScaleInt16Option(LrtOp op,
+                                      LrtPotScaleInt16Option* pot_scale_int16) {
+  switch (op->op_code) {
+    case kLrtOpCodeTflSub:
+      *pot_scale_int16 = op->option.AsSubOptions()->pot_scale_int16;
+      break;
+    default:
+      return kLrtStatusErrorNotFound;
+  }
   return kLrtStatusOk;
 }
 

@@ -78,10 +78,10 @@ struct LrtOpT {
 
   LrtOpCode op_code;
 
-  // This is a placeholder to be usd by just custom ops for now.
+  // This is a placeholder to be used by just custom ops for now.
   std::string custom_options;
 
-  // TODO: b/365299994 - Add support for op options.
+  tflite::BuiltinOptionsUnion option;
 };
 
 //
@@ -167,7 +167,7 @@ inline void DumpOp(const LrtOpT& op) {
     return result.str();
   };
 
-  // TODO: b/365299994 - Pull tensor dump into separate functiona nd
+  // TODO: b/365299994 - Pull tensor dump into separate function and
   // only dump relevant topology when called in DumpOp.
   auto tensor_dump = [&](const LrtTensorT& tensor) -> DumpInfo {
     DumpInfo result;

@@ -21,6 +21,7 @@
 #include "tensorflow/lite/core/c/c_api_types.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_common.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_op_code.h"
+#include "tensorflow/lite/experimental/lrt/c/lite_rt_options.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -139,6 +140,63 @@ LrtStatus GetOpInputs(LrtOp op, lrt_param_index_t* num_inputs,
 
 // Get code corresponding to operation type for given op.
 LrtStatus GetOpCode(LrtOp op, LrtOpCode* code);
+
+// Get FusedActivationOption for given op if exists.
+LrtStatus LrtOpGetFusedActivationOption(
+    LrtOp op, LrtFusedActivationOption* fused_activation);
+
+// Get AxisOption for given op if exists.
+LrtStatus LrtOpGetAxisOption(LrtOp op, LrtAxisOption* axis);
+
+// Get AdjXOption for given op if exists.
+LrtStatus LrtOpGetAdjXOption(LrtOp op, LrtAdjXOption* adj_x);
+
+// Get AdjYOption for given op if exists.
+LrtStatus LrtOpGetAdjYOption(LrtOp op, LrtAdjYOption* adj_y);
+
+// Get AsymmtericQuantizeInputOption for given op if exists.
+LrtStatus LrtOpGetAsymmetricQuantizeInputOption(
+    LrtOp op, LrtAsymmetricQuantizeInputOption* asymmetric_quantize_input);
+
+// Get WeightsFormatOption for given op if exists.
+LrtStatus LrtOpGetWeightsFormatOption(LrtOp op,
+                                      LrtWeightsFormatOption* weights_format);
+
+// Get KeepNumDimsOption for given op if exists.
+LrtStatus LrtOpGetKeepNumDimsOption(LrtOp op,
+                                    LrtKeepNumDimsOption* keep_num_dims);
+
+// Get QuantizedBiasTypeOption for given op if exists.
+LrtStatus LrtOpGetQuantizedBiasTypeOption(
+    LrtOp op, LrtQuantizedBiasTypeOption* quantized_bias_type);
+
+// Get BetaOption for given op if exists.
+LrtStatus LrtOpGetBetaOption(LrtOp op, LrtBetaOption* beta);
+
+// Get BeginMaskOption for given op if exists.
+LrtStatus LrtOpGetBeginMaskOption(LrtOp op, LrtBeginMaskOption* begin_mask);
+
+// Get EndMaskOption for given op if exists.
+LrtStatus LrtOpGetEndMaskOption(LrtOp op, LrtEndMaskOption* end_mask);
+
+// Get EllipsisMaskOption for given op if exists.
+LrtStatus LrtOpGetEllipsisMaskOption(LrtOp op,
+                                     LrtEllipsisMaskOption* ellipsis_mask);
+
+// Get NewAxisMaskOption for given op if exists.
+LrtStatus LrtOpGetNewAxisMaskOption(LrtOp op,
+                                    LrtNewAxisMaskOption* new_axis_mask);
+
+// Get ShrinkAxisMaskOption for given op if exists.
+LrtStatus LrtOpGetShrinkAxisMaskOption(
+    LrtOp op, LrtShrinkAxisMaskOption* shrink_axis_mask);
+
+// Get OffsetOption for given op if exists.
+LrtStatus LrtOpGetOffsetOption(LrtOp op, LrtOffsetOption* offset);
+
+// Get PotScaleInt16Option for given op if exists.
+LrtStatus LrtOpGetPotScaleInt16Option(LrtOp op,
+                                      LrtPotScaleInt16Option* pot_scale_int16);
 
 //
 // Subgraph

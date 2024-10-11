@@ -24,11 +24,13 @@ cc_library(
         "lite_rt_compiler_plugin.h",
         "lite_rt_model.h",
         "lite_rt_op_code.h",
+        "lite_rt_options.h",
         "lite_rt_support.h",
     ],
     deps = [
         "//tensorflow/lite:builtin_ops",
         "//tensorflow/lite/core/c:c_api_types",
+        "//tensorflow/lite/schema:schema_fbs",
     ],
 )
 

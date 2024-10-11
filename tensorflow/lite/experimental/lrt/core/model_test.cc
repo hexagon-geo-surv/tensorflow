@@ -342,4 +342,163 @@ INSTANTIATE_TEST_SUITE_P(SimpleMultiOpTests, SimpleMultiOpTest,
                          ::testing::ValuesIn(TopologyTest::MakeTestModels(
                              {"simple_multi_op.tflite"})));
 
+TEST(GetOpOptionTest, TestGetAddOptions) {
+  auto model = lrt::testing::LoadTestFileModel("simple_add_op.tflite");
+  ASSERT_RESULT_OK_ASSIGN(LrtSubgraph subgraph,
+                          graph_tools::GetSubgraph(model.get()));
+  ASSERT_RESULT_OK_ASSIGN(auto ops, graph_tools::GetSubgraphOps(subgraph));
+  auto op = ops[0];
+
+  ASSERT_RESULT_OK_ASSIGN(auto option,
+                          graph_tools::GetFusedActivationOption(op));
+  ASSERT_EQ(option, tflite::ActivationFunctionType_NONE);
+}
+
+TEST(GetOpOptionTest, TestGetBatchMatmulOptions) {
+  auto model = lrt::testing::LoadTestFileModel("simple_batch_matmul_op.tflite");
+  ASSERT_RESULT_OK_ASSIGN(LrtSubgraph subgraph,
+                          graph_tools::GetSubgraph(model.get()));
+  ASSERT_RESULT_OK_ASSIGN(auto ops, graph_tools::GetSubgraphOps(subgraph));
+  auto op = ops[0];
+
+  ASSERT_RESULT_OK_ASSIGN(auto adj_x_option, graph_tools::GetAdjXOption(op));
+  ASSERT_EQ(adj_x_option, false);
+
+  ASSERT_RESULT_OK_ASSIGN(auto adj_y_option, graph_tools::GetAdjYOption(op));
+  ASSERT_EQ(adj_y_option, false);
+
+  ASSERT_RESULT_OK_ASSIGN(auto asymmetric_quantize_input_option,
+                          graph_tools::GetAsymmetricQuantizeInputOption(op));
+  ASSERT_EQ(asymmetric_quantize_input_option, false);
+}
+
+TEST(GetOpOptionTest, TestGetConcatenationOptions) {
+  auto model =
+      lrt::testing::LoadTestFileModel("simple_concatenation_op.tflite");
+  ASSERT_RESULT_OK_ASSIGN(LrtSubgraph subgraph,
+                          graph_tools::GetSubgraph(model.get()));
+  ASSERT_RESULT_OK_ASSIGN(auto ops, graph_tools::GetSubgraphOps(subgraph));
+  auto op = ops[0];
+
+  ASSERT_RESULT_OK_ASSIGN(auto axis_option, graph_tools::GetAxisOption(op));
+  ASSERT_EQ(axis_option, 2);
+
+  ASSERT_RESULT_OK_ASSIGN(auto fused_activation_option,
+                          graph_tools::GetFusedActivationOption(op));
+  ASSERT_EQ(fused_activation_option, tflite::ActivationFunctionType_NONE);
+}
+
+TEST(GetOpOptionTest, TestGetDivOptions) {
+  auto model = lrt::testing::LoadTestFileModel("simple_div_op.tflite");
+  ASSERT_RESULT_OK_ASSIGN(LrtSubgraph subgraph,
+                          graph_tools::GetSubgraph(model.get()));
+  ASSERT_RESULT_OK_ASSIGN(auto ops, graph_tools::GetSubgraphOps(subgraph));
+  auto op = ops[0];
+
+  ASSERT_RESULT_OK_ASSIGN(auto fused_activation_option,
+                          graph_tools::GetFusedActivationOption(op));
+  ASSERT_EQ(fused_activation_option, tflite::ActivationFunctionType_NONE);
+}
+
+TEST(GetOpOptionTest, TestGetFullyConnectedOptions) {
+  auto model =
+      lrt::testing::LoadTestFileModel("simple_fully_connected_op.tflite");
+  ASSERT_RESULT_OK_ASSIGN(LrtSubgraph subgraph,
+                          graph_tools::GetSubgraph(model.get()));
+  ASSERT_RESULT_OK_ASSIGN(auto ops, graph_tools::GetSubgraphOps(subgraph));
+  auto op = ops[0];
+
+  ASSERT_RESULT_OK_ASSIGN(auto weights_format_option,
+                          graph_tools::GetWeightsFormatOption(op));
+  ASSERT_EQ(weights_format_option,
+            tflite::FullyConnectedOptionsWeightsFormat_DEFAULT);
+
+  ASSERT_RESULT_OK_ASSIGN(auto keep_num_dims_option,
+                          graph_tools::GetKeepNumDimsOption(op));
+  ASSERT_EQ(keep_num_dims_option, true);
+
+  ASSERT_RESULT_OK_ASSIGN(auto fused_activation_option,
+                          graph_tools::GetFusedActivationOption(op));
+  ASSERT_EQ(fused_activation_option, tflite::ActivationFunctionType_NONE);
+
+  ASSERT_RESULT_OK_ASSIGN(auto asymmetric_quantize_input_option,
+                          graph_tools::GetAsymmetricQuantizeInputOption(op));
+  ASSERT_EQ(asymmetric_quantize_input_option, false);
+
+  ASSERT_RESULT_OK_ASSIGN(auto quantized_bias_type_option,
+                          graph_tools::GetQuantizedBiasTypeOption(op));
+  ASSERT_EQ(quantized_bias_type_option, tflite::TensorType_FLOAT32);
+}
+
+TEST(GetOpOptionTest, TestGetMulOptions) {
+  auto model = lrt::testing::LoadTestFileModel("simple_mul_op.tflite");
+  ASSERT_RESULT_OK_ASSIGN(LrtSubgraph subgraph,
+                          graph_tools::GetSubgraph(model.get()));
+  ASSERT_RESULT_OK_ASSIGN(auto ops, graph_tools::GetSubgraphOps(subgraph));
+  auto op = ops[0];
+
+  ASSERT_RESULT_OK_ASSIGN(auto fused_activation_option,
+                          graph_tools::GetFusedActivationOption(op));
+  ASSERT_EQ(fused_activation_option, tflite::ActivationFunctionType_NONE);
+}
+
+TEST(GetOpOptionTest, TestGetSoftmaxOptions) {
+  auto model = lrt::testing::LoadTestFileModel("simple_softmax_op.tflite");
+  ASSERT_RESULT_OK_ASSIGN(LrtSubgraph subgraph,
+                          graph_tools::GetSubgraph(model.get()));
+  ASSERT_RESULT_OK_ASSIGN(auto ops, graph_tools::GetSubgraphOps(subgraph));
+  auto op = ops[0];
+
+  ASSERT_RESULT_OK_ASSIGN(auto beta_option, graph_tools::GetBetaOption(op));
+  EXPECT_FLOAT_EQ(beta_option, 1.0);
+}
+
+TEST(GetOpOptionTest, TestGetStridedSliceOptions) {
+  auto model =
+      lrt::testing::LoadTestFileModel("simple_strided_slice_op.tflite");
+  ASSERT_RESULT_OK_ASSIGN(LrtSubgraph subgraph,
+                          graph_tools::GetSubgraph(model.get()));
+  ASSERT_RESULT_OK_ASSIGN(auto ops, graph_tools::GetSubgraphOps(subgraph));
+  auto op = ops[0];
+
+  ASSERT_RESULT_OK_ASSIGN(auto begin_mask_option,
+                          graph_tools::GetBeginMaskOption(op));
+  ASSERT_EQ(begin_mask_option, 0);
+
+  ASSERT_RESULT_OK_ASSIGN(auto end_mask_option,
+                          graph_tools::GetEndMaskOption(op));
+  ASSERT_EQ(end_mask_option, 0);
+
+  ASSERT_RESULT_OK_ASSIGN(auto ellipsis_mask_option,
+                          graph_tools::GetEllipsisMaskOption(op));
+  ASSERT_EQ(ellipsis_mask_option, 0);
+
+  ASSERT_RESULT_OK_ASSIGN(auto new_axis_mask_option,
+                          graph_tools::GetNewAxisMaskOption(op));
+  ASSERT_EQ(new_axis_mask_option, 0);
+
+  ASSERT_RESULT_OK_ASSIGN(auto shrink_axis_mask_option,
+                          graph_tools::GetShrinkAxisMaskOption(op));
+  ASSERT_EQ(shrink_axis_mask_option, 0);
+
+  ASSERT_RESULT_OK_ASSIGN(auto offset_option, graph_tools::GetOffsetOption(op));
+  ASSERT_EQ(offset_option, false);
+}
+
+TEST(GetOpOptionTest, TestGetSubOptions) {
+  auto model = lrt::testing::LoadTestFileModel("simple_sub_op.tflite");
+  ASSERT_RESULT_OK_ASSIGN(LrtSubgraph subgraph,
+                          graph_tools::GetSubgraph(model.get()));
+  ASSERT_RESULT_OK_ASSIGN(auto ops, graph_tools::GetSubgraphOps(subgraph));
+  auto op = ops[0];
+
+  ASSERT_RESULT_OK_ASSIGN(auto fused_activation_option,
+                          graph_tools::GetFusedActivationOption(op));
+  ASSERT_EQ(fused_activation_option, tflite::ActivationFunctionType_NONE);
+
+  ASSERT_RESULT_OK_ASSIGN(auto pot_scale_int16_option,
+                          graph_tools::GetPotScaleInt16Option(op));
+  ASSERT_EQ(pot_scale_int16_option, true);
+}
+
 }  // namespace

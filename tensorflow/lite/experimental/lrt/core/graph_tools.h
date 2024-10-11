@@ -30,6 +30,7 @@
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_common.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_model.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_op_code.h"
+#include "tensorflow/lite/experimental/lrt/c/lite_rt_options.h"
 #include "tensorflow/lite/experimental/lrt/cc/lite_rt_support.h"
 
 #define _D_MATCH_TRUE(v)                                               \
@@ -186,7 +187,7 @@ inline LrtResult<llvm::ArrayRef<LrtTensor>> GetSubgraphOutputs(
       llvm::ArrayRef<LrtTensor>(outputs, num_outputs));
 }
 
-// Get only subgraph in given model, bad status if model doens't have exactly
+// Get only subgraph in given model, bad status if model doesn't have exactly
 // one subgraph.
 // TODO: b/365299994 - Add multi-subgraph getters for graph tools.
 inline LrtResult<LrtSubgraph> GetSubgraph(LrtModel model) {
@@ -350,6 +351,122 @@ inline bool MatchNoWeights(LrtTensor tensor) {
 
   return size == 0;
 }
+
+inline LrtResult<LrtFusedActivationOption> GetFusedActivationOption(LrtOp op) {
+  LrtFusedActivationOption fused_activation;
+  LRT_RETURN_RESULT_IF_NOT_OK(
+      LrtOpGetFusedActivationOption(op, &fused_activation),
+      LrtFusedActivationOption);
+  return LrtResult<LrtFusedActivationOption>::FromValue(fused_activation);
+}
+
+inline LrtResult<LrtAxisOption> GetAxisOption(LrtOp op) {
+  LrtAxisOption axis;
+  LRT_RETURN_RESULT_IF_NOT_OK(LrtOpGetAxisOption(op, &axis), LrtAxisOption);
+  return LrtResult<LrtAxisOption>::FromValue(axis);
+}
+
+inline LrtResult<LrtAdjXOption> GetAdjXOption(LrtOp op) {
+  LrtAdjXOption adj_x;
+  LRT_RETURN_RESULT_IF_NOT_OK(LrtOpGetAdjXOption(op, &adj_x), LrtAdjXOption);
+  return LrtResult<LrtAdjXOption>::FromValue(adj_x);
+}
+
+inline LrtResult<LrtAdjYOption> GetAdjYOption(LrtOp op) {
+  LrtAdjYOption adj_y;
+  LRT_RETURN_RESULT_IF_NOT_OK(LrtOpGetAdjYOption(op, &adj_y), LrtAdjYOption);
+  return LrtResult<LrtAdjYOption>::FromValue(adj_y);
+}
+
+inline LrtResult<LrtAsymmetricQuantizeInputOption>
+GetAsymmetricQuantizeInputOption(LrtOp op) {
+  LrtAsymmetricQuantizeInputOption asymmetric_quantize_input;
+  LRT_RETURN_RESULT_IF_NOT_OK(
+      LrtOpGetAsymmetricQuantizeInputOption(op, &asymmetric_quantize_input),
+      LrtAsymmetricQuantizeInputOption);
+  return LrtResult<LrtAsymmetricQuantizeInputOption>::FromValue(
+      asymmetric_quantize_input);
+}
+
+inline LrtResult<LrtWeightsFormatOption> GetWeightsFormatOption(LrtOp op) {
+  LrtWeightsFormatOption weights_format;
+  LRT_RETURN_RESULT_IF_NOT_OK(LrtOpGetWeightsFormatOption(op, &weights_format),
+                              LrtWeightsFormatOption);
+  return LrtResult<LrtWeightsFormatOption>::FromValue(weights_format);
+}
+
+inline LrtResult<LrtKeepNumDimsOption> GetKeepNumDimsOption(LrtOp op) {
+  LrtKeepNumDimsOption keep_num_dims;
+  LRT_RETURN_RESULT_IF_NOT_OK(LrtOpGetKeepNumDimsOption(op, &keep_num_dims),
+                              LrtKeepNumDimsOption);
+  return LrtResult<LrtKeepNumDimsOption>::FromValue(keep_num_dims);
+}
+
+inline LrtResult<LrtQuantizedBiasTypeOption> GetQuantizedBiasTypeOption(
+    LrtOp op) {
+  LrtQuantizedBiasTypeOption quantized_bias_type;
+  LRT_RETURN_RESULT_IF_NOT_OK(
+      LrtOpGetQuantizedBiasTypeOption(op, &quantized_bias_type),
+      LrtQuantizedBiasTypeOption);
+  return LrtResult<LrtQuantizedBiasTypeOption>::FromValue(quantized_bias_type);
+}
+
+inline LrtResult<LrtBetaOption> GetBetaOption(LrtOp op) {
+  LrtBetaOption beta;
+  LRT_RETURN_RESULT_IF_NOT_OK(LrtOpGetBetaOption(op, &beta), LrtBetaOption);
+  return LrtResult<LrtBetaOption>::FromValue(beta);
+}
+
+inline LrtResult<LrtBeginMaskOption> GetBeginMaskOption(LrtOp op) {
+  LrtBeginMaskOption begin_mask;
+  LRT_RETURN_RESULT_IF_NOT_OK(LrtOpGetBeginMaskOption(op, &begin_mask),
+                              LrtBeginMaskOption);
+  return LrtResult<LrtBeginMaskOption>::FromValue(begin_mask);
+}
+
+inline LrtResult<LrtEndMaskOption> GetEndMaskOption(LrtOp op) {
+  LrtEndMaskOption end_mask;
+  LRT_RETURN_RESULT_IF_NOT_OK(LrtOpGetEndMaskOption(op, &end_mask),
+                              LrtEndMaskOption);
+  return LrtResult<LrtEndMaskOption>::FromValue(end_mask);
+}
+
+inline LrtResult<LrtEllipsisMaskOption> GetEllipsisMaskOption(LrtOp op) {
+  LrtEllipsisMaskOption ellipsis_mask;
+  LRT_RETURN_RESULT_IF_NOT_OK(LrtOpGetEllipsisMaskOption(op, &ellipsis_mask),
+                              LrtEllipsisMaskOption);
+  return LrtResult<LrtEllipsisMaskOption>::FromValue(ellipsis_mask);
+}
+
+inline LrtResult<LrtNewAxisMaskOption> GetNewAxisMaskOption(LrtOp op) {
+  LrtNewAxisMaskOption new_axis_mask;
+  LRT_RETURN_RESULT_IF_NOT_OK(LrtOpGetNewAxisMaskOption(op, &new_axis_mask),
+                              LrtNewAxisMaskOption);
+  return LrtResult<LrtNewAxisMaskOption>::FromValue(new_axis_mask);
+}
+
+inline LrtResult<LrtShrinkAxisMaskOption> GetShrinkAxisMaskOption(LrtOp op) {
+  LrtShrinkAxisMaskOption shrink_axis_mask;
+  LRT_RETURN_RESULT_IF_NOT_OK(
+      LrtOpGetShrinkAxisMaskOption(op, &shrink_axis_mask),
+      LrtShrinkAxisMaskOption);
+  return LrtResult<LrtShrinkAxisMaskOption>::FromValue(shrink_axis_mask);
+}
+
+inline LrtResult<LrtOffsetOption> GetOffsetOption(LrtOp op) {
+  LrtOffsetOption offset;
+  LRT_RETURN_RESULT_IF_NOT_OK(LrtOpGetOffsetOption(op, &offset),
+                              LrtOffsetOption);
+  return LrtResult<LrtOffsetOption>::FromValue(offset);
+}
+
+inline LrtResult<LrtPotScaleInt16Option> GetPotScaleInt16Option(LrtOp op) {
+  LrtPotScaleInt16Option pot_scale_int16;
+  LRT_RETURN_RESULT_IF_NOT_OK(LrtOpGetPotScaleInt16Option(op, &pot_scale_int16),
+                              LrtPotScaleInt16Option);
+  return LrtResult<LrtPotScaleInt16Option>::FromValue(pot_scale_int16);
+}
+
 }  // namespace graph_tools
 
 #endif  // TENSORFLOW_LITE_EXPERIMENTAL_LRT_CORE_GRAPH_TOOLS_H_

@@ -25,12 +25,14 @@ cc_library(
         "//tensorflow/lite/experimental/lrt/c:lite_rt_compiler_plugin.h",
         "//tensorflow/lite/experimental/lrt/c:lite_rt_model.h",
         "//tensorflow/lite/experimental/lrt/c:lite_rt_op_code.h",
+        "//tensorflow/lite/experimental/lrt/c:lite_rt_options.h",
         "//tensorflow/lite/experimental/lrt/c:lite_rt_support.h",
         "//tensorflow/lite/experimental/lrt/cc:lite_rt_support.h",
     ],
     deps = [
         "//tensorflow/lite:builtin_ops",
         "//tensorflow/lite/core/c:c_api_types",
+        "//tensorflow/lite/schema:schema_fbs",
     ],
 )
 
