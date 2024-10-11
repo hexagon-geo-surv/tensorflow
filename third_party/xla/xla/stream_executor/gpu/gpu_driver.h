@@ -69,30 +69,6 @@ class GpuDriver {
   // https://rocm.docs.amd.com/projects/HIPIFY/en/latest/tables/CUDA_Driver_API_functions_supported_by_HIP.html#stream-management
   static void DestroyStream(Context* context, GpuStreamHandle stream);
 
-  // Allocates a GPU memory space of size bytes associated with the given
-  // context via cuMemAlloc/hipMalloc.
-  // http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__MEM.html#group__CUDA__MEM_1gb82d2a09844a58dd9e744dc31e8aa467
-  // https://rocm.docs.amd.com/projects/HIPIFY/en/latest/tables/CUDA_Driver_API_functions_supported_by_HIP.html#memory-management
-  static void* DeviceAllocate(Context* context, uint64_t bytes);
-
-  // Deallocates a GPU memory space of size bytes associated with the given
-  // context via cuMemFree/hipFree.
-  // http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__MEM.html#group__CUDA__MEM_1g89b3f154e17cc89b6eea277dbdf5c93a
-  // https://rocm.docs.amd.com/projects/HIPIFY/en/latest/tables/CUDA_Driver_API_functions_supported_by_HIP.html#memory-management
-  static void DeviceDeallocate(Context* context, void* location);
-
-  // Allocates a unified memory space of size bytes associated with the given
-  // context via cuMemAllocManaged.
-  // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__MEM.html#group__CUDA__MEM_1gb347ded34dc326af404aa02af5388a32
-  // (supported on CUDA only)
-  static void* UnifiedMemoryAllocate(Context* context, uint64_t bytes);
-
-  // Deallocates a unified memory space of size bytes associated with the given
-  // context via cuMemFree.
-  // http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__MEM.html#group__CUDA__MEM_1g89b3f154e17cc89b6eea277dbdf5c93a
-  // (supported on CUDA only)
-  static void UnifiedMemoryDeallocate(Context* context, void* location);
-
   // Allocates page-locked and CUDA-registered memory on the host via
   // cuMemAllocHost/hipHostMalloc.
   // http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__MEM.html#group__CUDA__MEM_1gdd8311286d2c2691605362c689bc64e0
@@ -120,13 +96,6 @@ class GpuDriver {
   // TODO(leary) verify an error will be returned if the location wasn't
   // previously registered.
   static bool HostUnregister(Context* context, void* location);
-
-  // Given a device ordinal, returns a device handle into the device outparam,
-  // which must not be null.
-  //
-  // N.B. these device handles do not have a corresponding destroy function in
-  // the CUDA/HIP driver API.
-  static absl::Status GetDevice(int device_ordinal, GpuDeviceHandle* device);
 
   // Launches a CUDA/ROCm kernel via cuLaunchKernel/hipModuleLaunchKernel.
   // http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__EXEC.html#group__CUDA__EXEC_1gb8f3dc3031b40da29d5f9a7139e52e15
@@ -269,11 +238,6 @@ class GpuDriver {
   // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__STREAM.html#group__CUDA__STREAM_1g37823c49206e3704ae23c7ad78560bca
   // https://rocm.docs.amd.com/projects/HIPIFY/en/latest/tables/CUDA_Driver_API_functions_supported_by_HIP.html#stream-management
   static absl::StatusOr<bool> StreamIsCapturing(GpuStreamHandle stream);
-
-  // Free unused memory that was cached on the specified device for use with
-  // graphs back to the OS.
-  // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__GRAPH.html#group__CUDA__GRAPH_1g57c87f4ba6af41825627cdd4e5a8c52b
-  static absl::Status DeviceGraphMemTrim(GpuDeviceHandle device);
 
   // Creates a conditional handle.
   // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__GRAPH.html#group__CUDA__GRAPH_1gece6f3b9e85d0edb8484d625fe567376
@@ -459,98 +423,11 @@ class GpuDriver {
   static absl::Status SynchronizeStream(Context* context,
                                         GpuStreamHandle stream);
 
-  // Returns whether code in the from context can access memory in the to
-  // context via cuDeviceCanAccessPeer.
-  // http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__PEER__ACCESS.html#group__CUDA__PEER__ACCESS_1g496bdaae1f632ebfb695b99d2c40f19e
-  static bool CanEnablePeerAccess(Context* from, Context* to);
-
-  // Returns whether the from device can access memory in the to
-  // device via cuDeviceCanAccessPeer. Because of differences between ROCM and
-  // CUDA, this API is not supported in ROCM builds and will result in a link
-  // error if used.
-  // http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__PEER__ACCESS.html#group__CUDA__PEER__ACCESS_1g496bdaae1f632ebfb695b99d2c40f19e
-  static bool CanEnablePeerAccess(GpuDeviceHandle from, GpuDeviceHandle to);
-
-  // Enables peer access per CanEnablePeerAccess, via cuCtxEnablePeerAccess.
-  // http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__PEER__ACCESS.html#group__CUDA__PEER__ACCESS_1g0889ec6728e61c05ed359551d67b3f5a
-  static absl::Status EnablePeerAccess(Context* from, Context* to);
-
   // -- Pointer-specific calls.
-
-  // Returns the memory space addressed by pointer.
-  static absl::StatusOr<MemoryType> GetPointerMemorySpace(GpuDevicePtr pointer);
 
   // Returns the base address and size of the device pointer dptr.
   static absl::Status GetPointerAddressRange(GpuDevicePtr dptr,
                                              GpuDevicePtr* base, size_t* size);
-
-  // -- Device-specific calls.
-
-  // Return the full GCN Architecture Name for the device
-  // for eg: amdgcn-amd-amdhsa--gfx908:sramecc+:xnack-
-  // (supported on ROCm only)
-  static absl::Status GetGpuGCNArchName(GpuDeviceHandle device,
-                                        std::string* gcnArchName);
-
-  // Returns the number of multiprocessors on the device (note that the device
-  // may be multi-GPU-per-board).
-  static absl::StatusOr<int> GetMultiprocessorCount(GpuDeviceHandle device);
-
-  // Returns the limit on number of threads that can be resident in a single
-  // multiprocessor.
-  static absl::StatusOr<int64_t> GetMaxThreadsPerMultiprocessor(
-      GpuDeviceHandle device);
-
-  // Returns the amount of shared memory available on a single GPU core (i.e.
-  // SM on NVIDIA devices).
-  static absl::StatusOr<int64_t> GetMaxSharedMemoryPerCore(
-      GpuDeviceHandle device);
-
-  // Returns the amount of static shared memory available for a single block
-  // (cooperative thread array).
-  static absl::StatusOr<int64_t> GetMaxSharedMemoryPerBlock(
-      GpuDeviceHandle device);
-
-  // Returns the total amount of shared memory available for a single block
-  // (cooperative thread array).
-  static absl::StatusOr<int64_t> GetMaxSharedMemoryPerBlockOptin(
-      GpuDeviceHandle device);
-
-  // Returns the maximum supported number of registers per block.
-  static absl::StatusOr<int64_t> GetMaxRegistersPerBlock(
-      GpuDeviceHandle device);
-
-  // Returns the number of threads per warp.
-  static absl::StatusOr<int64_t> GetThreadsPerWarp(GpuDeviceHandle device);
-
-  // Queries the grid limits for device with cuDeviceGetAttribute calls.
-  // http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__DEVICE.html#group__CUDA__DEVICE_1g9c3e1414f0ad901d3278a4d6645fc266
-  static absl::Status GetGridLimits(int* x, int* y, int* z,
-                                    GpuDeviceHandle device);
-
-  // Returns a grab-bag of device properties in a caller-owned device_properties
-  // structure for device_ordinal via cuDeviceGetProperties.
-  //
-  // This call is deprecated in the NVIDIA driver API; its replacement is
-  // GetDeviceAttribute
-  //
-  // http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__DEVICE__DEPRECATED.html#group__CUDA__DEVICE__DEPRECATED_1g65a5b4e25186bd257df80b98c98cffe6
-  static bool GetDeviceProperties(GpuDeviceProperty* device_properties,
-                                  int device_ordinal);
-
-  // Returns whether ECC is enabled for the given GpuDeviceHandle via
-  // cuDeviceGetattribute with CU_DEVICE_ATTRIBUTE_ECC_ENABLED.
-  // http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__DEVICE.html#group__CUDA__DEVICE_1g9c3e1414f0ad901d3278a4d6645fc266
-  static bool IsEccEnabled(GpuDeviceHandle device, bool* result);
-
-  // Returns the total amount of memory available for allocation by the CUDA
-  // context, in bytes, via cuDeviceTotalMem.
-  static bool GetDeviceTotalMemory(GpuDeviceHandle device, uint64_t* result);
-
-  // Returns a PCI bus id string for the device.
-  // [domain]:[bus]:[device].[function]
-  // http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__MEM.html#group__CUDA__MEM_1g85295e7d9745ab8f0aa80dd1e172acfc
-  static std::string GetPCIBusID(GpuDeviceHandle device);
 
   // -- Context- and device-independent calls.
 
