@@ -115,13 +115,8 @@ class CudaExecutor : public GpuExecutor {
       const override {
     return CudaExecutor::CreateDeviceDescription(device_ordinal());
   }
-  void* UnifiedMemoryAllocate(uint64_t size) override {
-    return GpuDriver::UnifiedMemoryAllocate(gpu_context(), size);
-  }
-
-  void UnifiedMemoryDeallocate(void* location) override {
-    return GpuDriver::UnifiedMemoryDeallocate(gpu_context(), location);
-  }
+  void* UnifiedMemoryAllocate(uint64_t size) override;
+  void UnifiedMemoryDeallocate(void* location) override;
   absl::StatusOr<std::unique_ptr<MemoryAllocation>> HostMemoryAllocate(
       uint64_t size) override {
     auto* buffer = GpuDriver::HostAllocate(gpu_context(), size);
@@ -139,10 +134,7 @@ class CudaExecutor : public GpuExecutor {
   bool HostMemoryRegister(void* location, uint64_t size) override;
   bool HostMemoryUnregister(void* location) override;
 
-  absl::StatusOr<MemoryType> GetPointerMemorySpace(const void* ptr) override {
-    return GpuDriver::GetPointerMemorySpace(
-        reinterpret_cast<GpuDevicePtr>(const_cast<void*>(ptr)));
-  }
+  absl::StatusOr<MemoryType> GetPointerMemorySpace(const void* ptr) override;
 
   Stream* FindAllocatedStream(void* gpu_stream) override {
     absl::MutexLock lock(&alive_gpu_streams_mu_);
@@ -212,7 +204,7 @@ class CudaExecutor : public GpuExecutor {
 
   // Handle for the CUDA device being operated on. Immutable
   // post-initialization.
-  GpuDeviceHandle device_;
+  CUdevice device_;
 
   // True if delay kernels are supported.
   bool delay_kernels_supported_ = false;

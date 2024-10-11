@@ -79,11 +79,13 @@ limitations under the License.
 #include "xla/stream_executor/semantic_version.h"
 #include "xla/stream_executor/stream.h"
 #include "xla/stream_executor/stream_executor.h"
+#include "tsl/platform/casts.h"
 #include "tsl/platform/env.h"
 #include "tsl/platform/errors.h"
 #include "tsl/platform/fingerprint.h"
 #include "tsl/platform/logging.h"
 #include "tsl/platform/macros.h"
+#include "tsl/platform/numbers.h"
 #include "tsl/platform/statusor.h"
 #include "tsl/platform/threadpool.h"
 
@@ -284,6 +286,223 @@ absl::Status GetComputeCapability(int* cc_major, int* cc_minor,
   return cuda::ToStatus(cuDeviceGetAttribute(
       cc_minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, device));
 }
+
+// Helper function that turns the integer output of cuDeviceGetAttribute to type
+// T and wraps it in a absl::StatusOr.
+template <typename T>
+static absl::StatusOr<T> GetSimpleAttribute(CUdevice device,
+                                            CUdevice_attribute attribute) {
+  int value = -1;
+  TF_RETURN_IF_ERROR(cuda::ToStatus(
+      cuDeviceGetAttribute(&value, attribute, device),
+      absl::StrCat("Could not retrieve CUDA device attribute (", attribute)));
+  T converted = value;
+  return converted;
+}
+
+// Returns the number of multiprocessors on the device (note that the device
+// may be multi-GPU-per-board).
+absl::StatusOr<int> GetMultiprocessorCount(CUdevice device) {
+  return GetSimpleAttribute<int>(device,
+                                 CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT);
+}
+
+absl::StatusOr<int64_t> GetMaxSharedMemoryPerCore(CUdevice device) {
+  return GetSimpleAttribute<int64_t>(
+      device, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR);
+}
+
+absl::StatusOr<int64_t> GetMaxSharedMemoryPerBlock(CUdevice device) {
+  return GetSimpleAttribute<int64_t>(
+      device, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK);
+}
+
+absl::StatusOr<int64_t> GetMaxSharedMemoryPerBlockOptin(CUdevice device) {
+  return GetSimpleAttribute<int64_t>(
+      device, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN);
+}
+
+absl::StatusOr<int64_t> GetMaxThreadsPerMultiprocessor(CUdevice device) {
+  return GetSimpleAttribute<int64_t>(
+      device, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR);
+}
+
+absl::StatusOr<int64_t> GetMaxRegistersPerBlock(CUdevice device) {
+  return GetSimpleAttribute<int64_t>(
+      device, CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_BLOCK);
+}
+
+absl::StatusOr<int64_t> GetThreadsPerWarp(CUdevice device) {
+  return GetSimpleAttribute<int64_t>(device, CU_DEVICE_ATTRIBUTE_WARP_SIZE);
+}
+
+absl::Status GetGridLimits(int* x, int* y, int* z, CUdevice device) {
+  int value;
+  TF_RETURN_IF_ERROR(cuda::ToStatus(
+      cuDeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X, device),
+      "Could not get device attribute"));
+  *x = value;
+
+  TF_RETURN_IF_ERROR(cuda::ToStatus(
+      cuDeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Y, device),
+      "Could not get device attribute"));
+  *y = value;
+
+  TF_RETURN_IF_ERROR(cuda::ToStatus(
+      cuDeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z, device),
+      "Could not get device attribute"));
+  *z = value;
+  return absl::OkStatus();
+}
+
+// Returns the device associated with the given device_ordinal.
+absl::StatusOr<CUdevice> GetDevice(int device_ordinal) {
+  CUdevice device;
+  TF_RETURN_IF_ERROR(cuda::ToStatus(cuDeviceGet(&device, device_ordinal),
+                                    "Failed call to cuDeviceGet"));
+  return device;
+}
+
+// Returns the device associated with the given context.
+absl::StatusOr<CUdevice> DeviceFromContext(Context* context) {
+  ScopedActivateContext activated{context};
+  CUdevice device = -1;
+  auto status = cuda::ToStatus(cuCtxGetDevice(&device));
+  if (status.ok()) {
+    return device;
+  }
+
+  return status;
+}
+
+bool CanEnablePeerAccess(CUdevice from, CUdevice to) {
+  int can_access_peer = -1;
+  auto status =
+      cuda::ToStatus(cuDeviceCanAccessPeer(&can_access_peer, from, to));
+  if (!status.ok()) {
+    LOG(ERROR) << "failed to detect peer access capability: " << status;
+    return false;
+  }
+  return can_access_peer;
+}
+
+bool CanEnablePeerAccess(Context* from, Context* to) {
+  if (from == to) {
+    return true;  // A context can always access its own memory.
+  }
+
+  auto from_device = DeviceFromContext(from);
+  if (!from_device.ok()) {
+    LOG(ERROR) << "failed to resolve 'from' peer access context to a device: "
+               << from_device.status();
+    return false;
+  }
+  auto to_device = DeviceFromContext(to);
+  if (!to_device.ok()) {
+    LOG(ERROR) << "failed to resolve 'to' peer access context to a device: "
+               << to_device.status();
+    return false;
+  }
+  return CanEnablePeerAccess(from_device.value(), to_device.value());
+}
+
+absl::Status EnablePeerAccess(Context* from, Context* to) {
+  if (from == to) {
+    return absl::OkStatus();  // A context can always access its own
+                              // memory.
+  }
+
+  ScopedActivateContext activated{from};
+  CUresult result = cuCtxEnablePeerAccess(
+      tensorflow::down_cast<CudaContext*>(to)->context(), 0 /* = flags */);
+  if (result != CUDA_SUCCESS &&
+      result != CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED) {
+    return absl::InternalError(
+        absl::StrFormat("failed to enable peer access from %p to %p: %s", from,
+                        to, cuda::ToStatus(result).ToString()));
+  }
+
+  return absl::OkStatus();
+}
+
+// Returns the total amount of memory available on the device.
+bool GetDeviceTotalMemory(CUdevice device, uint64_t* result) {
+  size_t value{};
+  auto status = cuda::ToStatus(cuDeviceTotalMem(&value, device));
+  if (!status.ok()) {
+    LOG(ERROR) << "failed to query total available memory: " << status;
+    return false;
+  }
+
+  *result = value;
+  return true;
+}
+
+bool IsEccEnabled(CUdevice device, bool* result) {
+  int value = -1;
+  auto status = cuda::ToStatus(
+      cuDeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_ECC_ENABLED, device));
+  if (!status.ok()) {
+    LOG(ERROR) << "failed to query ECC status: " << status;
+    return false;
+  }
+
+  *result = value;
+  return true;
+}
+
+std::string GetPCIBusID(CUdevice device) {
+  std::string pci_bus_id;
+  static const int kBufferSize = 64;
+  absl::InlinedVector<char, 4> chars(kBufferSize);
+  chars[kBufferSize - 1] = '\0';
+  auto status = cuda::ToStatus(
+      cuDeviceGetPCIBusId(chars.begin(), kBufferSize - 1, device));
+  if (!status.ok()) {
+    LOG(ERROR) << "failed to query PCI bus id for device: " << status;
+    return pci_bus_id;
+  }
+  pci_bus_id = std::string(chars.begin(), kBufferSize - 1);
+  return pci_bus_id;
+}
+
+// Allocates memory on the GPU device.
+void* DeviceAllocate(Context* context, uint64_t bytes) {
+  if (bytes == 0) {
+    return nullptr;
+  }
+
+  ScopedActivateContext activated{context};
+  CUdeviceptr result = 0;
+  auto status = cuda::ToStatus(cuMemAlloc(&result, bytes));
+  if (!status.ok()) {
+    // LOG(INFO) because this isn't always important to users (e.g. BFCAllocator
+    // implements a retry if the first allocation fails).
+    LOG(INFO) << "failed to allocate "
+              << tsl::strings::HumanReadableNumBytes(bytes) << " (" << bytes
+              << " bytes) from device: " << status;
+    return nullptr;
+  }
+  void* ptr = reinterpret_cast<void*>(result);
+  VLOG(2) << "allocated " << ptr << " for context " << context << " of "
+          << bytes << " bytes";
+  return ptr;
+}
+
+// Deallocates memory on the GPU device that was previously allocated via
+// DeviceAllocate.
+void DeviceDeallocate(Context* context, void* location) {
+  ScopedActivateContext activation(context);
+  CUdeviceptr pointer = absl::bit_cast<CUdeviceptr>(location);
+  auto status = cuda::ToStatus(cuMemFree(pointer));
+  if (!status.ok()) {
+    LOG(ERROR) << "failed to free device memory at " << location
+               << "; result: " << status;
+  } else {
+    VLOG(2) << "deallocated " << location << " for context " << context;
+  }
+}
+
 }  // namespace
 
 // Given const GPU memory, returns a libcuda device pointer datatype, suitable
@@ -307,9 +526,39 @@ CudaExecutor::~CudaExecutor() {
   set_context(nullptr);
 }
 
+void CudaExecutor::UnifiedMemoryDeallocate(void* location) {
+  ScopedActivateContext activation(gpu_context());
+  CUdeviceptr pointer = absl::bit_cast<CUdeviceptr>(location);
+  auto status = cuda::ToStatus(cuMemFree(pointer));
+  if (!status.ok()) {
+    LOG(ERROR) << "failed to free unified memory at " << location
+               << "; result: " << status;
+  } else {
+    VLOG(2) << "deallocated unified memory at " << location << " for context "
+            << gpu_context();
+  }
+}
+
+void* CudaExecutor::UnifiedMemoryAllocate(uint64_t size) {
+  ScopedActivateContext activation(gpu_context());
+  CUdeviceptr result = 0;
+  // "Portable" memory is visible to all CUDA contexts. Safe for our use model.
+  auto status =
+      cuda::ToStatus(cuMemAllocManaged(&result, size, CU_MEM_ATTACH_GLOBAL));
+  if (!status.ok()) {
+    LOG(ERROR) << "failed to alloc " << size
+               << " bytes unified memory; result: " << status;
+    return nullptr;
+  }
+  void* ptr = reinterpret_cast<void*>(result);
+  VLOG(2) << "allocated " << ptr << " for context " << gpu_context() << " of "
+          << size << " bytes in unified memory";
+  return ptr;
+}
+
 absl::Status CudaExecutor::Init() {
   TF_RETURN_IF_ERROR(GpuDriver::Init());
-  TF_RETURN_IF_ERROR(GpuDriver::GetDevice(device_ordinal(), &device_));
+  TF_ASSIGN_OR_RETURN(device_, GetDevice(device_ordinal()));
   TF_ASSIGN_OR_RETURN(Context * context,
                       CudaContext::Create(device_ordinal(), device_));
   set_context(context);
@@ -632,7 +881,7 @@ DeviceMemoryBase CudaExecutor::Allocate(uint64_t size, int64_t memory_space) {
     return DeviceMemoryBase(GpuDriver::HostAllocate(gpu_context(), size), size);
   }
   CHECK_EQ(memory_space, 0);
-  return DeviceMemoryBase(GpuDriver::DeviceAllocate(gpu_context(), size), size);
+  return DeviceMemoryBase(DeviceAllocate(gpu_context(), size), size);
 }
 
 void CudaExecutor::Deallocate(DeviceMemoryBase* mem) {
@@ -645,7 +894,7 @@ void CudaExecutor::Deallocate(DeviceMemoryBase* mem) {
   if (memory_space == MemoryType::kHost) {
     GpuDriver::HostDeallocate(gpu_context(), mem->opaque());
   } else {
-    GpuDriver::DeviceDeallocate(gpu_context(), mem->opaque());
+    DeviceDeallocate(gpu_context(), mem->opaque());
   }
 }
 
@@ -657,13 +906,29 @@ bool CudaExecutor::HostMemoryRegister(void* location, uint64_t size) {
   VLOG(1) << "Called StreamExecutor::HostMemoryRegister(data=" << location
           << ")";
 
-  return GpuDriver::HostRegister(gpu_context(), location, size);
+  ScopedActivateContext activation(gpu_context());
+  // "Portable" memory is visible to all CUDA contexts. Safe for our use model.
+  auto status = cuda::ToStatus(
+      cuMemHostRegister(location, size, CU_MEMHOSTREGISTER_PORTABLE));
+  if (!status.ok()) {
+    LOG(ERROR) << "error registering host memory at " << location << ": "
+               << status;
+    return false;
+  }
+  return true;
 }
 
 bool CudaExecutor::HostMemoryUnregister(void* location) {
   VLOG(1) << "Called StreamExecutor::HostUnregister(data=" << location << ")";
 
-  return GpuDriver::HostUnregister(gpu_context(), location);
+  ScopedActivateContext activation(gpu_context());
+  auto status = cuda::ToStatus(cuMemHostUnregister(location));
+  if (!status.ok()) {
+    LOG(ERROR) << "error unregistering host memory at " << location << ": "
+               << status;
+    return false;
+  }
+  return true;
 }
 
 absl::Status CudaExecutor::SynchronousMemZero(DeviceMemoryBase* location,
@@ -770,13 +1035,12 @@ fft::FftSupport* CudaExecutor::AsFft() {
 
 bool CudaExecutor::CanEnablePeerAccessTo(StreamExecutor* other) {
   GpuExecutor* cuda_other = static_cast<GpuExecutor*>(other);
-  return GpuDriver::CanEnablePeerAccess(gpu_context(),
-                                        cuda_other->gpu_context());
+  return CanEnablePeerAccess(gpu_context(), cuda_other->gpu_context());
 }
 
 absl::Status CudaExecutor::EnablePeerAccessTo(StreamExecutor* other) {
   GpuExecutor* cuda_other = static_cast<GpuExecutor*>(other);
-  return GpuDriver::EnablePeerAccess(gpu_context(), cuda_other->gpu_context());
+  return EnablePeerAccess(gpu_context(), cuda_other->gpu_context());
 }
 
 bool CudaExecutor::DeviceMemoryUsage(int64_t* free_out,
@@ -820,14 +1084,13 @@ absl::StatusOr<DeviceMemoryBase> CudaExecutor::GetSymbol(
                    reinterpret_cast<uintptr_t>(module_handle.id()), ")"));
 }
 
-absl::Status FillBlockDimLimit(GpuDeviceHandle device,
-                               BlockDim* block_dim_limit) {
+absl::Status FillBlockDimLimit(CUdevice device, BlockDim* block_dim_limit) {
   // The BlockDim name is a mismatch against these GRID_DIM_* queries because
   // we use BlockDims to express the dimensions of blocks within a grid
   // (as opposed to ThreadDim which expresses the dimensions of threads
   // within a block).
   int x, y, z;
-  TF_RETURN_IF_ERROR(GpuDriver::GetGridLimits(&x, &y, &z, device));
+  TF_RETURN_IF_ERROR(GetGridLimits(&x, &y, &z, device));
   block_dim_limit->x = x;
   block_dim_limit->y = y;
   block_dim_limit->z = z;
@@ -857,13 +1120,13 @@ CudaExecutor::CreateCommandBuffer(CommandBuffer::Mode mode) {
 }
 
 absl::Status CudaExecutor::TrimGraphMemory() {
-  return GpuDriver::DeviceGraphMemTrim(device_);
+  return cuda::ToStatus(cuDeviceGraphMemTrim(device_),
+                        "Failed to trim device graph memory");
 }
 
 absl::StatusOr<std::unique_ptr<DeviceDescription>>
 CudaExecutor::CreateDeviceDescription(int device_ordinal) {
-  GpuDeviceHandle device;
-  TF_RETURN_IF_ERROR(GpuDriver::GetDevice(device_ordinal, &device));
+  TF_ASSIGN_OR_RETURN(CUdevice device, GetDevice(device_ordinal));
 
   int cc_major;
   int cc_minor;
@@ -881,7 +1144,7 @@ CudaExecutor::CreateDeviceDescription(int device_ordinal) {
       ParseCudaVersion(CUDA_VERSION).value_or(SemanticVersion{0, 0, 0}));
 
   {
-    std::string pci_bus_id = GpuDriver::GetPCIBusID(device);
+    std::string pci_bus_id = GetPCIBusID(device);
 
     // Lower the hex characters to match sysfs.
     pci_bus_id = absl::AsciiStrToLower(pci_bus_id);
@@ -913,12 +1176,12 @@ CudaExecutor::CreateDeviceDescription(int device_ordinal) {
 
   {
     bool ecc_enabled = false;
-    (void)GpuDriver::IsEccEnabled(device, &ecc_enabled);
+    IsEccEnabled(device, &ecc_enabled);
     desc.set_ecc_enabled(ecc_enabled);
   }
 
   uint64_t device_memory_size = static_cast<uint64_t>(-1);
-  (void)GpuDriver::GetDeviceTotalMemory(device, &device_memory_size);
+  GetDeviceTotalMemory(device, &device_memory_size);
   desc.set_device_memory_size(device_memory_size);
 
   int64_t l2_cache_bytes =
@@ -956,20 +1219,17 @@ CudaExecutor::CreateDeviceDescription(int device_ordinal) {
 
   desc.set_device_vendor("NVIDIA Corporation");
   desc.set_cuda_compute_capability(cc_major, cc_minor);
-  desc.set_shared_memory_per_core(
-      GpuDriver::GetMaxSharedMemoryPerCore(device).value());
-  desc.set_shared_memory_per_block(
-      GpuDriver::GetMaxSharedMemoryPerBlock(device).value());
+  desc.set_shared_memory_per_core(GetMaxSharedMemoryPerCore(device).value());
+  desc.set_shared_memory_per_block(GetMaxSharedMemoryPerBlock(device).value());
   desc.set_shared_memory_per_block_optin(
-      GpuDriver::GetMaxSharedMemoryPerBlockOptin(device).value());
-  int core_count = GpuDriver::GetMultiprocessorCount(device).value();
+      GetMaxSharedMemoryPerBlockOptin(device).value());
+  int core_count = GetMultiprocessorCount(device).value();
   desc.set_core_count(core_count);
   desc.set_fpus_per_core(fpus_per_core(cc_major, cc_minor));
   desc.set_threads_per_core_limit(
-      GpuDriver::GetMaxThreadsPerMultiprocessor(device).value());
-  desc.set_registers_per_block_limit(
-      GpuDriver::GetMaxRegistersPerBlock(device).value());
-  desc.set_threads_per_warp(GpuDriver::GetThreadsPerWarp(device).value());
+      GetMaxThreadsPerMultiprocessor(device).value());
+  desc.set_registers_per_block_limit(GetMaxRegistersPerBlock(device).value());
+  desc.set_threads_per_warp(GetThreadsPerWarp(device).value());
   desc.set_registers_per_core_limit(
       GetDeviceAttribute(CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_MULTIPROCESSOR,
                          device)
@@ -994,6 +1254,23 @@ CudaExecutor::CreateDeviceDescription(int device_ordinal) {
       value_or(mem_clock_khz, 0), l2_cache_bytes));
 
   return std::make_unique<DeviceDescription>(std::move(desc));
+}
+
+absl::StatusOr<MemoryType> CudaExecutor::GetPointerMemorySpace(
+    const void* ptr) {
+  CUdeviceptr pointer = reinterpret_cast<CUdeviceptr>(const_cast<void*>(ptr));
+  unsigned int value;
+  TF_RETURN_IF_ERROR(cuda::ToStatus(cuPointerGetAttribute(
+      &value, CU_POINTER_ATTRIBUTE_MEMORY_TYPE, pointer)));
+  switch (value) {
+    case CU_MEMORYTYPE_DEVICE:
+      return MemoryType::kDevice;
+    case CU_MEMORYTYPE_HOST:
+      return MemoryType::kHost;
+    default:
+      return absl::InternalError(
+          absl::StrCat("unknown memory space provided by CUDA API: ", value));
+  }
 }
 
 }  // namespace gpu
