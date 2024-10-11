@@ -35,6 +35,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/types/span.h"
 #include "xla/hlo/ir/hlo_op_metadata.h"
+#include "xla/layout_util.h"
 #include "xla/overflow_util.h"
 #include "xla/printer.h"
 #include "xla/status_macros.h"
@@ -976,8 +977,15 @@ Shape HloSharding::TileShape(const Shape& shape) const {
   }
   Shape result_shape = shape;
   for (int64_t i = 0; i < TiledDataRank(); ++i) {
+    // i is the physical dimension used in tile_assignment_.
+    // Major matches the descending order of the layout.
+    int64_t dim = i;
+    //    if (shape.has_layout()) {
+    //      dim = LayoutUtil::Major(shape.layout(), i);
+    //    }
     result_shape.set_dimensions(
-        i, CeilOfRatio<int64_t>(shape.dimensions(i), tile_assignment_.dim(i)));
+        dim,
+        CeilOfRatio<int64_t>(shape.dimensions(dim), tile_assignment_.dim(i)));
   }
   return result_shape;
 }

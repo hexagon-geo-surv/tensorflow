@@ -3141,8 +3141,12 @@ Shape UntileLeafShape(const HloSharding& sharding, const Shape& shape) {
   Shape result_shape = shape;
   // sharding.TiledDataRank() == i < shape.rank() is not always true?
   for (int64_t i = 0; i < sharding.TiledDataRank() && i < shape.rank(); ++i) {
+    int64_t dim = i;
+    //    if (shape.has_layout()) {
+    //      dim = LayoutUtil::Major(shape.layout(), i);
+    //    }
     result_shape.set_dimensions(
-        i, shape.dimensions(i) * sharding.tile_assignment().dim(i));
+        dim, shape.dimensions(dim) * sharding.tile_assignment().dim(i));
   }
   return result_shape;
 }
@@ -3175,9 +3179,13 @@ Shape TileLeafShape(const HloSharding& sharding, const Shape& shape) {
   }
   Shape result_shape = shape;
   for (int64_t i = 0; i < sharding.TiledDataRank() && i < shape.rank(); ++i) {
-    CHECK_EQ(shape.dimensions(i) % sharding.tile_assignment().dim(i), 0);
+    int64_t dim = i;
+    //    if (shape.has_layout()) {
+    //      dim = LayoutUtil::Major(shape.layout(), i);
+    //    }
+    CHECK_EQ(shape.dimensions(dim) % sharding.tile_assignment().dim(i), 0);
     result_shape.set_dimensions(
-        i, shape.dimensions(i) / sharding.tile_assignment().dim(i));
+        dim, shape.dimensions(dim) / sharding.tile_assignment().dim(i));
   }
   return result_shape;
 }
