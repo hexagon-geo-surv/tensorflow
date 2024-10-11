@@ -43,6 +43,7 @@ limitations under the License.
 #include "absl/types/span.h"
 #include "third_party/gpus/cuda/include/cuda.h"
 #include "third_party/gpus/cuda/include/cuda_runtime_api.h"
+#include "xla/stream_executor/activate_context.h"
 #include "xla/stream_executor/blas.h"
 #include "xla/stream_executor/command_buffer.h"
 #include "xla/stream_executor/cuda/cuda_collectives.h"
@@ -299,6 +300,10 @@ static CUdeviceptr AsCudaDevicePtr(const DeviceMemoryBase& gpu_mem) {
 // See description on const version above.
 static CUdeviceptr AsCudaDevicePtr(DeviceMemoryBase* gpu_mem) {
   return AsCudaDevicePtr(*gpu_mem);
+}
+
+std::unique_ptr<ActivateContext> CudaExecutor::Activate() {
+  return std::make_unique<ScopedActivateContext>(gpu_context());
 }
 
 CudaExecutor::~CudaExecutor() {
