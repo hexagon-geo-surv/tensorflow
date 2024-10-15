@@ -15,8 +15,13 @@ limitations under the License.
 
 #include "xla/service/scatter_expander.h"
 
+#include <cstdint>
+#include <iterator>
+#include <vector>
+
 #include "absl/algorithm/container.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "xla/hlo/ir/hlo_casting_utils.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
@@ -27,14 +32,75 @@ limitations under the License.
 #include "xla/service/hlo_creation_utils.h"
 #include "xla/service/scatter_utils.h"
 #include "xla/service/while_util.h"
+#include "xla/shape.h"
 
 namespace xla {
 
+// TODO(bixia): Move this to a shared file to avoid duplicating the same logic
+// for scatter-expander and gather-expander.
+//
+// Generates the HLO to calculate the implicit and explicit batch dimension
+// indices and returns the explicit batch dimension to the HLO indices in the
+// order of major to minor.
+std::vector<HloInstruction*> GenerateExplicitBatchDimIndices(
+    const Shape& start_indices_shape,
+    const ScatterDimensionNumbers& dim_numbers, HloInstruction* induction_var) {
+  if (dim_numbers.input_batching_dims().empty()) {
+    return {};
+  }
+
+  int64_t index_vector_dim = dim_numbers.index_vector_dim();
+  int64_t rank = start_indices_shape.dimensions_size();
+  int64_t num_batch_dims = (rank == index_vector_dim) ? rank : rank - 1;
+  HloComputation* computation = induction_var->parent();
+  HloInstruction* divident = induction_var;
+  const Shape& shape = induction_var->shape();
+
+  absl::Span<const int64_t> start_indices_batching_dims =
+      dim_numbers.scatter_indices_batching_dims();
+  std::vector<HloInstruction*> explicit_batch_dim_indices(
+      start_indices_batching_dims.size());
+
+  for (int64_t i = start_indices_shape.dimensions_size() - 1; i >= 0; i--) {
+    if (i == index_vector_dim) {
+      continue;
+    }
+    auto it = absl::c_find(start_indices_batching_dims, i);
+    num_batch_dims--;  // Reuse the variable to count remaining batch dims.
+    if (num_batch_dims == 0) {
+      if (it != start_indices_batching_dims.end()) {
+        // Avoid generating a remainder that just returns the divident itself.
+        explicit_batch_dim_indices[it - start_indices_batching_dims.begin()] =
+            divident;
+      }
+      break;
+    }
+
+    HloInstruction* divisor =
+        computation->AddInstruction(HloInstruction::CreateConstant(
+            LiteralUtil::CreateR0<int32_t>(start_indices_shape.dimensions(i))));
+    if (it != start_indices_batching_dims.end()) {
+      explicit_batch_dim_indices[it - start_indices_batching_dims.begin()] =
+          computation->AddInstruction(HloInstruction::CreateBinary(
+              shape, HloOpcode::kRemainder, divident, divisor));
+    }
+
+    divident = computation->AddInstruction(HloInstruction::CreateBinary(
+        shape, HloOpcode::kDivide, divident, divisor));
+  }
+
+  return explicit_batch_dim_indices;
+}
+
+// TODO(bixia): Move this to a shared file to avoid duplicating the same logic
+// for scatter-expander and gather-expander.
+//
 // Expands an index vector from the scatter_indices tensor into a vector that
 // can be used to dynamic-update-slice to perform the scatter update.
 static absl::StatusOr<HloInstruction*> ExpandIndexVectorIntoOperandSpace(
-    HloInstruction* index_vector, const ScatterDimensionNumbers& dim_numbers,
-    int64_t operand_rank) {
+    const Shape& scatter_indices_shape, HloInstruction* index_vector,
+    const ScatterDimensionNumbers& dim_numbers, int64_t operand_rank,
+    HloInstruction* induction_var) {
   HloComputation* computation = index_vector->parent();
   const Shape& index_shape = index_vector->shape();
 
@@ -51,7 +117,10 @@ static absl::StatusOr<HloInstruction*> ExpandIndexVectorIntoOperandSpace(
   // We extract out individual components from the smaller index and concatenate
   // them (interspersing zeros as needed) into the larger index.
   std::vector<HloInstruction*> expanded_index_components;
-
+  std::vector<HloInstruction*> explicit_batch_dim_indices =
+      GenerateExplicitBatchDimIndices(scatter_indices_shape, dim_numbers,
+                                      induction_var);
+  int64_t seen_explicit_batch_dims = 0;
   for (int i = 0; i < operand_rank; i++) {
     int64_t index_vector_dim_index =
         FindIndex(dim_numbers.scatter_dims_to_operand_dims(), i);
@@ -64,7 +133,14 @@ static absl::StatusOr<HloInstruction*> ExpandIndexVectorIntoOperandSpace(
                        /*strides=*/{1}));
       expanded_index_components.push_back(component_to_concat);
     } else {
-      expanded_index_components.push_back(zero);
+      if (absl::c_binary_search(dim_numbers.input_batching_dims(), i)) {
+        expanded_index_components.push_back(MakeBroadcastHlo(
+            explicit_batch_dim_indices[seen_explicit_batch_dims++],
+            /*broadcast_dimensions=*/{},
+            /*result_shape_bounds=*/{1}));
+      } else {
+        expanded_index_components.push_back(zero);
+      }
     }
   }
 
@@ -158,7 +234,8 @@ static absl::StatusOr<std::vector<HloInstruction*>> ScatterLoopBody(
   TF_ASSIGN_OR_RETURN(
       HloInstruction * scatter_slice_start,
       ExpandIndexVectorIntoOperandSpace(
-          index_vector, dim_numbers, operands[0]->shape().dimensions_size()));
+          scatter->scatter_indices()->shape(), index_vector, dim_numbers,
+          operands[0]->shape().dimensions_size(), induction_var));
 
   // Extract the slice to be used to update from `updates` tensor for the
   // induction_var corresponding to this iteration of the while loop.
@@ -179,6 +256,19 @@ static absl::StatusOr<std::vector<HloInstruction*>> ScatterLoopBody(
   auto update_slices_with_dims_inserted =
       absl::MakeSpan(map_operands).last(updates.size());
   absl::Span<const int64_t> actual_update_slice_dims;
+
+  // Get sorted degenerated dims.
+  absl::Span<const int64_t> input_batching_dims =
+      dim_numbers.input_batching_dims();
+  absl::Span<const int64_t> inserted_window_dims =
+      dim_numbers.inserted_window_dims();
+  std::vector<int64_t> degenerated_dims;
+  degenerated_dims.reserve(inserted_window_dims.size() +
+                           input_batching_dims.size());
+  absl::c_copy(inserted_window_dims, std::back_inserter(degenerated_dims));
+  absl::c_copy(input_batching_dims, std::back_inserter(degenerated_dims));
+  absl::c_sort(degenerated_dims);
+
   for (int i = 0, n = operands.size(); i < n; ++i) {
     HloInstruction* update = updates[i];
     TF_ASSIGN_OR_RETURN(
@@ -188,8 +278,7 @@ static absl::StatusOr<std::vector<HloInstruction*>> ScatterLoopBody(
                         ElideDegenerateDims(update_slice, {0}));
     TF_ASSIGN_OR_RETURN(
         HloInstruction * update_slice_with_dims_inserted,
-        InsertDegenerateDims(update_slice_for_scatter,
-                             dim_numbers.inserted_window_dims()));
+        InsertDegenerateDims(update_slice_for_scatter, degenerated_dims));
     update_slices_with_dims_inserted[i] = update_slice_with_dims_inserted;
     // Note that the following transformation assumes that both DynamicSlice and
     // DynamicUpdateSlice follow the same semantics for OOB indices. For
