@@ -36,18 +36,14 @@ class Southbound {
 
   ~Southbound();
 
-  static absl::StatusOr<std::unique_ptr<Southbound>> Create();
+  static absl::StatusOr<std::unique_ptr<Southbound>> Create(
+      std::optional<std::string> shared_library_dir);
 
   const ThrFunctions& thr_functions() const { return *thr_functions_; }
 
  private:
-  // Currently the SouthBound implementation is bundled inside the Edge TPU
-  // runtime shared library.
-  static constexpr const char* kSouthBoundLibPath =
-      "/vendor/lib64/libedgetpu_util.so";
-
   Southbound();
-  absl::Status LoadSymbols();
+  absl::Status LoadSymbols(std::optional<std::string> shared_library_dir);
 
   void* dlib_handle_ = nullptr;
   std::unique_ptr<ThrFunctions> thr_functions_;
