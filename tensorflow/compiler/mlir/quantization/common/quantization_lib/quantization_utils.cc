@@ -209,10 +209,15 @@ bool IsOpQuantizable(Operation* op) {
       op->getAttrOfType<StringAttr>(kQuantTraitAttrName).getValue().str() ==
           QuantTraitValues[QuantizationTrait::FullyQuantizable];
 
+  bool attr_tf_custom_op_quantizable =
+      op->hasAttrOfType<mlir::BoolAttr>(kOutputQuantized) &&
+      op->getAttrOfType<mlir::BoolAttr>(kOutputQuantized).getValue();
+
   const bool trait_enforced_quantizable =
       op->hasTrait<OpTrait::quant::QuantizableResult>();
 
-  return attr_enforced_quantizable || trait_enforced_quantizable;
+  return attr_enforced_quantizable || trait_enforced_quantizable ||
+         attr_tf_custom_op_quantizable;
 }
 
 // Returns the quantized type for the
