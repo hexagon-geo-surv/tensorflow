@@ -274,6 +274,12 @@ tf_wheel(
         ":licenses",
         "//tensorflow/core:protos_all_proto_srcs",
     ],
+    linux_wheel_compliance_tag = select({
+        "@platforms//cpu:aarch64": "manylinux_2_17_aarch64",
+        "@platforms//cpu:arm64": "manylinux_2_17_aarch64",
+        "@platforms//cpu:x86_64": "manylinux_2_17_x86_64",
+        "//conditions:default": "",
+    }),
     platform_name = select({
         "@platforms//os:osx": "macosx",
         "@platforms//os:macos": "macosx",
@@ -302,6 +308,10 @@ tf_wheel(
         ],
         "//tensorflow:windows": ["//tensorflow/python:pywrap_tensorflow_import_lib_file"],
     }) + if_mkl_ml(["@local_xla//xla/tsl/mkl:intel_binary_blob"]),
+    verify_wheel_compliance = select({
+        "@local_tsl//third_party/py:enable_wheel_compliance_verification": True,
+        "//conditions:default": False,
+    }),
     xla_aot_compiled = [
         "//tensorflow/compiler/tf2xla:xla_compiled_cpu_runtime_srcs",
         ":xla_cmake",
