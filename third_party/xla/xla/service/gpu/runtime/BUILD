@@ -1057,11 +1057,8 @@ cc_library(
     hdrs = ["nccl_group_thunk.h"],
     deps = [
         ":nccl_api",
-        ":nccl_clique_key",
-        ":nccl_collective_thunk",
         ":thunk",
         "//xla/hlo/ir:hlo",
-        "//xla/stream_executor:stream",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings:string_view",
         "@local_tsl//tsl/platform:errors",
