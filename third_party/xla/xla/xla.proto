@@ -43,6 +43,12 @@ message DebugOptions {
   //--------------------------------------------------------------------------//
   // go/keep-sorted start
 
+  // The execution time optimization effort to expend during compilation.
+  // See `exec_time_optimization_effort` for accepted ranges. This flag will
+  // override any changes set in `ExecutionOptions`. Most likely this is just a
+  // temporary measure before https://github.com/jax-ml/jax/issues/24715 is in.
+  float xla_experimental_exec_time_optimization_effort = 342;
+
   // go/keep-sorted end
 
   //--------------------------------------------------------------------------//
@@ -1034,7 +1040,7 @@ message DebugOptions {
   }
   PGLEStrictnessLevel xla_gpu_pgle_accuracy_checker = 341;
 
-  // Next id: 342
+  // Next id: 343
 
   // Extra options to pass to the compilation backend (e.g. LLVM); specific
   // interpretation of these values is left to the backend.

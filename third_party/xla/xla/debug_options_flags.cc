@@ -2041,6 +2041,12 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
                 debug_options->xla_enable_fast_math(),
                 "Enable optimizations that assume finite math, i.e., no NaN."));
   flag_list->push_back(tsl::Flag(
+      "xla_experimental_exec_time_optimization_effort",
+      float_setter_for(
+          &DebugOptions::set_xla_experimental_exec_time_optimization_effort),
+      debug_options->xla_experimental_exec_time_optimization_effort(),
+      "The execution time optimization effort to expend during compilation."));
+  flag_list->push_back(tsl::Flag(
       "xla_gpu_experimental_parallel_collective_overlap_limit",
       int32_setter_for(
           &DebugOptions::
