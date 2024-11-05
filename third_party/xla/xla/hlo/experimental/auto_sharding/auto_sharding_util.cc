@@ -28,6 +28,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/algorithm/container.h"
+#include "absl/base/no_destructor.h"
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
@@ -1105,9 +1106,43 @@ bool TileAssignmentMatchesMesh(const HloSharding& sharding,
   return sharded_dims <= 0;
 }
 
+struct MeshDimPermutationOrderCacheKey {
+  const HloSharding spec;
+  const DeviceMesh device_mesh;
+  bool consider_reverse_device_meshes;
+
+  bool operator==(const MeshDimPermutationOrderCacheKey& other) const {
+    return this->spec == other.spec && this->device_mesh == other.device_mesh &&
+           this->consider_reverse_device_meshes ==
+               other.consider_reverse_device_meshes;
+  };
+
+  template <typename H>
+  friend H AbslHashValue(H h, const MeshDimPermutationOrderCacheKey& key) {
+    return H::combine(std::move(h), key.spec, key.device_mesh,
+                      key.consider_reverse_device_meshes);
+  }
+};
+
 absl::StatusOr<std::vector<int64_t>> GetMeshDimPermutationOrderInShardingSpec(
     const HloSharding& spec, const DeviceMesh& device_mesh,
     bool consider_reverse_device_meshes) {
+  // Cache the return values of this function. We disable the destruction of the
+  // function static cache variable per go/totw/110. Note that we use a
+  // hashtable here as the iteration order does not matter, and hence this
+  // should not affect the determinism of the auto-sahrding pass.
+  static absl::NoDestructor<absl::flat_hash_map<MeshDimPermutationOrderCacheKey,
+                                                std::vector<int64_t>>>
+      cache;
+
+  MeshDimPermutationOrderCacheKey cache_key{
+      .spec = spec,
+      .device_mesh = device_mesh,
+      .consider_reverse_device_meshes = consider_reverse_device_meshes};
+  if (auto it = cache->find(cache_key); it != cache->end()) {
+    return it->second;
+  }
+
   auto check_mesh =
       [&](const Array<int64_t>& mesh) -> std::optional<std::vector<int64_t>> {
     // Permute the dimensions (or axes in numpy term), find the transform that
@@ -1126,9 +1161,9 @@ absl::StatusOr<std::vector<int64_t>> GetMeshDimPermutationOrderInShardingSpec(
 
   // This is an expensive search, as we try all possible meshes obtained by
   // reversing a subset of the mesh axes. Reversed shardings only occur due to
-  // the somewhat rare kReverse HLO op. The hope therefore is that most calls to
-  // the function that reach here will find a mapping within the first iteration
-  // of the loop below.
+  // the somewhat rare kReverse HLO op. The hope therefore is that most calls
+  // to the function that reach here will find a mapping within the first
+  // iteration of the loop below.
   std::vector<int64_t> axes(device_mesh.num_dimensions());
   size_t num_subsets =
       consider_reverse_device_meshes ? (1 << device_mesh.num_dimensions()) : 1;
@@ -1149,7 +1184,7 @@ absl::StatusOr<std::vector<int64_t>> GetMeshDimPermutationOrderInShardingSpec(
       *device = device_mesh(original_indices);
     });
     if (auto result = check_mesh(new_mesh); result.has_value()) {
-      return result.value();
+      return ((*cache)[cache_key] = result.value());
     }
   }
   return absl::NotFoundError(absl::StrCat("Could not find mapping for ",
