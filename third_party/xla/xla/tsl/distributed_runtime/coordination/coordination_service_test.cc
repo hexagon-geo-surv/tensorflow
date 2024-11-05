@@ -1003,12 +1003,11 @@ TEST_F(CoordinationBarrierTest, Barrier) {
   const std::string barrier_id = "barrier_id";
   absl::Duration timeout = absl::Seconds(5);
   absl::Status barrier_status_0, barrier_status_1, barrier_status_2;
-  int64_t test_counter = 38;
   int64_t counter_0, counter_1, counter_2;
   absl::Notification n_0, n_1, n_2;
 
   GetCoordinationService()->BarrierAsync(
-      barrier_id, test_counter, timeout, GetTask(0),
+      barrier_id, 0, timeout, GetTask(0),
       /*participating_tasks=*/{},
       [&barrier_status_0, &counter_0, &n_0](absl::Status s, int64_t counter) {
         barrier_status_0 = s;
@@ -1016,7 +1015,7 @@ TEST_F(CoordinationBarrierTest, Barrier) {
         n_0.Notify();
       });
   GetCoordinationService()->BarrierAsync(
-      barrier_id, test_counter, timeout, GetTask(1),
+      barrier_id, 0, timeout, GetTask(1),
       /*participating_tasks=*/{},
       [&barrier_status_1, &counter_1, &n_1](absl::Status s, int64_t counter) {
         barrier_status_1 = s;
@@ -1030,7 +1029,7 @@ TEST_F(CoordinationBarrierTest, Barrier) {
 
   // Last task calls the barrier.
   GetCoordinationService()->BarrierAsync(
-      barrier_id, test_counter, timeout, GetTask(2),
+      barrier_id, 0, timeout, GetTask(2),
       /*participating_tasks=*/{},
       [&barrier_status_2, &counter_2, &n_2](absl::Status s, int64_t counter) {
         barrier_status_2 = s;
@@ -1044,21 +1043,20 @@ TEST_F(CoordinationBarrierTest, Barrier) {
   TF_EXPECT_OK(barrier_status_0);
   TF_EXPECT_OK(barrier_status_1);
   TF_EXPECT_OK(barrier_status_2);
-  EXPECT_THAT(counter_0, Eq(test_counter));
-  EXPECT_THAT(counter_1, Eq(test_counter));
-  EXPECT_THAT(counter_2, Eq(test_counter));
+  EXPECT_THAT(counter_0, Eq(0));
+  EXPECT_THAT(counter_1, Eq(0));
+  EXPECT_THAT(counter_2, Eq(0));
 }
 
 TEST_F(CoordinationBarrierTest, BarrierWithSubsetOfTasks) {
   const std::string barrier_id = "barrier_id";
   absl::Duration timeout = absl::Seconds(5);
-  int64_t test_counter = 38;
   absl::Status barrier_status_0, barrier_status_1;
   int64_t counter_0, counter_1;
   absl::Notification n_0, n_1;
 
   GetCoordinationService()->BarrierAsync(
-      barrier_id, test_counter, timeout, GetTask(0),
+      barrier_id, 0, timeout, GetTask(0),
       /*participating_tasks=*/{GetTask(0), GetTask(1)},
       [&barrier_status_0, &counter_0, &n_0](absl::Status s, int64_t counter) {
         barrier_status_0 = s;
@@ -1066,7 +1064,7 @@ TEST_F(CoordinationBarrierTest, BarrierWithSubsetOfTasks) {
         n_0.Notify();
       });
   GetCoordinationService()->BarrierAsync(
-      barrier_id, test_counter, timeout, GetTask(1),
+      barrier_id, 0, timeout, GetTask(1),
       /*participating_tasks=*/{GetTask(0), GetTask(1)},
       [&barrier_status_1, &counter_1, &n_1](absl::Status s, int64_t counter) {
         barrier_status_1 = s;
@@ -1079,8 +1077,8 @@ TEST_F(CoordinationBarrierTest, BarrierWithSubsetOfTasks) {
   EXPECT_TRUE(n_1.HasBeenNotified());
   TF_EXPECT_OK(barrier_status_0);
   TF_EXPECT_OK(barrier_status_1);
-  EXPECT_THAT(counter_0, Eq(test_counter));
-  EXPECT_THAT(counter_1, Eq(test_counter));
+  EXPECT_THAT(counter_0, Eq(0));
+  EXPECT_THAT(counter_1, Eq(0));
 }
 
 TEST_F(CoordinationBarrierTest, BarrierWithMismatchedTasks) {
@@ -1264,6 +1262,179 @@ TEST_F(CoordinationBarrierTest, BarrierReturnsPreviousError) {
 
   EXPECT_THAT(barrier_status_0, StatusIs(absl::StatusCode::kInternal));
   EXPECT_THAT(barrier_status_1, StatusIs(absl::StatusCode::kInternal));
+}
+
+TEST_F(CoordinationBarrierTest, TwoConsecutiveBarriers_Succeed) {
+  const std::string barrier_id = "barrier_id";
+  absl::Duration timeout = absl::Seconds(5);
+  absl::Status barrier_status_0, barrier_status_1, barrier_status_2,
+      barrier_status_0_2, barrier_status_1_2,
+      barrier_status_2_2 = absl::UnknownError("Unknown");
+  int64_t counter_0, counter_1, counter_2, counter_0_2, counter_1_2,
+      counter_2_2 = -1;
+
+  // First barrier.
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, 0, timeout, GetTask(0),
+      /*participating_tasks=*/{},
+      [&barrier_status_0, &counter_0](const absl::Status& s, int64_t counter) {
+        barrier_status_0 = s;
+        counter_0 = counter;
+      });
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, 0, timeout, GetTask(1),
+      /*participating_tasks=*/{},
+      [&barrier_status_1, &counter_1](const absl::Status& s, int64_t counter) {
+        barrier_status_1 = s;
+        counter_1 = counter;
+      });
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, 0, timeout, GetTask(2),
+      /*participating_tasks=*/{},
+      [&barrier_status_2, &counter_2](const absl::Status& s, int64_t counter) {
+        barrier_status_2 = s;
+        counter_2 = counter;
+      });
+
+  TF_EXPECT_OK(barrier_status_0);
+  TF_EXPECT_OK(barrier_status_1);
+  TF_EXPECT_OK(barrier_status_2);
+  EXPECT_THAT(counter_0, Eq(0));
+  EXPECT_THAT(counter_1, Eq(0));
+  EXPECT_THAT(counter_2, Eq(0));
+
+  // Second barrier.
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, 1, timeout, GetTask(0),
+      /*participating_tasks=*/{},
+      [&barrier_status_0_2, &counter_0_2](const absl::Status& s,
+                                          int64_t counter) {
+        barrier_status_0_2 = s;
+        counter_0_2 = counter;
+      });
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, 1, timeout, GetTask(1),
+      /*participating_tasks=*/{},
+      [&barrier_status_1_2, &counter_1_2](const absl::Status& s,
+                                          int64_t counter) {
+        barrier_status_1_2 = s;
+        counter_1_2 = counter;
+      });
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, 1, timeout, GetTask(2),
+      /*participating_tasks=*/{},
+      [&barrier_status_2_2, &counter_2_2](const absl::Status& s,
+                                          int64_t counter) {
+        barrier_status_2_2 = s;
+        counter_2_2 = counter;
+      });
+
+  TF_EXPECT_OK(barrier_status_0_2);
+  TF_EXPECT_OK(barrier_status_1_2);
+  TF_EXPECT_OK(barrier_status_2_2);
+  EXPECT_THAT(counter_0_2, Eq(1));
+  EXPECT_THAT(counter_1_2, Eq(1));
+  EXPECT_THAT(counter_2_2, Eq(1));
+}
+
+TEST_F(CoordinationBarrierTest,
+       Barrier_OngoingButMismatchedCounter_InternalError) {
+  const std::string barrier_id = "barrier_id";
+  absl::Duration timeout = absl::Seconds(5);
+  absl::Status barrier_status_0, barrier_status_1,
+      barrier_status_2 = absl::UnknownError("Unknown");
+  int64_t counter_0, counter_1, counter_2 = -1;
+
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, 0, timeout, GetTask(0),
+      /*participating_tasks=*/{},
+      [&barrier_status_0, &counter_0](const absl::Status& s, int64_t counter) {
+        barrier_status_0 = s;
+        counter_0 = counter;
+      });
+  // Task 1 specifies different counter!
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, 1, timeout, GetTask(1),
+      /*participating_tasks=*/{},
+      [&barrier_status_1, &counter_1](const absl::Status& s, int64_t counter) {
+        barrier_status_1 = s;
+        counter_1 = counter;
+      });
+
+  EXPECT_THAT(barrier_status_0, StatusIs(absl::StatusCode::kInternal));
+  EXPECT_THAT(barrier_status_1, StatusIs(absl::StatusCode::kInternal));
+  EXPECT_THAT(counter_0, Eq(0));
+  EXPECT_THAT(counter_1, Eq(0));  // Specifies the service-side barrier counter.
+
+  // Try failed barrier with correct counter, return same internal error
+  // immediately.
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, 0, timeout, GetTask(2),
+      /*participating_tasks=*/{},
+      [&barrier_status_2, &counter_2](const absl::Status& s, int64_t counter) {
+        barrier_status_2 = s;
+        counter_2 = counter;
+      });
+
+  EXPECT_THAT(barrier_status_2, StatusIs(absl::StatusCode::kInternal));
+  EXPECT_THAT(counter_2, Eq(0));
+}
+
+TEST_F(CoordinationBarrierTest, SecondBarrier_UseWrongCounter_InternalError) {
+  const std::string barrier_id = "barrier_id";
+  absl::Duration timeout = absl::Seconds(5);
+  absl::Status barrier_status_0, barrier_status_1,
+      barrier_status_2 = absl::UnknownError("Unknown");
+  int64_t counter_0, counter_1, counter_2 = -1;
+  absl::Notification timeout_n;
+
+  // First barrier.
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, 0, timeout, GetTask(0),
+      /*participating_tasks=*/{},
+      [](const absl::Status& s, int64_t counter) {});
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, 0, timeout, GetTask(1),
+      /*participating_tasks=*/{},
+      [](const absl::Status& s, int64_t counter) {});
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, 0, timeout, GetTask(2),
+      /*participating_tasks=*/{},
+      [](const absl::Status& s, int64_t counter) {});
+
+  // Second barrier.
+  // Specify same as previous barrier: return same result.
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, 0, timeout, GetTask(0),
+      /*participating_tasks=*/{},
+      [&barrier_status_0, &counter_0](const absl::Status& s, int64_t counter) {
+        barrier_status_0 = s;
+        counter_0 = counter;
+      });
+  EXPECT_THAT(counter_0, Eq(0));
+  TF_EXPECT_OK(barrier_status_0);
+
+  // Specify a counter that is too low: fail!
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, -1, timeout, GetTask(0),
+      /*participating_tasks=*/{},
+      [&barrier_status_1, &counter_1](const absl::Status& s, int64_t counter) {
+        barrier_status_1 = s;
+        counter_1 = counter;
+      });
+  EXPECT_THAT(counter_1, Eq(0));  // Specifies the service-side barrier counter.
+  EXPECT_THAT(barrier_status_1, StatusIs(absl::StatusCode::kInternal));
+
+  // Specify a counter that is too high: fail!
+  GetCoordinationService()->BarrierAsync(
+      barrier_id, 2, timeout, GetTask(0),
+      /*participating_tasks=*/{},
+      [&barrier_status_2, &counter_2](const absl::Status& s, int64_t counter) {
+        barrier_status_2 = s;
+        counter_2 = counter;
+      });
+  EXPECT_THAT(counter_2, Eq(0));  // Specifies the service-side barrier counter.
+  EXPECT_THAT(barrier_status_2, StatusIs(absl::StatusCode::kInternal));
 }
 
 TEST_F(CoordinationBarrierTest, BarrierCancelled) {
