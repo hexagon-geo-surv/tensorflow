@@ -64,6 +64,19 @@ def LegalizeTorchUpsampleBlinear2dComposite: Pat<
       (Arith_ConstantOp
         ConstantAttr<RankedI32ElementsAttr<[4]>,"{0, 3, 1, 2}">))>;
 
+// pattern to lower a stablehlo.composite of `jax` image resize fuctions in
+// `bilinear` mode and with NHWC inputs to a tflite.resize_nearest_neighbor op.
+def LegalizeNhwcResizeBilinear2dComposite: Pat<
+    (MHLO_CompositeOp:$old_val
+    (variadic $input),
+    ConstantStrAttr<StrAttr, "tfl.resize_bilinear">, $attrs, $_, $_),
+    (TFL_ResizeBilinearOp
+      $input,
+      (Arith_ConstantOp:$output_size (GetI32DenseAttr (GetAsVectorAttr<"size"> $attrs))),
+      ConstBoolAttrFalse,
+      ConstBoolAttrTrue),
+    [(IsNhwcLayoutOp $attrs)]>;
+
 // pattern to lower a stablehlo.composite of `jax` and `pytorch` image resize fuctions
 // in `nearest` mode and with NHWC inputs to a tflite.resize_nearest_neighbor op.
 def LegalizeNhwcResizeNearestNeighbor2dComposite: Pat<
