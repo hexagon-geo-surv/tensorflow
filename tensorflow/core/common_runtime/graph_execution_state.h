@@ -103,7 +103,8 @@ class GraphExecutionState {
   // `graph_def`, which represents the entire graph for a session.
   static absl::Status MakeForBaseGraph(
       GraphDef&& graph_def, const GraphExecutionStateOptions& options,
-      std::unique_ptr<GraphExecutionState>* out_state);
+      std::unique_ptr<GraphExecutionState>* out_state,
+      bool disable_tf2xla_mlir_bridge = false);
 
   // Creates a new `GraphExecutionState` and `SimpleClientGraph`
   // for the subgraph of `original_graph_def` defined by
@@ -182,7 +183,8 @@ class GraphExecutionState {
                       std::unique_ptr<FunctionLibraryDefinition>&& flib_def,
                       const GraphExecutionStateOptions& options);
 
-  absl::Status InitBaseGraph(std::unique_ptr<Graph>&& graph);
+  absl::Status InitBaseGraph(std::unique_ptr<Graph>&& graph,
+                             bool disable_tf2xla_mlir_bridge = false);
 
   // Map of placed stateful nodes, i.e. nodes for which is_stateful()
   // is true, such as "params" and "queue" nodes.  Once placed these

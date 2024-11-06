@@ -174,3 +174,8 @@ tf_proto_library(
     name = "op_cost_map_proto",
     srcs = ["op_cost_map.proto"],
 )
+
+tf_proto_library(
+    name = "mlir_bridge_config_proto",
+    srcs = ["mlir_bridge_config.proto"],
+)

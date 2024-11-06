@@ -91,7 +91,8 @@ GraphExecutionState::~GraphExecutionState() {
 
 /* static */ absl::Status GraphExecutionState::MakeForBaseGraph(
     GraphDef&& graph_def, const GraphExecutionStateOptions& options,
-    std::unique_ptr<GraphExecutionState>* out_state) {
+    std::unique_ptr<GraphExecutionState>* out_state,
+    bool disable_tf2xla_mlir_bridge) {
 #ifndef __ANDROID__
   VLOG(4) << "Graph proto is \n" << graph_def.DebugString();
 #endif  // __ANDROID__
@@ -115,7 +116,8 @@ GraphExecutionState::~GraphExecutionState() {
       auto base_graph = std::make_unique<Graph>(OpRegistry::Global());
       TF_RETURN_IF_ERROR(ConvertGraphDefToGraph({}, *ret->original_graph_def_,
                                                 base_graph.get()));
-      TF_RETURN_IF_ERROR(ret->InitBaseGraph(std::move(base_graph)));
+      TF_RETURN_IF_ERROR(ret->InitBaseGraph(std::move(base_graph),
+                                            disable_tf2xla_mlir_bridge));
     }
     *out_state = std::move(ret);
   } else {
@@ -124,7 +126,8 @@ GraphExecutionState::~GraphExecutionState() {
     auto base_graph = std::make_unique<Graph>(OpRegistry::Global());
     TF_RETURN_IF_ERROR(
         ConvertGraphDefToGraph({}, std::move(graph_def), base_graph.get()));
-    TF_RETURN_IF_ERROR(ret->InitBaseGraph(std::move(base_graph)));
+    TF_RETURN_IF_ERROR(
+        ret->InitBaseGraph(std::move(base_graph), disable_tf2xla_mlir_bridge));
     *out_state = std::move(ret);
   }
   return absl::OkStatus();
@@ -613,7 +616,7 @@ absl::Status GraphExecutionState::PruneGraph(
 }
 
 absl::Status GraphExecutionState::InitBaseGraph(
-    std::unique_ptr<Graph>&& new_graph) {
+    std::unique_ptr<Graph>&& new_graph, bool disable_tf2xla_mlir_bridge) {
   // Save stateful placements before placing.
   RestoreStatefulNodes(new_graph.get());
 
@@ -623,6 +626,7 @@ absl::Status GraphExecutionState::InitBaseGraph(
   optimization_options.graph = &new_graph;
   optimization_options.flib_def = flib_def_.get();
   optimization_options.device_set = device_set_;
+  optimization_options.disable_tf2xla_mlir_bridge = disable_tf2xla_mlir_bridge;
 
   TF_RETURN_IF_ERROR(OptimizationPassRegistry::Global()->RunGrouping(
       OptimizationPassRegistry::PRE_PLACEMENT, optimization_options));
