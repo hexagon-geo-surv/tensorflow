@@ -59,10 +59,9 @@ void ExecutionInput::SetUnownedBuffer(const ShapeIndex& index,
 
 absl::StatusOr<ScopedShapedBuffer> Executable::ExecuteOnStream(
     const ServiceExecutableRunOptions* run_options,
-    absl::Span<const ShapedBuffer* const> arguments,
-    HloExecutionProfile* hlo_execution_profile) {
+    absl::Span<const ShapedBuffer* const> arguments) {
   absl::StatusOr<ScopedShapedBuffer> result =
-      ExecuteAsyncOnStream(run_options, arguments, hlo_execution_profile);
+      ExecuteAsyncOnStream(run_options, arguments);
   absl::Status blocking_status = run_options->stream()->BlockHostUntilDone();
   TF_RETURN_IF_ERROR(result.status());
   TF_RETURN_IF_ERROR(blocking_status);
@@ -81,25 +80,22 @@ static ExecutionInput MakeMaybeOwningDeviceMemoryTree(
 
 absl::StatusOr<ScopedShapedBuffer> Executable::ExecuteAsyncOnStream(
     const ServiceExecutableRunOptions* run_options,
-    absl::Span<const ShapedBuffer* const> arguments,
-    HloExecutionProfile* hlo_execution_profile) {
+    absl::Span<const ShapedBuffer* const> arguments) {
   std::vector<ExecutionInput> args;
   args.reserve(arguments.size());
   for (const ShapedBuffer* arg : arguments) {
     args.emplace_back(MakeMaybeOwningDeviceMemoryTree(*arg));
   }
   TF_ASSIGN_OR_RETURN(ExecutionOutput out,
-                      ExecuteAsyncOnStream(run_options, std::move(args),
-                                           hlo_execution_profile));
+                      ExecuteAsyncOnStream(run_options, std::move(args)));
   return out.ConsumeResult();
 }
 
 absl::StatusOr<ExecutionOutput> Executable::ExecuteOnStream(
     const ServiceExecutableRunOptions* run_options,
-    std::vector<ExecutionInput> arguments,
-    HloExecutionProfile* hlo_execution_profile) {
-  absl::StatusOr<ExecutionOutput> result = ExecuteAsyncOnStream(
-      run_options, std::move(arguments), hlo_execution_profile);
+    std::vector<ExecutionInput> arguments) {
+  absl::StatusOr<ExecutionOutput> result =
+      ExecuteAsyncOnStream(run_options, std::move(arguments));
   absl::Status blocking_status = run_options->stream()->BlockHostUntilDone();
   TF_RETURN_IF_ERROR(result.status());
   TF_RETURN_IF_ERROR(blocking_status);
@@ -116,8 +112,7 @@ absl::StatusOr<std::vector<ScopedShapedBuffer>> Executable::ExecuteOnStreams(
 
   if (run_options.size() == 1) {
     TF_ASSIGN_OR_RETURN(auto rv,
-                        ExecuteOnStream(&run_options[0], arguments[0],
-                                        /*hlo_execution_profile=*/nullptr));
+                        ExecuteOnStream(&run_options[0], arguments[0]));
     return_values.push_back(std::move(rv));
     return std::move(return_values);
   }
@@ -126,9 +121,8 @@ absl::StatusOr<std::vector<ScopedShapedBuffer>> Executable::ExecuteOnStreams(
     // We cannot BlockHostUntilDone() on the already-launched executions in case
     // of error, since if the executions communicate, the initially launched
     // executions may never complete if not all executions are running.
-    TF_ASSIGN_OR_RETURN(
-        auto rv, ExecuteAsyncOnStream(&run_options[i], arguments[i],
-                                      /*hlo_execution_profile=*/nullptr));
+    TF_ASSIGN_OR_RETURN(auto rv,
+                        ExecuteAsyncOnStream(&run_options[i], arguments[i]));
     return_values.push_back(std::move(rv));
   }
   for (const auto& options : run_options) {
@@ -218,7 +212,7 @@ absl::StatusOr<ScopedShapedBuffer> Executable::ExecuteAsyncOnStreamWrapper(
     absl::Span<const ShapedBuffer* const> arguments) {
   auto state = ExecuteWrapperBeforeExecution(*this, run_options);
   absl::StatusOr<ScopedShapedBuffer> return_value =
-      ExecuteAsyncOnStream(run_options, arguments, nullptr);
+      ExecuteAsyncOnStream(run_options, arguments);
   TF_RETURN_IF_ERROR(ExecuteWrapperAfterExecution(
       this, state, return_value.status(), run_options->stream()));
   return return_value;
@@ -229,7 +223,7 @@ absl::StatusOr<ExecutionOutput> Executable::ExecuteAsyncOnStreamWrapper(
     std::vector<ExecutionInput> arguments) {
   auto state = ExecuteWrapperBeforeExecution(*this, run_options);
   absl::StatusOr<ExecutionOutput> return_value =
-      ExecuteAsyncOnStream(run_options, std::move(arguments), nullptr);
+      ExecuteAsyncOnStream(run_options, std::move(arguments));
   TF_RETURN_IF_ERROR(ExecuteWrapperAfterExecution(
       this, state, return_value.status(), run_options->stream()));
   return return_value;
