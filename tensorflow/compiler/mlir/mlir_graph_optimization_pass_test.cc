@@ -80,7 +80,8 @@ class MockMlirV1CompatOptimizationPass : public MlirV1CompatOptimizationPass {
   MOCK_METHOD(MlirOptimizationPassState, GetPassState,
               (const DeviceSet* device_set, const ConfigProto& config_proto,
                const Graph& graph,
-               const FunctionLibraryDefinition& function_library),
+               const FunctionLibraryDefinition& function_library,
+               bool enable_tf2xla_mlir_bridge),
               (const, override));
   MOCK_METHOD(Status, Run,
               (const GraphOptimizationPassOptions& options,
@@ -336,7 +337,7 @@ class MlirGraphOptimizationV1PassTest : public Test {
     for (const MlirOptimizationPassState& pass_state : pass_states) {
       auto optimization_pass =
           std::make_unique<NiceMock<MockMlirV1CompatOptimizationPass>>();
-      ON_CALL(*optimization_pass, GetPassState(_, _, _, _))
+      ON_CALL(*optimization_pass, GetPassState(_, _, _, _, _))
           .WillByDefault(Return(pass_state));
       ON_CALL(*optimization_pass, Run(_, _))
           .WillByDefault(Return(pass_run_result));

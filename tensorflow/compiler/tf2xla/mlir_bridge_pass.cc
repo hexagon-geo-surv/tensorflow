@@ -300,11 +300,19 @@ absl::Status MlirBridgePass::Run(
 
 MlirOptimizationPassState MlirBridgeV1CompatPass::GetPassState(
     const DeviceSet* device_set, const ConfigProto& config_proto,
-    const Graph& graph,
-    const FunctionLibraryDefinition& function_library) const {
+    const Graph& graph, const FunctionLibraryDefinition& function_library,
+    bool enable_tf2xla_mlir_bridge) const {
   // Skip MLIR Bridge if no potential XLA clusters are found.
   if (!IsSupportedByReplicatedBridge(graph, &function_library))
     return MlirOptimizationPassState::Disabled;
+  if (!enable_tf2xla_mlir_bridge) {
+    LOG(INFO) << "enable_tf2xla_mlir_bridge is false, "
+              << "SavedModel skip MLIR Bridge";
+    return MlirOptimizationPassState::Disabled;
+  } else {
+    LOG(INFO) << "enable_tf2xla_mlir_bridge is true, "
+              << "SavedModel trys to run MLIR Bridge";
+  }
   MlirBridgeRolloutPolicy policy = GetMlirBridgeRolloutPolicy(
       graph, /*function_library=*/&function_library, config_proto,
       /*is_supported_by_replicated_brige*/ true,
@@ -360,9 +368,9 @@ absl::Status MlirBridgeV1CompatPass::Run(
     return absl::OkStatus();
   }
 
-  MlirOptimizationPassState pass_state =
-      GetPassState(/*device_set=*/nullptr, options.session_options->config,
-                   **options.graph, *options.flib_def);
+  MlirOptimizationPassState pass_state = GetPassState(
+      /*device_set=*/nullptr, options.session_options->config, **options.graph,
+      *options.flib_def, options.enable_tf2xla_mlir_bridge);
 
   // Set device_set to nullptr here as the device specific checks are performed
   // based on the devices in the module.

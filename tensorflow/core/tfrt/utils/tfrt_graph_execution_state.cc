@@ -42,10 +42,12 @@ limitations under the License.
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/grappler/utils.h"
 #include "tensorflow/core/platform/errors.h"
+#include "tensorflow/core/platform/stacktrace.h"
 #include "tensorflow/core/platform/status.h"
 #include "tensorflow/core/platform/statusor.h"
 #include "tensorflow/core/protobuf/config.pb.h"
 #include "tensorflow/core/tfrt/fallback/fallback_state.h"
+#include "tensorflow/core/tfrt/fallback/mlir_bridge_config.pb.h"
 #include "tensorflow/core/util/dump_graph.h"
 
 namespace tensorflow {
@@ -120,18 +122,43 @@ absl::StatusOr<absl::flat_hash_set<std::string>> PreprocessGraph(
 }  // namespace
 
 absl::StatusOr<std::unique_ptr<TfrtGraphExecutionState>>
-TfrtGraphExecutionState::Create(const TfrtGraphExecutionState::Options& options,
-                                tensorflow::GraphDef graph_def,
-                                const FallbackState& fallback_state) {
+TfrtGraphExecutionState::Create(
+    const TfrtGraphExecutionState::Options& options,
+    tensorflow::GraphDef graph_def, const FallbackState& fallback_state,
+    tensorflow::tfrt_stub::RuntimeConfig* runtime_config) {
   TF_ASSIGN_OR_RETURN(
       auto functions_to_optimize,
       PreprocessGraph(graph_def, options.run_placer_grappler_on_functions));
+
+  if (runtime_config != nullptr) {
+    LOG(INFO) << "runtime_config is not null\n"
+              << runtime_config->ToProto().DebugString();
+    LOG(INFO) << tensorflow::CurrentStackTrace();
+  } else {
+    LOG(INFO) << "runtime_config is null\n";
+    LOG(INFO) << tensorflow::CurrentStackTrace();
+  }
+
+  bool enable_tf2xla_mlir_bridge = true;
+  if (runtime_config != nullptr) {
+    if (auto compilation_config =
+            runtime_config->Get<tensorflow::tfrt_stub::MlirBridgeConfig>();
+        compilation_config.ok()) {
+      if (compilation_config->has_enable_mlir_bridge()) {
+        LOG(INFO) << "enable_mlir_bridge in compilation_config is "
+                  << compilation_config->enable_mlir_bridge();
+        enable_tf2xla_mlir_bridge = compilation_config->enable_mlir_bridge();
+      }
+    }
+  }
+  LOG(INFO) << "enable_tf2xla_mlir_bridge is " << enable_tf2xla_mlir_bridge;
 
   // `CreateGraphExecutionState()` will preprocess the graph (e.g., apply
   // Placer to the top level graph).
   TF_ASSIGN_OR_RETURN(auto graph_execution_state,
                       fallback_state.CreateGraphExecutionState(
-                          std::move(graph_def), options.run_placer_on_graph));
+                          std::move(graph_def), options.run_placer_on_graph,
+                          enable_tf2xla_mlir_bridge));
 
   return std::make_unique<TfrtGraphExecutionState>(
       options, std::move(graph_execution_state), fallback_state,

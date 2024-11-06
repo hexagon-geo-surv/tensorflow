@@ -6,7 +6,7 @@ load(
     "tf_features_nolayering_check_if_ios",
 )
 load("//tensorflow:tensorflow.default.bzl", "tf_cuda_cc_test")
-load("//tensorflow/core/platform:build_config.bzl", "tf_proto_library")
+load("//tensorflow/core/platform:build_config.bzl", "tf_additional_all_protos", "tf_proto_library")
 load(
     "//tensorflow/core/platform:build_config_root.bzl",
     "if_static",
@@ -173,4 +173,10 @@ tf_cuda_cc_test(
 tf_proto_library(
     name = "op_cost_map_proto",
     srcs = ["op_cost_map.proto"],
+)
+
+tf_proto_library(
+    name = "mlir_bridge_config_proto",
+    srcs = ["mlir_bridge_config.proto"],
+    protodeps = tf_additional_all_protos(),
 )

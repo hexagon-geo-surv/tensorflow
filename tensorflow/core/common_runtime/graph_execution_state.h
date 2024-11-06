@@ -49,6 +49,9 @@ struct GraphExecutionStateOptions {
   std::unordered_map<string, string> stateful_placements;
   // Whether to run Placer on the graph.
   bool run_placer = true;
+
+  // Whether to enable tf2xla mlir bridge.
+  bool enable_tf2xla_mlir_bridge = true;
 };
 
 // A ClientGraph is simply a sub-graph of the full graph as induced by
@@ -182,7 +185,8 @@ class GraphExecutionState {
                       std::unique_ptr<FunctionLibraryDefinition>&& flib_def,
                       const GraphExecutionStateOptions& options);
 
-  absl::Status InitBaseGraph(std::unique_ptr<Graph>&& graph);
+  absl::Status InitBaseGraph(std::unique_ptr<Graph>&& graph,
+                             bool enable_tf2xla_mlir_bridge = true);
 
   // Map of placed stateful nodes, i.e. nodes for which is_stateful()
   // is true, such as "params" and "queue" nodes.  Once placed these

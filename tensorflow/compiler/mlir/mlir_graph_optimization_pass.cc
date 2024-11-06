@@ -393,9 +393,9 @@ Status MlirV1CompatGraphOptimizationPass::Run(
   if (options.is_function_graph || !registry_->pass()) return absl::OkStatus();
 
   auto pass = registry_->pass();
-  auto pass_state =
-      pass->GetPassState(options.device_set, options.session_options->config,
-                         **options.graph, *options.flib_def);
+  auto pass_state = pass->GetPassState(
+      options.device_set, options.session_options->config, **options.graph,
+      *options.flib_def, options.enable_tf2xla_mlir_bridge);
 
   if (pass_state == MlirOptimizationPassState::Disabled) {
     LOG_FIRST_N(INFO, 1) << "MLIR V1 optimization pass is not enabled";

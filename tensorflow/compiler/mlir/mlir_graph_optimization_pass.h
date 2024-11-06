@@ -159,8 +159,8 @@ class MlirV1CompatOptimizationPass {
   // on exact values.
   virtual MlirOptimizationPassState GetPassState(
       const DeviceSet* device_set, const ConfigProto& config_proto,
-      const Graph& graph,
-      const FunctionLibraryDefinition& function_library) const = 0;
+      const Graph& graph, const FunctionLibraryDefinition& function_library,
+      bool enable_tf2xla_mlir_bridge) const = 0;
 
   virtual Status Run(const GraphOptimizationPassOptions& options,
                      mlir::ModuleOp module) = 0;
