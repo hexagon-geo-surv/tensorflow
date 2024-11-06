@@ -21,6 +21,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/algorithm/container.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
@@ -63,16 +64,24 @@ TEST(ArrayImplTest, MakeArrayFromHostBuffer) {
   std::shared_ptr<const Sharding> sharding =
       SingleDeviceSharding::Create(device, MemoryKind());
 
+  LOG(ERROR) << "madthanu: MakeArrayFromHostBuffer from hostbuffer, "
+             << "GetClient() done, data->data()=" << data->data()
+             << ", data->size=" << data->size()
+             << ", sizeof(float)=" << sizeof(float);
+
   TF_ASSERT_OK_AND_ASSIGN(
       auto array, client->MakeArrayFromHostBuffer(
                       data->data(), dtype, shape,
                       /*byte_strides=*/std::nullopt, sharding,
                       Client::HostBufferSemantics::kImmutableOnlyDuringCall,
                       /*on_done_with_host_buffer=*/nullptr));
+  LOG(ERROR) << "madthanu: MakeArrayFromHostBuffer from hostbuffer, actual "
+             << "function called";
 
   EXPECT_EQ(array->dtype(), dtype);
   EXPECT_EQ(array->shape(), shape);
   EXPECT_EQ(array->shared_ptr_sharding().get(), sharding.get());
+  LOG(ERROR) << "madthanu: MakeArrayFromHostBuffer from hostbuffer, test done";
 }
 
 class ArrayImplWithHostBufferSemanticsTest
