@@ -32,4 +32,18 @@ bool Tensor::IsConstant() const {
          !internal::MatchNoWeights(Get());
 }
 
+Tensor::UsesT Tensor::Uses() const {
+  LiteRtParamIndex num_uses;
+  LiteRtOpArray users;
+  LiteRtParamIndex* user_arg_inds;
+  litert::internal::AssertGet(LiteRtGetTensorUses, Get(), &num_uses, &users,
+                              &user_arg_inds);
+  UsesT res;
+  for (auto op = users; op < users + num_uses; ++op) {
+    res.users.push_back(Op(*op));
+  }
+  res.user_arg_inds = absl::MakeSpan(user_arg_inds, num_uses);
+  return res;
+}
+
 }  // namespace litert

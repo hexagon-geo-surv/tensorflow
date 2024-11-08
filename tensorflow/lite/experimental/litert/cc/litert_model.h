@@ -22,12 +22,14 @@
 #include <utility>
 #include <vector>
 
+#include "absl/container/inlined_vector.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
 #include "tensorflow/lite/experimental/litert/c/litert_model.h"
+#include "tensorflow/lite/experimental/litert/cc/litert_expected.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_handle.h"
-#include "tensorflow/lite/experimental/litert/cc/litert_support.h"
+#include "tensorflow/lite/experimental/litert/cc/litert_macros.h"
 
 namespace litert {
 
@@ -185,16 +187,8 @@ class Tensor : public internal::NonOwnedHandle<LiteRtTensor> {
     return litert::Weights(weights);
   }
 
-  void Uses(absl::Span<LiteRtOp>& uses,
-            absl::Span<LiteRtParamIndex>& user_arg_indices) const {
-    LiteRtParamIndex num_uses;
-    LiteRtOpArray users;
-    LiteRtParamIndex* user_arg_inds;
-    litert::internal::AssertGet(LiteRtGetTensorUses, Get(), &num_uses, &users,
-                                &user_arg_inds);
-    uses = absl::MakeSpan(users, num_uses);
-    user_arg_indices = absl::MakeSpan(user_arg_inds, num_uses);
-  }
+  struct UsesT;
+  UsesT Uses() const;
 
   std::optional<LiteRtTensorDefiningOp> DefiningOp() const {
     bool has_defining_op;
@@ -225,20 +219,25 @@ class Op : public internal::NonOwnedHandle<LiteRtOp> {
     return opcode;
   }
 
-  absl::Span<LiteRtTensor> Inputs() const {
+  absl::InlinedVector<Tensor, 4> Inputs() const {
     LiteRtParamIndex num_inputs;
     LiteRtTensorArray inputs;
     litert::internal::AssertGet(LiteRtGetOpInputs, Get(), &num_inputs, &inputs);
-    return absl::MakeSpan(inputs, num_inputs);
+    return absl::InlinedVector<Tensor, 4>(inputs, inputs + num_inputs);
   }
 
-  absl::Span<LiteRtTensor> Outputs() const {
+  absl::InlinedVector<Tensor, 4> Outputs() const {
     LiteRtParamIndex num_outputs;
     LiteRtTensorArray outputs;
     litert::internal::AssertGet(LiteRtGetOpOutputs, Get(), &num_outputs,
                                 &outputs);
-    return absl::MakeSpan(outputs, num_outputs);
+    return absl::InlinedVector<Tensor, 4>(outputs, outputs + num_outputs);
   }
+};
+
+struct Tensor::UsesT {
+  absl::InlinedVector<Op, 4> users;
+  absl::Span<LiteRtParamIndex> user_arg_inds;
 };
 
 // Model subgraph. C++ equivalent of LiteRtSubgraph.
@@ -248,27 +247,27 @@ class Subgraph : public internal::NonOwnedHandle<LiteRtSubgraph> {
   explicit Subgraph(LiteRtSubgraph subgraph)
       : internal::NonOwnedHandle<LiteRtSubgraph>(subgraph) {}
 
-  absl::Span<LiteRtTensor> Inputs() const {
+  absl::InlinedVector<Tensor, 4> Inputs() const {
     LiteRtParamIndex num_inputs;
     LiteRtTensorArray inputs;
     litert::internal::AssertGet(LiteRtGetSubgraphInputs, Get(), &num_inputs,
                                 &inputs);
-    return absl::MakeSpan(inputs, num_inputs);
+    return absl::InlinedVector<Tensor, 4>(inputs, inputs + num_inputs);
   }
 
-  absl::Span<LiteRtTensor> Outputs() const {
+  absl::InlinedVector<Tensor, 4> Outputs() const {
     LiteRtParamIndex num_outputs;
     LiteRtTensorArray outputs;
     litert::internal::AssertGet(LiteRtGetSubgraphOutputs, Get(), &num_outputs,
                                 &outputs);
-    return absl::MakeSpan(outputs, num_outputs);
+    return absl::InlinedVector<Tensor, 4>(outputs, outputs + num_outputs);
   }
 
-  absl::Span<LiteRtOp> Ops() const {
+  absl::InlinedVector<Op, 16> Ops() const {
     LiteRtParamIndex num_ops;
     LiteRtOpArray ops;
     litert::internal::AssertGet(LiteRtGetSubgraphOps, Get(), &num_ops, &ops);
-    return absl::MakeSpan(ops, num_ops);
+    return absl::InlinedVector<Op, 16>(ops, ops + num_ops);
   }
 };
 
