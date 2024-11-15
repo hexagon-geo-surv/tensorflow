@@ -1184,9 +1184,7 @@ TEST(SavedModelTest, CustomCompiler) {
   EXPECT_EQ(test_context.signature_name, "toy");
 }
 
-// TODO(b/374165187): Add a test case for positive identification of JAX models.
-// Currently we don't have those in our testdata.
-TEST(SavedModelTest, EmitModelTypeMetric) {
+TEST(SavedModelTest, EmitModelTypeMetric_Baseline) {
   // SavedModel toy contains a graph of a single 'tf.AddV2' op. It is generated
   // using the following python code:
   //  x = tf.placeholder(tf.int32, shape=(3))
@@ -1209,6 +1207,26 @@ TEST(SavedModelTest, EmitModelTypeMetric) {
   // TODO(b/374165187): We currently get the model name from graph execution
   // options but our test setup does not populate that.
   EXPECT_EQ(inferred_model_type_count_reader.Delta("", "0", "UNKNOWN"), 1);
+}
+
+TEST(SavedModelTest, EmitModelTypeMetric_Jax2Tf) {
+  std::string saved_model_dir = tensorflow::GetDataDependencyFilepath(
+      "tensorflow/core/tfrt/saved_model/tests/toy_jax2tf");
+
+  auto inferred_model_type_count_reader =
+      CellReader<int64_t>("/tensorflow/tfrt/inferred_model_type");
+
+  auto runtime = DefaultTfrtRuntime(/*num_threads=*/1);
+  auto options = DefaultSavedModelOptions(runtime.get());
+  options.emit_model_type_metric = true;
+
+  auto saved_model = SavedModelImpl::LoadSavedModel(options, saved_model_dir,
+                                                    /*tags=*/{"serve"});
+  TF_CHECK_OK(saved_model.status());
+
+  // TODO(b/374165187): We currently get the model name from graph execution
+  // options but our test setup does not populate that.
+  EXPECT_EQ(inferred_model_type_count_reader.Delta("", "0", "JAX"), 1);
 }
 
 }  // namespace

@@ -45,6 +45,7 @@ filegroup(
         ":saved_model_gen_ref_type_tensor_input",
         ":saved_model_gen_resource_gather_v1",
         ":saved_model_gen_sparse_tensor_input",
+        ":saved_model_gen_toy_jax2tf",
         ":saved_model_gen_toy_v1",
         ":saved_model_gen_toy_v2",
         ":saved_model_gen_variable_on_tpu",
@@ -205,6 +206,25 @@ pytype_strict_binary(
         "@absl_py//absl:app",
         "@absl_py//absl/flags",
         "@absl_py//absl/logging",
+    ],
+)
+
+pytype_strict_binary(
+    name = "gen_saved_model_jax2tf",
+    srcs = ["gen_saved_model_jax2tf.py"],
+    python_version = "PY3",
+    srcs_version = "PY3",
+    deps = [
+        "//tensorflow/python/eager/polymorphic_function",
+        "//tensorflow/python/framework:constant_op",
+        "//tensorflow/python/framework:dtypes",
+        "//tensorflow/python/framework:tensor_spec",
+        "//tensorflow/python/module",
+        "//tensorflow/python/saved_model:save",
+        "//third_party/py/jax",
+        "//third_party/py/jax/experimental/jax2tf",
+        "@absl_py//absl:app",
+        "@absl_py//absl/flags",
     ],
 )
 
@@ -452,6 +472,11 @@ pytype_strict_binary(
 gen_saved_model(
     model_name = "resource_gather_v1",
     script = "gen_resource_gather_v1",
+)
+
+gen_saved_model(
+    model_name = "toy_jax2tf",
+    script = "gen_saved_model_jax2tf",
 )
 
 gen_saved_model(
