@@ -146,7 +146,28 @@ absl::Status PopulateResultIOInfo(
 // If enable_op_fallback is set to false, graph is legalized only if the graph
 // analysis for the graph is successful. Otherwise, an error is returned.
 ABSL_DEPRECATED("Use v2/legalize_tf.h::LegalizeMlirToHlo instead.")
-absl::StatusOr<std::string> CompileMlirToXlaHlo(
+absl::Status CompileMlirToXlaHlo(
+    mlir::ModuleOp module_op, llvm::ArrayRef<TensorOrResourceShape> arg_shapes,
+    llvm::StringRef device_type, bool use_tuple_args, bool enable_op_fallback,
+    bool use_return_tuple, bool use_resource_updates_for_aliases,
+    XlaShapeLayoutHelpers::ShapeDeterminationFns shape_determination_fns,
+    XlaCompilationResult* compilation_result,
+    llvm::MutableArrayRef<std::unique_ptr<mlir::Pass>>
+        custom_legalization_passes,
+    llvm::StringRef module_name = llvm::StringRef(),
+    bool lower_to_xla_hlo = true);
+
+// Runs MLIR Bridge on a MLIR module.
+//
+// If lower_to_xla_hlo is true then compiles down into XLA HLO, generates all
+// accompanying metadata and stores them in CompilationResult.
+//
+// If enable_op_fallback is set to false, graph is legalized only if the graph
+// analysis for the graph is successful. Otherwise, an error is returned.
+//
+// On success, returns the serialized MLIR module.
+ABSL_DEPRECATED("Use v2/legalize_tf.h::LegalizeMlirToHlo instead.")
+absl::StatusOr<std::string> CompileMlirToXlaHloAndSerialize(
     mlir::ModuleOp module_op, llvm::ArrayRef<TensorOrResourceShape> arg_shapes,
     llvm::StringRef device_type, bool use_tuple_args, bool enable_op_fallback,
     bool use_return_tuple, bool use_resource_updates_for_aliases,
