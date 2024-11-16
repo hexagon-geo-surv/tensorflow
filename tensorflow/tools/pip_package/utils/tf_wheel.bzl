@@ -33,26 +33,29 @@ load(
 )
 load("//tensorflow:tensorflow.bzl", "VERSION", "WHEEL_VERSION")
 
-def _get_wheel_platform_name(platform_name, platform_tag):
+def _get_wheel_platform_name(platform_name, platform_tag, verify_manylinux):
     macos_platform_version = "{}_".format(MACOSX_DEPLOYMENT_TARGET.replace(".", "_")) if MACOSX_DEPLOYMENT_TARGET else ""
     tag = platform_tag
+    name = platform_name
+    if verify_manylinux and platform_name == "linux":
+        name = "manylinux2014"
     if platform_tag == "x86_64" and platform_name == "win":
         tag = "amd64"
     if platform_tag == "arm64" and platform_name == "linux":
         tag = "aarch64"
     return "{platform_name}_{platform_version}{platform_tag}".format(
-        platform_name = platform_name,
+        platform_name = name,
         platform_tag = tag,
         platform_version = macos_platform_version,
     )
 
-def _get_full_wheel_name(platform_name, platform_tag):
+def _get_full_wheel_name(platform_name, platform_tag, verify_manylinux):
     python_version = HERMETIC_PYTHON_VERSION.replace(".", "")
     return "{wheel_name}-{wheel_version}-cp{python_version}-cp{python_version}-{wheel_platform_tag}.whl".format(
         wheel_name = WHEEL_NAME,
         wheel_version = WHEEL_VERSION.replace("-", "."),
         python_version = python_version,
-        wheel_platform_tag = _get_wheel_platform_name(platform_name, platform_tag),
+        wheel_platform_tag = _get_wheel_platform_name(platform_name, platform_tag, verify_manylinux),
     )
 
 def _tf_wheel_impl(ctx):
@@ -65,9 +68,11 @@ def _tf_wheel_impl(ctx):
              " `--@local_config_cuda//cuda:override_include_cuda_libs=true`.")
     executable = ctx.executable.wheel_binary
 
+    verify_manylinux = ctx.attr.verify_manylinux[BuildSettingInfo].value
     full_wheel_name = _get_full_wheel_name(
         platform_name = ctx.attr.platform_name,
         platform_tag = ctx.attr.platform_tag,
+        verify_manylinux = verify_manylinux,
     )
     wheel_dir_name = "wheel_house"
     output_file = ctx.actions.declare_file("{wheel_dir}/{wheel_name}".format(
@@ -75,9 +80,6 @@ def _tf_wheel_impl(ctx):
         wheel_name = full_wheel_name,
     ))
     wheel_dir = output_file.path[:output_file.path.rfind("/")]
-    check_wheel_compliance = (ctx.attr.platform_name == "linux" and
-                              ctx.attr.verify_wheel_compliance[BuildSettingInfo].value and
-                              ctx.attr.linux_wheel_compliance_tag)
     args = ctx.actions.args()
     args.add("--project-name", WHEEL_NAME)
     args.add("--platform", _get_wheel_platform_name(
@@ -110,22 +112,23 @@ def _tf_wheel_impl(ctx):
         outputs = [output_file],
         executable = executable,
     )
-    compliance_verification_log = None
-    if check_wheel_compliance:
-        compliance_verification_log = ctx.actions.declare_file("compliance_verification.log")
+    auditwheel_show_log = None
+    if ctx.attr.platform_name == "linux":
+        auditwheel_show_log = ctx.actions.declare_file("auditwheel_show.log")
         args = ctx.actions.args()
         args.add("--wheel_path", output_file.path)
-        args.add("--compliance-tag", ctx.attr.linux_wheel_compliance_tag)
-        args.add("--compliance-verification-log-path", compliance_verification_log.path)
+        if verify_manylinux:
+            args.add("--compliance-tag", ctx.attr.linux_wheel_compliance_tag)
+        args.add("--auditwheel-showlog-path", auditwheel_show_log.path)
         ctx.actions.run(
             arguments = [args],
             inputs = [output_file],
-            outputs = [compliance_verification_log],
-            executable = ctx.executable.verify_wheel_compliance_binary,
+            outputs = [auditwheel_show_log],
+            executable = ctx.executable.verify_manylinux_compliance_binary,
         )
 
-    verification_output = [compliance_verification_log] if compliance_verification_log else []
-    return [DefaultInfo(files = depset(direct = [output_file] + verification_output))]
+    auditwheel_show_output = [auditwheel_show_log] if auditwheel_show_log else []
+    return [DefaultInfo(files = depset(direct = [output_file] + auditwheel_show_output))]
 
 tf_wheel = rule(
     attrs = {
@@ -137,8 +140,8 @@ tf_wheel = rule(
             executable = True,
             cfg = "exec",
         ),
-        "verify_wheel_compliance_binary": attr.label(
-            default = Label("@local_tsl//third_party/py:verify_wheel_compliance_py"),
+        "verify_manylinux_compliance_binary": attr.label(
+            default = Label("@local_tsl//third_party/py:verify_manylinux_compliance"),
             executable = True,
             cfg = "exec",
         ),
@@ -146,7 +149,7 @@ tf_wheel = rule(
         "override_include_cuda_libs": attr.label(default = Label("@local_config_cuda//cuda:override_include_cuda_libs")),
         "platform_tag": attr.string(mandatory = True),
         "platform_name": attr.string(mandatory = True),
-        "verify_wheel_compliance": attr.label(default = Label("@local_tsl//third_party/py:wheel_compliance")),
+        "verify_manylinux": attr.label(default = Label("@local_tsl//third_party/py:verify_manylinux")),
         "linux_wheel_compliance_tag": attr.string(),
     },
     implementation = _tf_wheel_impl,
