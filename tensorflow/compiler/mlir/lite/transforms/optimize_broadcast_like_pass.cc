@@ -24,11 +24,14 @@ limitations under the License.
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"  // from @llvm-project
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project  // IWYU pragma: keep
 #include "mlir/Dialect/Traits.h"  // from @llvm-project
+#include "mlir/IR/BuiltinAttributes.h"  // from @llvm-project
 #include "mlir/IR/BuiltinTypeInterfaces.h"  // from @llvm-project
 #include "mlir/IR/BuiltinTypes.h"  // from @llvm-project
 #include "mlir/IR/MLIRContext.h"  // from @llvm-project
+#include "mlir/IR/Matchers.h"  // from @llvm-project
 #include "mlir/IR/Operation.h"  // from @llvm-project
 #include "mlir/IR/PatternMatch.h"  // from @llvm-project
 #include "mlir/IR/Types.h"  // from @llvm-project
@@ -83,13 +86,40 @@ bool IsRankSupported(Operation* op) {
   return llvm::cast<ShapedType>(op->getResultTypes()[0]).getRank() <= 4;
 }
 
-Value GetBroadcastLikeOpInput(Operation* op) {
+Value GetBroadcastLikeOpInput(Operation* op, PatternRewriter& rewriter) {
   if (!op) return nullptr;
   if (auto broadcast_to_op = llvm::dyn_cast<TFL::BroadcastToOp>(op)) {
     return broadcast_to_op.getInput();
   }
   if (auto fill_op = llvm::dyn_cast<TFL::FillOp>(op)) {
     return fill_op.getInput();
+  }
+  if (llvm::isa<arith::ConstantOp, TFL::ConstOp>(op)) {
+    auto const_value = op->getResult(0);
+    DenseElementsAttr elements_attr;
+    if (!matchPattern(const_value, mlir::m_Constant(&elements_attr))) {
+      return nullptr;
+    }
+    auto element_type =
+        mlir::cast<ShapedType>(const_value.getType()).getElementType();
+    // Ignore per-axis quantized constants because after converting to scalar,
+    // we will lose per-axis qantization parameter.
+    if (mlir::isa<quant::UniformQuantizedPerAxisType>(element_type)) {
+      return nullptr;
+    }
+
+    auto type = mlir::dyn_cast<ShapedType>(const_value.getType());
+    if (type && type.hasStaticShape() && (type.getNumElements() > 1) &&
+        elements_attr.isSplat()) {
+      auto scalar_elements_attr = DenseElementsAttr::get(
+          RankedTensorType::get({}, elements_attr.getType().getElementType()),
+          elements_attr.getSplatValue<mlir::Attribute>());
+
+      return rewriter.create<arith::ConstantOp>(
+          op->getLoc(), scalar_elements_attr.getType(), scalar_elements_attr);
+    }
+
+    return nullptr;
   }
   return nullptr;
 }
@@ -135,7 +165,8 @@ LogicalResult ConvertResultsBroadcastableShapeOp::RewriteOp(
     // Get the input of the broadcast-like op. This is the Value that is
     // being broadcasted by the broadcast-like op. This function returns nullptr
     // if the op is not a broadcast-like op.
-    auto broadcast_like_op_input = GetBroadcastLikeOpInput(broadcast_like_op);
+    auto broadcast_like_op_input =
+        GetBroadcastLikeOpInput(broadcast_like_op, rewriter);
     if (!broadcast_like_op || !broadcast_like_op_input) {
       continue;
     }
