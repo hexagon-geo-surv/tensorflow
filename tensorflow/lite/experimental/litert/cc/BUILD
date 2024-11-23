@@ -49,6 +49,7 @@ cc_library(
         "//tensorflow/lite/experimental/litert/c:litert_model",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
     ],
@@ -237,9 +238,8 @@ cc_library(
     srcs = ["litert_model_predicates.cc"],
     hdrs = ["litert_model_predicates.h"],
     deps = [
-        ":litert_macros",
+        ":litert_detail",
         ":litert_model",
-        "//tensorflow/lite/experimental/litert/c:litert_logging",
         "//tensorflow/lite/experimental/litert/c:litert_model",
         "//tensorflow/lite/experimental/litert/c:litert_op_code",
         "@com_google_absl//absl/container:inlined_vector",
