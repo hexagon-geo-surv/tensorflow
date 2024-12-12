@@ -102,6 +102,8 @@ absl::StatusOr<Type> TritonType(EmitterLocOpBuilder& b, PrimitiveType t) {
       return b.getI1Type();
     case S8:
       return b.getI8Type();
+    case S4:
+      return b.getI4Type();
     case F8E5M2:
       return b.getFloat8E5M2Type();
     case F8E4M3FN:
