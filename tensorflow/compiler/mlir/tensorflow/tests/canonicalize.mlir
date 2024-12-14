@@ -1995,6 +1995,18 @@ func.func @testFoldStridedSliceShapeWithEmptySlice(%arg0: tensor<?x1x2x3xf32>) -
   // CHECK: return %[[CST]]
 }
 
+// CHECK-LABEL: testStridedSliceToSlice
+func.func @testStridedSliceToSlice(%561: tensor<1x16384x3xf32>) -> tensor<1x16384x2xf32> {
+  %cst_818 = "tf.Const"() <{value = dense<1> : tensor<3xi32>}> {device = ""} : () -> tensor<3xi32>
+  %cst_819 = "tf.Const"() <{value = dense<[0, 0, 2]> : tensor<3xi32>}> {device = ""} : () -> tensor<3xi32>
+  %cst_820 = "tf.Const"() <{value = dense<0> : tensor<3xi32>}> {device = ""} : () -> tensor<3xi32>
+  %562 = "tf.StridedSlice"(%561, %cst_820, %cst_819, %cst_818) <{begin_mask = 7 : i64, ellipsis_mask = 0 : i64, end_mask = 3 : i64, new_axis_mask = 0 : i64, shrink_axis_mask = 0 : i64}> {device = ""} : (tensor<1x16384x3xf32>, tensor<3xi32>, tensor<3xi32>, tensor<3xi32>) -> tensor<1x16384x2xf32>
+  return %562 : tensor<1x16384x2xf32>
+  // CHECK: "tf.Const"() <{value = dense<0> : tensor<3xi64>}> : () -> tensor<3xi64>
+  // CHECK: "tf.Const"() <{value = dense<[1, 16384, 2]> : tensor<3xi64>}> : () -> tensor<3xi64>
+  // CHECK: "tf.Slice"(%arg0, %cst, %cst_0) : (tensor<1x16384x3xf32>, tensor<3xi64>, tensor<3xi64>) -> tensor<1x16384x2xf32>
+}
+
 // CHECK-LABEL: testFoldEnsureShapeOp
 func.func @testFoldEnsureShapeOp(%arg0: tensor<10x20xf32>) -> (tensor<10x20xf32>, tensor<10x20xf32>, tensor<20x10xf32>) {
   %0 = "tf.EnsureShape"(%arg0) {shape = #tf_type.shape<10x20>} : (tensor<10x20xf32>) -> tensor<10x20xf32>
