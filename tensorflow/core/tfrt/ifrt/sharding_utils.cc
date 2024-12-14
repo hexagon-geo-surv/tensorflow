@@ -310,28 +310,57 @@ absl::StatusOr<int> VerifyIndexDomainsAndGetReplicas(
           "Expected ", num_replicas, " replicas for ",
           index_domain.DebugString(), " but got ", count, " replicas"));
     }
+    LOG(INFO) << "IndexDomain: " << index_domain.DebugString();
     unique_index_domains.push_back(index_domain);
   }
 
-  // Verify that distances of between origins of neighbouring `IndexDomain`
-  // bounded by shape. Note that unique_indexx_domains are already in sorted
+  // Approximately verify that distances of between origins of neighbouring
+  // `IndexDomain` bounded by shape. Note that unique_indexx_domains are already
+  // in sorted order.
+  const xla::ifrt::Shape& bounded_box = first_index_domain->shape();
+
+  // Remember all number of splits larger than 1. That is also the number of
   // order.
-  auto prev_iter = unique_index_domains.begin();
+  std::vector<int> num_splits;
+  num_splits.reserve(bounded_box.dims().size() + 1);
+  // Always have one split at least.
+  num_splits.push_back(1);
+  for (int dim = 0; dim < bounded_box.dims().size(); ++dim) {
+    int num_splits_per_dim =
+        tensor_shape.dim_size(dim) / bounded_box.dims()[dim];
+    if (num_splits_per_dim > 1) {
+      num_splits.push_back(num_splits_per_dim);
+    }
+  }
+
+  auto current_iter = unique_index_domains.begin();
   auto next_iter = unique_index_domains.begin() + 1;
-  const auto& bounded_box = first_index_domain->shape();
-  while (prev_iter != unique_index_domains.end() &&
+  int split_count = num_splits.back();
+  num_splits.pop_back();
+  while (current_iter != unique_index_domains.end() &&
          next_iter != unique_index_domains.end()) {
-    xla::ifrt::Index offset = next_iter->origin() - prev_iter->origin();
+    xla::ifrt::Index offset = next_iter->origin() - current_iter->origin();
+
+    // In lexicographical order, discontiguity between two `IndexDomain`s can
+    // appear when the outer dimension is changed. Relax the check when this
+    // happens..
+    bool is_outer_dim_changing = false;
+    if (--split_count == 0) {
+      is_outer_dim_changing = true;
+      split_count = num_splits.back();
+      num_splits.pop_back();
+    }
+
     for (int dim = 0; dim < bounded_box.dims().size(); ++dim) {
       if (std::abs(offset.elements()[dim]) != bounded_box.dims()[dim] &&
-          offset.elements()[dim] != 0) {
+          offset.elements()[dim] != 0 && !is_outer_dim_changing) {
         return absl::FailedPreconditionError(absl::StrCat(
             "IndexDomains should not have gap or overlap, but got ",
-            prev_iter->DebugString(), " and ", next_iter->DebugString(),
+            current_iter->DebugString(), " and ", next_iter->DebugString(),
             " that have offset of ", offset.DebugString()));
       }
     }
-    prev_iter = next_iter;
+    current_iter = next_iter;
     next_iter++;
   }
 
