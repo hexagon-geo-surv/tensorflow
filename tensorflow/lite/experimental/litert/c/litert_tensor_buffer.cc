@@ -18,6 +18,7 @@
 #include <cstdint>
 
 #include "absl/types/span.h"
+#include "third_party/opencl_headers/CL/cl.h"
 #include "tensorflow/lite/experimental/litert/c/litert_common.h"
 #include "tensorflow/lite/experimental/litert/c/litert_event.h"
 #include "tensorflow/lite/experimental/litert/c/litert_logging.h"
@@ -158,6 +159,42 @@ LiteRtStatus LiteRtGetTensorBufferDmaBufBuffer(LiteRtTensorBuffer tensor_buffer,
   return kLiteRtStatusOk;
 }
 #endif  // LITERT_HAS_DMABUF_SUPPORT
+
+#if LITERT_HAS_MLDRIFT_SUPPORT
+LiteRtStatus LiteRtCreateTensorBufferFromOpenCLBuffer(
+    const LiteRtRankedTensorType* tensor_type, cl_mem cl_mem_addr,
+    size_t opencl_buffer_size, LiteRtOpenCLDeallocator deallocator,
+    LiteRtTensorBuffer* buffer) {
+  if (!tensor_type || !buffer) {
+    return kLiteRtStatusErrorInvalidArgument;
+  }
+  auto created_tensor_buffer = LiteRtTensorBufferT::CreateFromOpenCLBuffer(
+      *tensor_type, cl_mem_addr, opencl_buffer_size);
+  if (!created_tensor_buffer) {
+    LITERT_LOG(LITERT_ERROR, "%s",
+               created_tensor_buffer.Error().Message().data());
+    return created_tensor_buffer.Error().Status();
+  }
+  *buffer = created_tensor_buffer->release();
+  return kLiteRtStatusOk;
+}
+
+LiteRtStatus LiteRtGetTensorBufferOpenCLBuffer(LiteRtTensorBuffer tensor_buffer,
+                                               void** cl_mem_addr) {
+  if (!tensor_buffer || !cl_mem_addr) {
+    return kLiteRtStatusErrorInvalidArgument;
+  }
+
+  auto opencl_buffer = tensor_buffer->GetOpenCLBuffer();
+  if (!opencl_buffer) {
+    LITERT_LOG(LITERT_ERROR, "%s", opencl_buffer.Error().Message().data());
+    return opencl_buffer.Error().Status();
+  }
+
+  *cl_mem_addr = (*opencl_buffer)->GetMemoryPtr();
+  return kLiteRtStatusOk;
+}
+#endif  // LITERT_HAS_MLDRIFT_SUPPORT
 
 #if LITERT_HAS_FASTRPC_SUPPORT
 LiteRtStatus LiteRtCreateTensorBufferFromFastRpcBuffer(

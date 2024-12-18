@@ -11,10 +11,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
     default_visibility = ["//tensorflow/lite/experimental/litert:__subpackages__"],
+)
+
+# Enable the ML Drift flag in G3, but not in OSS.
+bool_flag(
+    name = "LITERT_HAS_MLDRIFT_SUPPORT",
+    build_setting_default = True,
+)
+
+config_setting(
+    name = "mldrift_support_enabled",
+    flag_values = {
+        ":LITERT_HAS_MLDRIFT_SUPPORT": "true",
+    },
 )
 
 cc_library(
@@ -40,6 +54,7 @@ cc_library(
         "event.cc",
         "fastrpc_buffer.cc",
         "ion_buffer.cc",
+        "opencl_buffer.cc",
         "tensor_buffer.cc",
     ],
     hdrs = [
@@ -48,14 +63,19 @@ cc_library(
         "event.h",
         "fastrpc_buffer.h",
         "ion_buffer.h",
+        "opencl_buffer.h",
         "tensor_buffer.h",
         "//tensorflow/lite/experimental/litert/c:litert_event.h",
         "//tensorflow/lite/experimental/litert/c:litert_tensor_buffer.h",
         "//tensorflow/lite/experimental/litert/c:litert_tensor_buffer_requirements.h",
     ],
+    defines = select({
+        ":mldrift_support_enabled": ["LITERT_HAS_MLDRIFT_SUPPORT"],
+        "//conditions:default": [],
+    }),
     deps = [
         "//tensorflow/lite/experimental/litert/c:litert_common",
-        "//tensorflow/lite/experimental/litert/c:litert_event",
+        "//tensorflow/lite/experimental/litert/c:litert_layout",
         "//tensorflow/lite/experimental/litert/c:litert_logging",
         "//tensorflow/lite/experimental/litert/c:litert_model",
         "//tensorflow/lite/experimental/litert/cc:litert_event",
@@ -65,7 +85,18 @@ cc_library(
         "@com_google_absl//absl/container:node_hash_map",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
-    ],
+        "@opencl_headers",
+    ] + select({
+        "mldrift_support_enabled": [
+            "//third_party/ml_drift/cl:buffer",
+            "//third_party/ml_drift/cl:cl_command_queue",
+            "//third_party/ml_drift/cl:cl_context",
+            "//third_party/ml_drift/cl:environment",
+            "//third_party/ml_drift/cl:opencl_wrapper",
+            "//third_party/ml_drift/cl:util_types",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 cc_library(
@@ -131,7 +162,6 @@ cc_library(
         "//tensorflow/lite/experimental/litert/c:litert_model",
         "//tensorflow/lite/experimental/litert/c:litert_tensor_buffer",
         "//tensorflow/lite/experimental/litert/cc:litert_buffer_ref",
-        "//tensorflow/lite/experimental/litert/cc:litert_detail",
         "//tensorflow/lite/experimental/litert/cc:litert_event",
         "//tensorflow/lite/experimental/litert/cc:litert_expected",
         "//tensorflow/lite/experimental/litert/cc:litert_tensor_buffer",
@@ -152,10 +182,19 @@ cc_test(
     data = [
         "//tensorflow/lite/experimental/litert/test:testdata/simple_model.tflite",
     ],
+    # Enable the ML Drift flag in G3, but not in OSS.
+    defines = select({
+        ":mldrift_support_enabled": ["LITERT_HAS_MLDRIFT_SUPPORT"],
+        "//conditions:default": [],
+    }),
     linkopts = select({
         "//tensorflow:android": ["-landroid"],
         "//conditions:default": [],
     }),
+    # require GPU to run OpenCL tests.
+    tags = [
+        "requires-gpu-nvidia",
+    ],
     deps = [
         ":compiled_model",
         ":tensor_buffer",
@@ -163,10 +202,8 @@ cc_test(
         "//tensorflow/lite/c:c_api_opaque",
         "//tensorflow/lite/c:common",
         "//tensorflow/lite/experimental/litert/c:litert_common",
-        "//tensorflow/lite/experimental/litert/c:litert_compiled_model_options",
         "//tensorflow/lite/experimental/litert/c:litert_model",
         "//tensorflow/lite/experimental/litert/c:litert_tensor_buffer",
-        "//tensorflow/lite/experimental/litert/cc:litert_environment",
         "//tensorflow/lite/experimental/litert/cc:litert_expected",
         "//tensorflow/lite/experimental/litert/cc:litert_tensor_buffer",
         "//tensorflow/lite/experimental/litert/core/model",
