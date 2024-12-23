@@ -193,6 +193,11 @@ class Serialization {
   Serialization(const Serialization&) = delete;
   Serialization& operator=(const Serialization&) = delete;
 
+  static uint64_t GetFingerprint(
+      const std::string& model_token, const std::string& custom_key,
+      TfLiteContext* context = nullptr,
+      const TfLiteDelegateParams* delegate_params = nullptr);
+
  protected:
   SerializationEntry GetEntryImpl(
       const std::string& custom_key, TfLiteContext* context = nullptr,
