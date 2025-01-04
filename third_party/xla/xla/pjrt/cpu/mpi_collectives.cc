@@ -146,36 +146,38 @@ absl::Status MpiCollectivesCommunicator::AllReduce(
 }
 
 absl::Status MpiCollectivesCommunicator::CollectivePermute(
-    const RendezvousKey& key, size_t num_bytes, std::optional<int> source_rank,
-    absl::Span<int const> target_ranks, const void* input_buffer,
-    void* output_buffer, absl::Duration timeout) {
+    se::DeviceMemoryBase send_buffer, se::DeviceMemoryBase recv_buffer,
+    PrimitiveType dtype, size_t count, std::optional<RankId> source_rank,
+    absl::Span<const RankId> target_ranks, const Executor& executor) {
   int tag = 0;  // TODO come up with better tags.
 
   const int rank = mpi_rank_;
 
   std::vector<MPI_Request> requests;
 
+  size_t num_bytes = count * primitive_util::ByteWidth(dtype);
+
   if (source_rank) {
-    if (*source_rank == rank) {
-      std::memcpy(output_buffer, input_buffer, num_bytes);
+    if (*source_rank.value() == rank) {
+      std::memcpy(recv_buffer.opaque(), send_buffer.opaque(), num_bytes);
     } else {
-      VLOG(1) << "recv at " << rank << " from " << *source_rank;
+      VLOG(1) << "recv at " << rank << " from " << source_rank->value();
       requests.emplace_back();
       TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
-          MPI_Irecv(output_buffer, num_bytes, MPI_BYTE, *source_rank, tag,
-                    comm_, &requests.back())));
+          MPI_Irecv(recv_buffer.opaque(), num_bytes, MPI_BYTE,
+                    source_rank->value(), tag, comm_, &requests.back())));
     }
   } else {
-    std::memset(output_buffer, 0, num_bytes);
+    std::memset(recv_buffer.opaque(), 0, num_bytes);
   }
 
-  for (int target : target_ranks) {
+  for (RankId target : target_ranks) {
     if (target != rank) {
-      VLOG(1) << "send from " << rank << " to " << target;
+      VLOG(1) << "send from " << rank.value() << " to " << target.value();
       requests.emplace_back();
       TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
-          MPI_Isend(input_buffer, num_bytes, MPI_BYTE, target, tag, comm_,
-                    &requests.back())));
+          MPI_Isend(send_buffer.opaque(), num_bytes, MPI_BYTE, target, tag,
+                    comm_, &requests.back())));
     }
   }
 
@@ -214,26 +216,26 @@ absl::Status MpiCollectivesCommunicator::AllToAll(
   return absl::OkStatus();
 }
 
-absl::Status MpiCollectivesCommunicator::AllGather(const RendezvousKey& key,
-                                                   size_t chunk_bytes,
-                                                   const void* input_buffer,
-                                                   void* output_buffer,
-                                                   absl::Duration timeout) {
-  return MpiErrorToAbslStatus(MPI_Allgather(input_buffer, chunk_bytes, MPI_BYTE,
-                                            output_buffer, chunk_bytes,
-                                            MPI_BYTE, comm_));
+absl::Status MpiCollectivesCommunicator::AllGather(
+    se::DeviceMemoryBase send_buffer, se::DeviceMemoryBase recv_buffer,
+    PrimitiveType dtype, size_t count, const Executor& executor) {
+  TF_ASSIGN_OR_RETURN(MPI_Datatype type, PrimitiveTypeToMpiType(dtype));
+  return MpiErrorToAbslStatus(MPI_Allgather(send_buffer.opaque(), count, type,
+                                            recv_buffer.opaque(), count, type,
+                                            comm_));
 }
 
 absl::Status MpiCollectivesCommunicator::ReduceScatter(
-    const RendezvousKey& key, ReductionKind reduction_kind,
-    PrimitiveType element_type, size_t chunk_elems, const void* input_buffer,
-    void* output_buffer, absl::Duration timeout) {
+    se::DeviceMemoryBase send_buffer, se::DeviceMemoryBase recv_buffer,
+    PrimitiveType dtype, size_t count, ReductionKind reduction_kind,
+    const Executor& executor) {
   const int size = mpi_size_;
-  std::vector<int> recvcounts(size, chunk_elems);
-  TF_ASSIGN_OR_RETURN(MPI_Datatype type, PrimitiveTypeToMpiType(element_type));
+  std::vector<int> recvcounts(size, count);
+  TF_ASSIGN_OR_RETURN(MPI_Datatype type, PrimitiveTypeToMpiType(dtype));
   TF_ASSIGN_OR_RETURN(MPI_Op op, ReductionKindToMpiOp(reduction_kind, type));
-  return MpiErrorToAbslStatus(MPI_Reduce_scatter(
-      input_buffer, output_buffer, recvcounts.data(), type, op, comm_));
+  return MpiErrorToAbslStatus(
+      MPI_Reduce_scatter(send_buffer.opaque(), recv_buffer.opaque(),
+                         recvcounts.data(), type, op, comm_));
 }
 
 void MpiCollectives::Init() {

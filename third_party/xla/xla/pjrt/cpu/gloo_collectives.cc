@@ -27,6 +27,7 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -48,6 +49,7 @@ limitations under the License.
 #include "gloo/transport/unbound_buffer.h"
 #include "gloo/types.h"
 #include "xla/backends/cpu/collectives/cpu_collectives.h"
+#include "xla/core/collectives/rank_id.h"
 #include "xla/primitive_util.h"
 #include "xla/service/collective_ops_utils.h"
 #include "xla/service/cpu/collectives_interface.h"
@@ -193,37 +195,41 @@ absl::Status GlooCollectivesCommunicator::AllReduce(
 static constexpr uint8_t kCollectivePermuteSlotPrefix = 0x40;
 
 absl::Status GlooCollectivesCommunicator::CollectivePermute(
-    const RendezvousKey& key, size_t num_bytes, std::optional<int> source_rank,
-    absl::Span<int const> target_ranks, const void* input_buffer,
-    void* output_buffer, absl::Duration timeout) {
+    se::DeviceMemoryBase send_buffer, se::DeviceMemoryBase recv_buffer,
+    PrimitiveType dtype, size_t count, std::optional<RankId> source_rank,
+    absl::Span<const RankId> target_ranks, const Executor& executor) {
   uint32_t tag = 0;  // TODO(phawkins): come up with better tags.
   const auto slot = gloo::Slot::build(kCollectivePermuteSlotPrefix, tag);
+
+  TF_ASSIGN_OR_RETURN(auto cpu_executor, CpuCollectives::TryCast(&executor));
+  size_t num_bytes = count * primitive_util::ByteWidth(dtype);
+
   try {
     std::unique_ptr<gloo::transport::UnboundBuffer> in;
     std::unique_ptr<gloo::transport::UnboundBuffer> out;
-    for (int target : target_ranks) {
+    for (RankId target : target_ranks) {
       if (target != context_->rank) {
-        VLOG(1) << "send from " << context_->rank << " to " << target;
+        VLOG(1) << "send from " << context_->rank << " to " << target.value();
         if (!in) {
-          in = context_->createUnboundBuffer(const_cast<void*>(input_buffer),
-                                             num_bytes);
+          in = context_->createUnboundBuffer(send_buffer.opaque(), num_bytes);
         }
-        in->send(target, slot);
+        in->send(target.value(), slot);
       }
     }
     if (source_rank) {
       if (*source_rank == context_->rank) {
-        std::memcpy(output_buffer, input_buffer, num_bytes);
+        std::memcpy(recv_buffer.opaque(), send_buffer.opaque(), num_bytes);
       } else {
-        VLOG(1) << "recv at " << context_->rank << " from " << *source_rank;
-        out = context_->createUnboundBuffer(output_buffer, num_bytes);
-        out->recv(*source_rank, slot);
+        VLOG(1) << "recv at " << context_->rank << " from "
+                << source_rank->value();
+        out = context_->createUnboundBuffer(recv_buffer.opaque(), num_bytes);
+        out->recv(source_rank->value(), slot);
       }
     } else {
-      std::memset(output_buffer, 0, num_bytes);
+      std::memset(recv_buffer.opaque(), 0, num_bytes);
     }
     VLOG(1) << "wait for send at " << context_->rank;
-    auto deadline = absl::ToChronoTime(absl::Now() + timeout);
+    auto deadline = absl::ToChronoTime(absl::Now() + cpu_executor->timeout());
     if (in) {
       in->waitSend(deadline);
     }
@@ -290,19 +296,19 @@ absl::Status GlooCollectivesCommunicator::AllToAll(
   return absl::OkStatus();
 }
 
-absl::Status GlooCollectivesCommunicator::AllGather(const RendezvousKey& key,
-                                                    size_t chunk_bytes,
-                                                    const void* input_buffer,
-                                                    void* output_buffer,
-                                                    absl::Duration timeout) {
+absl::Status GlooCollectivesCommunicator::AllGather(
+    se::DeviceMemoryBase send_buffer, se::DeviceMemoryBase recv_buffer,
+    PrimitiveType dtype, size_t count, const Executor& executor) {
   uint32_t tag = 0;  // TODO(phawkins): use better tags.
+
+  TF_ASSIGN_OR_RETURN(auto cpu_executor, CpuCollectives::TryCast(&executor));
+  size_t chunk_bytes = count * primitive_util::ByteWidth(dtype);
 
   gloo::AllgatherOptions options(context_);
   options.setTag(tag);
-  options.setTimeout(absl::ToChronoMilliseconds(timeout));
-  options.setInput(reinterpret_cast<char*>(const_cast<void*>(input_buffer)),
-                   chunk_bytes);
-  options.setOutput(reinterpret_cast<char*>(output_buffer),
+  options.setTimeout(absl::ToChronoMilliseconds(cpu_executor->timeout()));
+  options.setInput(reinterpret_cast<char*>(send_buffer.opaque()), chunk_bytes);
+  options.setOutput(reinterpret_cast<char*>(recv_buffer.opaque()),
                     chunk_bytes * context_->size);
 
   try {
@@ -364,74 +370,74 @@ absl::Status ReduceScatterHelper(std::shared_ptr<gloo::Context> context,
 }
 
 absl::Status GlooCollectivesCommunicator::ReduceScatter(
-    const RendezvousKey& key, ReductionKind reduction_kind,
-    PrimitiveType element_type, size_t chunk_elems, const void* input_buffer,
-    void* output_buffer, absl::Duration timeout) {
-  size_t chunk_bytes = chunk_elems * primitive_util::ByteWidth(element_type);
+    se::DeviceMemoryBase send_buffer, se::DeviceMemoryBase recv_buffer,
+    PrimitiveType dtype, size_t count, ReductionKind reduction_kind,
+    const Executor& executor) {
+  size_t chunk_bytes = count * primitive_util::ByteWidth(dtype);
   std::unique_ptr<char[]> temp(new char[chunk_bytes * context_->size]);
-  std::memcpy(temp.get(), input_buffer, chunk_bytes * context_->size);
-  switch (element_type) {
+  std::memcpy(temp.get(), send_buffer.opaque(), chunk_bytes * context_->size);
+  switch (dtype) {
     case S8:
       TF_RETURN_IF_ERROR(ReduceScatterHelper<int8_t>(context_, reduction_kind,
-                                                     temp.get(), chunk_elems));
+                                                     temp.get(), count));
       break;
     case PRED:
     case U8:
       TF_RETURN_IF_ERROR(ReduceScatterHelper<uint8_t>(context_, reduction_kind,
-                                                      temp.get(), chunk_elems));
+                                                      temp.get(), count));
       break;
     case S16:
       TF_RETURN_IF_ERROR(ReduceScatterHelper<int16_t>(context_, reduction_kind,
-                                                      temp.get(), chunk_elems));
+                                                      temp.get(), count));
       break;
     case U16:
-      TF_RETURN_IF_ERROR(ReduceScatterHelper<uint16_t>(
-          context_, reduction_kind, temp.get(), chunk_elems));
+      TF_RETURN_IF_ERROR(ReduceScatterHelper<uint16_t>(context_, reduction_kind,
+                                                       temp.get(), count));
       break;
     case S32:
       TF_RETURN_IF_ERROR(ReduceScatterHelper<int32_t>(context_, reduction_kind,
-                                                      temp.get(), chunk_elems));
+                                                      temp.get(), count));
       break;
     case U32:
-      TF_RETURN_IF_ERROR(ReduceScatterHelper<uint32_t>(
-          context_, reduction_kind, temp.get(), chunk_elems));
+      TF_RETURN_IF_ERROR(ReduceScatterHelper<uint32_t>(context_, reduction_kind,
+                                                       temp.get(), count));
       break;
     case S64:
       TF_RETURN_IF_ERROR(ReduceScatterHelper<int64_t>(context_, reduction_kind,
-                                                      temp.get(), chunk_elems));
+                                                      temp.get(), count));
       break;
     case U64:
-      TF_RETURN_IF_ERROR(ReduceScatterHelper<uint64_t>(
-          context_, reduction_kind, temp.get(), chunk_elems));
+      TF_RETURN_IF_ERROR(ReduceScatterHelper<uint64_t>(context_, reduction_kind,
+                                                       temp.get(), count));
       break;
     case BF16:
-      TF_RETURN_IF_ERROR(ReduceScatterHelper<bfloat16>(
-          context_, reduction_kind, temp.get(), chunk_elems));
+      TF_RETURN_IF_ERROR(ReduceScatterHelper<bfloat16>(context_, reduction_kind,
+                                                       temp.get(), count));
       break;
     case F16:
       TF_RETURN_IF_ERROR(ReduceScatterHelper<gloo::float16>(
-          context_, reduction_kind, temp.get(), chunk_elems));
+          context_, reduction_kind, temp.get(), count));
       break;
     case F32:
       TF_RETURN_IF_ERROR(ReduceScatterHelper<float>(context_, reduction_kind,
-                                                    temp.get(), chunk_elems));
+                                                    temp.get(), count));
       break;
     case F64:
       TF_RETURN_IF_ERROR(ReduceScatterHelper<double>(context_, reduction_kind,
-                                                     temp.get(), chunk_elems));
+                                                     temp.get(), count));
       break;
     case C64:
       TF_RETURN_IF_ERROR(ReduceScatterHelper<std::complex<float>>(
-          context_, reduction_kind, temp.get(), chunk_elems));
+          context_, reduction_kind, temp.get(), count));
       break;
     case C128:
       TF_RETURN_IF_ERROR(ReduceScatterHelper<std::complex<double>>(
-          context_, reduction_kind, temp.get(), chunk_elems));
+          context_, reduction_kind, temp.get(), count));
       break;
     default:
       return absl::InvalidArgumentError("Unknown datatype in reducescatter");
   }
-  std::memcpy(output_buffer, temp.get(), chunk_bytes);
+  std::memcpy(recv_buffer.opaque(), temp.get(), chunk_bytes);
   return absl::OkStatus();
 }
 

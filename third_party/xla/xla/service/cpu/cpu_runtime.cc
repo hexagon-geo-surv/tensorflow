@@ -41,9 +41,11 @@ limitations under the License.
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "xla/backends/cpu/collectives/cpu_collectives.h"
+#include "xla/core/collectives/rank_id.h"
 #include "xla/executable_run_options.h"
 #include "xla/hlo/parser/hlo_parser.h"
 #include "xla/layout_util.h"
+#include "xla/primitive_util.h"
 #include "xla/service/collective_ops_utils.h"
 #include "xla/service/computation_placer.h"
 #include "xla/service/cpu/collectives_interface.h"
@@ -420,9 +422,13 @@ void AllGatherImpl(const ExecutableRunOptions* run_options,
 
   auto communicator =
       collectives->GetCommunicator(rendezvous_key.global_devices, rank).value();
-  TF_CHECK_OK(communicator->AllGather(rendezvous_key, buffer_size,
-                                      source_buffer, destination_buffer,
-                                      DefaultCollectiveTimeout()));
+
+  se::DeviceMemoryBase input_buffer_data(source_buffer, buffer_size);
+  se::DeviceMemoryBase output_buffer_data(destination_buffer, buffer_size);
+
+  CpuCollectives::Executor executor(rendezvous_key, DefaultCollectiveTimeout());
+  TF_CHECK_OK(communicator->AllGather(input_buffer_data, output_buffer_data, U8,
+                                      buffer_size, executor));
 }
 
 ABSL_ATTRIBUTE_NO_SANITIZE_MEMORY
@@ -449,10 +455,18 @@ void ReduceScatterImpl(const ExecutableRunOptions* run_options,
 
   auto communicator =
       collectives->GetCommunicator(rendezvous_key.global_devices, rank).value();
+
+  auto dtype = static_cast<PrimitiveType>(element_type);
+
+  se::DeviceMemoryBase input_buffer_data(input_buffer,
+                                         primitive_util::ByteWidth(dtype));
+  se::DeviceMemoryBase output_buffer_data(output_buffer,
+                                          primitive_util::ByteWidth(dtype));
+
+  CpuCollectives::Executor executor(rendezvous_key, DefaultCollectiveTimeout());
   TF_CHECK_OK(communicator->ReduceScatter(
-      rendezvous_key, static_cast<ReductionKind>(reduction_kind),
-      static_cast<PrimitiveType>(element_type), chunk_elems, input_buffer,
-      output_buffer, DefaultCollectiveTimeout()));
+      input_buffer_data, output_buffer_data, dtype, chunk_elems,
+      static_cast<ReductionKind>(reduction_kind), executor));
 }
 
 ABSL_ATTRIBUTE_NO_SANITIZE_MEMORY
@@ -524,19 +538,19 @@ void CollectivePermuteImpl(const ExecutableRunOptions* run_options,
   int32_t logical_device_id =
       channel_id_present ? logical_id.computation_id : logical_id.replica_id;
 
-  std::optional<int> source_replica_id;
-  std::vector<int> copy_to;
+  std::optional<RankId> source_replica_id;
+  std::vector<RankId> copy_to;
   for (auto& p : pairs) {
     std::vector<std::string> mapping = absl::StrSplit(p, '=');
     CHECK_EQ(mapping.size(), 2);
     int from = std::stoi(mapping[0]);
     int to = std::stoi(mapping[1]);
     if (from == logical_device_id) {
-      copy_to.push_back(to);
+      copy_to.push_back(RankId(to));
     }
     if (to == logical_device_id) {
       CHECK(!source_replica_id.has_value());
-      source_replica_id = from;
+      source_replica_id = RankId(from);
     }
   }
   RendezvousKey rendezvous_key =
@@ -549,9 +563,15 @@ void CollectivePermuteImpl(const ExecutableRunOptions* run_options,
 
   auto communicator =
       collectives->GetCommunicator(rendezvous_key.global_devices, rank).value();
+
+  CpuCollectives::Executor executor(rendezvous_key, DefaultCollectiveTimeout());
+
+  se::DeviceMemoryBase input_buffer_data(input_buffer, byte_size);
+  se::DeviceMemoryBase output_buffer_data(output_buffer, byte_size);
+
   TF_CHECK_OK(communicator->CollectivePermute(
-      rendezvous_key, byte_size, source_replica_id, copy_to, input_buffer,
-      output_buffer, DefaultCollectiveTimeout()));
+      input_buffer_data, output_buffer_data, U8, byte_size, source_replica_id,
+      copy_to, executor));
 }
 }  // namespace
 }  // namespace runtime

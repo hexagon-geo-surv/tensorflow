@@ -34,6 +34,7 @@ limitations under the License.
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "xla/backends/cpu/collectives/cpu_collectives.h"
+#include "xla/core/collectives/rank_id.h"
 #include "xla/primitive_util.h"
 #include "xla/refcounting_hash_map.h"
 #include "xla/service/collective_ops_utils.h"
@@ -466,14 +467,20 @@ absl::Status InProcessCollectivesCommunicator::AllReduce(
 }
 
 absl::Status InProcessCollectivesCommunicator::CollectivePermute(
-    const RendezvousKey& key, size_t num_bytes, std::optional<int> source_rank,
-    absl::Span<int const> target_ranks, const void* input_buffer,
-    void* output_buffer, absl::Duration timeout) {
+    se::DeviceMemoryBase send_buffer, se::DeviceMemoryBase recv_buffer,
+    PrimitiveType dtype, size_t count, std::optional<RankId> source_rank,
+    absl::Span<const RankId> target_ranks, const Executor& executor) {
+  TF_ASSIGN_OR_RETURN(auto cpu_executor, CpuCollectives::TryCast(&executor));
+  const RendezvousKey& key = cpu_executor->rendezvous_key();
+
   CollectivePermuteParticipantData participant(key, rank_);
-  participant.source_buffer = input_buffer;
-  participant.destination_buffer = output_buffer;
-  participant.num_bytes = num_bytes;
-  participant.source_rank = source_rank;
+  participant.source_buffer = send_buffer.opaque();
+  participant.destination_buffer = recv_buffer.opaque();
+  participant.num_bytes = count * primitive_util::ByteWidth(dtype);
+  participant.source_rank = std::nullopt;
+  if (source_rank) {
+    participant.source_rank = source_rank->value();
+  }
   auto make_cpu_rendezvous = [](const RendezvousKey& k) {
     return std::make_unique<CpuCollectivePermuteRendezvous>(k);
   };
@@ -514,12 +521,15 @@ absl::Status InProcessCollectivesCommunicator::AllToAll(
 }
 
 absl::Status InProcessCollectivesCommunicator::AllGather(
-    const RendezvousKey& key, size_t chunk_bytes, const void* input_buffer,
-    void* output_buffer, absl::Duration timeout) {
+    se::DeviceMemoryBase send_buffer, se::DeviceMemoryBase recv_buffer,
+    PrimitiveType dtype, size_t count, const Executor& executor) {
+  TF_ASSIGN_OR_RETURN(auto cpu_executor, CpuCollectives::TryCast(&executor));
+  const RendezvousKey& key = cpu_executor->rendezvous_key();
+
   AllGatherParticipantData participant(key, rank_);
-  participant.chunk_size = chunk_bytes;
-  participant.source_buffer = input_buffer;
-  participant.destination_buffer = output_buffer;
+  participant.chunk_size = count * primitive_util::ByteWidth(dtype);
+  participant.source_buffer = send_buffer.opaque();
+  participant.destination_buffer = recv_buffer.opaque();
   auto make_cpu_rendezvous = [](const RendezvousKey& k) {
     return std::make_unique<CpuAllGatherRendezvous>(k);
   };
@@ -533,15 +543,18 @@ absl::Status InProcessCollectivesCommunicator::AllGather(
 }
 
 absl::Status InProcessCollectivesCommunicator::ReduceScatter(
-    const RendezvousKey& key, ReductionKind reduction_kind,
-    PrimitiveType element_type, size_t chunk_elems, const void* input_buffer,
-    void* output_buffer, absl::Duration timeout) {
+    se::DeviceMemoryBase send_buffer, se::DeviceMemoryBase recv_buffer,
+    PrimitiveType dtype, size_t count, ReductionKind reduction_kind,
+    const Executor& executor) {
+  TF_ASSIGN_OR_RETURN(auto cpu_executor, CpuCollectives::TryCast(&executor));
+  const RendezvousKey& key = cpu_executor->rendezvous_key();
+
   ReduceScatterParticipantData participant(key, rank_);
-  participant.element_type = element_type;
+  participant.element_type = dtype;
   participant.reduction_kind = reduction_kind;
-  participant.chunk_elems = chunk_elems;
-  participant.source_buffer = input_buffer;
-  participant.destination_buffer = output_buffer;
+  participant.chunk_elems = count;
+  participant.source_buffer = send_buffer.opaque();
+  participant.destination_buffer = recv_buffer.opaque();
   auto make_cpu_rendezvous = [](const RendezvousKey& k) {
     return std::make_unique<CpuReduceScatterRendezvous>(k);
   };
