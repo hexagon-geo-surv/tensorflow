@@ -62,6 +62,9 @@ class CpuCallback {
         results_(std::move(results)),
         transpose_cache_(/*capacity=*/16) {}
 
+  explicit CpuCallback(nanobind::callable callable)
+      : callable_(std::move(callable)), transpose_cache_(/*capacity=*/16) {}
+
   ~CpuCallback();
 
   const std::vector<Arg>& args() const { return args_; }
