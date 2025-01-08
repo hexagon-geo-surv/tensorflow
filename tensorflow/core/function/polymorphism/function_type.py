@@ -509,11 +509,14 @@ def sanitize_arg_name(name: str) -> str:
   result = swapped if swapped[0].isalpha() else "arg_" + swapped
 
   global sanitization_warnings_given
-  if name != result and sanitization_warnings_given < MAX_SANITIZATION_WARNINGS:
-    logging.warning(
-        "`%s` is not a valid tf.function parameter name. Sanitizing to `%s`.",
-        name, result)
-    sanitization_warnings_given += 1
+  if name != result:
+    if sanitization_warnings_given < MAX_SANITIZATION_WARNINGS:
+      logging.warning(
+          "`%s` is not a valid tf.function parameter name. Sanitizing to `%s`.",
+          name,
+          result,
+      )
+      sanitization_warnings_given += 1
 
   return result
 
@@ -654,7 +657,10 @@ def add_type_constraints(function_type: FunctionType, input_signature: Any,
 
 
 def from_structured_signature(
-    input_signature=None, output_signature=None, capture_types=None
+    input_signature=None,
+    output_signature=None,
+    capture_types=None,
+    are_keyword_args_also_positional=False,
 ) -> FunctionType:
   """Generates a FunctionType from legacy signature representation."""
   if input_signature is None:
@@ -675,11 +681,17 @@ def from_structured_signature(
         )
     )
 
+  keyword_arg_kind = (
+      Parameter.POSITIONAL_OR_KEYWORD
+      if are_keyword_args_also_positional
+      else Parameter.KEYWORD_ONLY
+  )
+
   for name, kwarg in kwargs.items():
     parameters.append(
         Parameter(
             sanitize_arg_name(name),
-            Parameter.KEYWORD_ONLY,
+            keyword_arg_kind,
             False,
             trace_type.from_value(
                 kwarg,
