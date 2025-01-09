@@ -172,11 +172,11 @@ xla_test(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
         "@local_tsl//tsl/platform:status",
         "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform:test",
         "@local_tsl//tsl/platform:test_benchmark",
-        "@local_tsl//tsl/platform:test_main",
     ],
 )
 
@@ -260,9 +260,9 @@ xla_test(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
         "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform:test",
-        "@local_tsl//tsl/platform:test_main",
     ] + if_cuda_is_configured([
         "@local_config_cuda//cuda:cuda_headers",
     ]),
@@ -374,9 +374,9 @@ xla_test(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
         "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform:test",
-        "@local_tsl//tsl/platform:test_main",
         "@local_tsl//tsl/profiler/lib:profiler_lock",
     ] + if_cuda_is_configured([
         "@local_config_cuda//cuda:cuda_headers",
