@@ -15,10 +15,10 @@ limitations under the License.
 
 #include "tensorflow/lite/delegates/gpu/gl/kernels/converter.h"
 
-#include <cstdint>
-#include <memory>
+#include <algorithm>
 #include <vector>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/types/span.h"
 #include "tensorflow/lite/delegates/gpu/common/convert.h"

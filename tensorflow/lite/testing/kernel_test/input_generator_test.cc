@@ -15,10 +15,11 @@ limitations under the License.
 #include "tensorflow/lite/testing/kernel_test/input_generator.h"
 
 #include <fstream>
+#include <map>
 #include <string>
-#include <utility>
-#include <vector>
+#include <unordered_map>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 namespace tflite {

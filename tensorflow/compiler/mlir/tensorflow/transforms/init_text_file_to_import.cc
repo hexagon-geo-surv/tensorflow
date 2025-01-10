@@ -152,7 +152,7 @@ void InitTextFileToImportPass::runOnOperation() {
 
   patterns.add<ConvertInitializeTableFromTextFileV2>(
       context, StringRef(saved_model_dir_));
-  (void)applyPatternsGreedily(func, std::move(patterns));
+  (void)applyPatternsAndFoldGreedily(func, std::move(patterns));
 }
 
 }  // namespace

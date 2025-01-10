@@ -15,7 +15,9 @@ limitations under the License.
 
 #include "tensorflow/dtensor/cc/slice_util.h"
 
-#include <cstdint>
+#include <map>
+#include <memory>
+#include <ostream>
 #include <string>
 #include <vector>
 

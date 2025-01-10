@@ -97,7 +97,7 @@ void BatchMatMulToEinsumPass::runOnOperation() {
   patterns.add<ConvertTFBatchMatMulToEinsumOp<TF::BatchMatMulOp>,
                ConvertTFBatchMatMulToEinsumOp<TF::BatchMatMulV2Op>>(
       &getContext());
-  (void)applyPatternsGreedily(func, std::move(patterns));
+  (void)applyPatternsAndFoldGreedily(func, std::move(patterns));
 }
 
 }  // namespace

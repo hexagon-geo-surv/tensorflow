@@ -17,6 +17,7 @@ limitations under the License.
 #include <fstream>
 #include <string>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "tensorflow/core/lib/io/path.h"
 

@@ -14,7 +14,7 @@ limitations under the License.
 ==============================================================================*/
 #include "tensorflow/core/tfrt/mlrt/interpreter/builtin_kernels.h"
 
-#include <cstdint>
+#include <iterator>
 #include <utility>
 #include <vector>
 

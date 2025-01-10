@@ -30,7 +30,7 @@ limitations under the License.
 // any remaining "unrealized_conversion_cast" operations and ensures the
 // resulting graph is free of illegal complex tensors.
 
-#include <cstdint>
+#include <iterator>
 #include <memory>
 #include <utility>
 

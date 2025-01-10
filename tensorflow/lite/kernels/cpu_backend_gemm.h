@@ -37,21 +37,18 @@ namespace cpu_backend_gemm {
 // The main entry point for CpuBackendGemm::Gemm.
 //
 // If TFLITE_WITH_RUY is set, CpuBackendGemm::Gemm will always go to Ruy aka
-// GemmImplUsingRuy. The behavior is as follows:
+// GemmImplUsingRuy. Other cases are as follows:
 //
 //                    |Quantized (uint8)|Quantized (int8)| Float |
 // TFLITE_WITH_RUY    |      Ruy        |      Ruy       | Ruy   |
 // !TFLITE_WITH_RUY   |      gemmlowp   |  Ruy/gemmlowp* | eigen |
 // * - Ruy if NEON is not available.
-//
-//  On most ARM32/ARM64 platforms, the default is TFLITE_WITH_RUY:
-//  (default)         |      Ruy        |     Ruy        | Ruy   |
-//
-//  On other platforms (including x86), the default is !TFLITE_WITH_RUY:
+
+//  On x86 platforms:
 //  (default)         |      gemmlowp   |     Ruy        | eigen |
-//
-// Use --define=tflite_with_ruy=true or --define=tflite_with_ruy=false to
-// override the default.
+//  TFLITE_X86_RUY_\  |      Ruy        |     Ruy        | Ruy   |
+//  ENABLED && (AVX
+//  or above available)
 
 #if !defined(TFLITE_WITH_RUY) && defined(TFLITE_X86_PLATFORM)
 /* GEMM dispatch implementation for x86.

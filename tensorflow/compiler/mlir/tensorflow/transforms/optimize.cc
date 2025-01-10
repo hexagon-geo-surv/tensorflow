@@ -150,7 +150,8 @@ struct TensorFlowOptimizePass
 
   void runOnOperation() override {
     auto func = getOperation();
-    if (failed(applyPatternsGreedily(func, patterns))) signalPassFailure();
+    if (failed(applyPatternsAndFoldGreedily(func, patterns)))
+      signalPassFailure();
   }
 
   FrozenRewritePatternSet patterns;

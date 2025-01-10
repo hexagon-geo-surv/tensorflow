@@ -87,13 +87,10 @@ inline constexpr size_t GetByteWidth() {
   return byte_width.value();
 }
 
-template <class>
-constexpr bool dependent_false = false;  // workaround before CWG2518/P2593R1
-
 // Get the litert::ElementType associated with given C++ type.
 template <typename T>
 inline constexpr ElementType GetElementType() {
-  static_assert(dependent_false<T>, "Uknown C++ type");
+  static_assert(false, "Uknown C++ type");
   return ElementType::None;
 }
 
