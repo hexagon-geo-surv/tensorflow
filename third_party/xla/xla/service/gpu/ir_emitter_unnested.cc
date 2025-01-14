@@ -2694,6 +2694,7 @@ absl::Status IrEmitterUnnested::EmitHloInstruction(
         return EmitSliceToDynamic(custom_call);
       }
       if (instr->custom_call_target() == "__gpu$xla.gpu.triton") {
+        // TODO(slebedev): Remove this after June 15th 2025.
         return EmitTritonCustomCall(custom_call);
       }
       if (instr->custom_call_target() == kNopCustomCallTarget) {
