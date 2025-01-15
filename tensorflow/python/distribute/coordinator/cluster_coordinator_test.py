@@ -829,7 +829,7 @@ class ClusterCoordinatorTest(
     def func(a):
       return array_ops.identity(a)
 
-    with self.assertRaisesRegexp(
+    with self.assertRaisesRegex(
         TypeError,
         '`tf.distribute.experimental.coordinator.ClusterCoordinator.schedule` '
         'only accepts a `tf.function` or a concrete function.'):
@@ -850,7 +850,7 @@ class ClusterCoordinatorTest(
     per_worker_dataset = self.coordinator.create_per_worker_dataset(input_fn)
     self.coordinator.schedule(worker_fn, args=(iter(per_worker_dataset),))
 
-    with self.assertRaisesRegexp(
+    with self.assertRaisesRegex(
         coordinator_lib.ClosureInputError,
         'error message is Failed copying input tensor from'):
       self.coordinator.join()

@@ -291,7 +291,7 @@ class DatasetTestBase(test.TestCase):
       for old, new, count in replacements:
         expected_message = expected_message.replace(old, new, count)
       # Check that the first segment of the error messages are the same.
-      with self.assertRaisesRegexp(exception_class,
+      with self.assertRaisesRegex(exception_class,
                                    re.escape(expected_message)):
         self.evaluate(next2())
 
