@@ -65,6 +65,8 @@ limitations under the License.
 #include "xla/service/hlo_module_config.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
+#include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
 #include "tensorflow/core/framework/attr_value.pb.h"
 #include "tensorflow/core/framework/op_kernel.h"
@@ -72,8 +74,6 @@ limitations under the License.
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/tpu/tpu_defs.h"
-#include "tsl/platform/errors.h"
-#include "tsl/platform/statusor.h"
 
 namespace tensorflow {
 namespace {

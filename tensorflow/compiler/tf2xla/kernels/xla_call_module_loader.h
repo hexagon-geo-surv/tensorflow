@@ -36,7 +36,7 @@ limitations under the License.
 #include "xla/hlo/builder/xla_computation.h"
 #include "xla/mlir_hlo/mhlo/IR/hlo_ops.h"
 #include "xla/shape.h"
-#include "tsl/platform/statusor.h"
+#include "xla/tsl/platform/statusor.h"
 
 namespace tensorflow {
 
