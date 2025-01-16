@@ -16,7 +16,6 @@
 #define TENSORFLOW_LITE_EXPERIMENTAL_LITERT_CC_LITERT_COMPILED_MODEL_H_
 
 #include <cstddef>
-#include <string>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
@@ -24,9 +23,9 @@
 #include "tensorflow/lite/experimental/litert/c/litert_common.h"
 #include "tensorflow/lite/experimental/litert/c/litert_compiled_model.h"
 #include "tensorflow/lite/experimental/litert/c/litert_compiled_model_options.h"
-#include "tensorflow/lite/experimental/litert/c/litert_model.h"
+#include "tensorflow/lite/experimental/litert/c/litert_environment.h"
 #include "tensorflow/lite/experimental/litert/c/litert_tensor_buffer_requirements.h"
-#include "tensorflow/lite/experimental/litert/cc/litert_detail.h"
+#include "tensorflow/lite/experimental/litert/cc/litert_environment.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_expected.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_handle.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_model.h"
@@ -69,12 +68,12 @@ class CompiledModel
   // returned CompiledModel object. The caller should keep the model alive
   // until the CompiledModel is destroyed.
   static Expected<CompiledModel> Create(
-      const Model& model,
+      litert::Environment& env, litert::Model& model,
       LiteRtCompilationOptions compilation_options = kLiteRtHwAccelatorCpu) {
     LiteRtModel litert_model = model.Get();
     LiteRtCompiledModel compiled_model;
     if (auto status = LiteRtCreateCompiledModel(
-            litert_model, compilation_options, &compiled_model);
+            env.Get(), litert_model, compilation_options, &compiled_model);
         status != kLiteRtStatusOk) {
       return Unexpected(status, "Failed to create compiled model");
     }

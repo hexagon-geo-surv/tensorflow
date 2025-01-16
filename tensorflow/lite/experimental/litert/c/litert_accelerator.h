@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "tensorflow/lite/experimental/litert/c/litert_common.h"
+#include "tensorflow/lite/experimental/litert/c/litert_environment.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,10 +31,12 @@ LITERT_DEFINE_HANDLE(LiteRtAccelerator);
 typedef size_t LiteRtAcceleratorId;
 
 // Gets the number of accelerators registered to LiteRT.
-LiteRtStatus LiteRtGetNumAccelerators(LiteRtParamIndex* num_accelerators);
+LiteRtStatus LiteRtGetNumAccelerators(LiteRtEnvironment environment,
+                                      LiteRtParamIndex* num_accelerators);
 
 // Gets the accelerator at given index that is registered to LiteRT.
-LiteRtStatus LiteRtGetAccelerator(LiteRtParamIndex index,
+LiteRtStatus LiteRtGetAccelerator(LiteRtEnvironment environment,
+                                  LiteRtParamIndex index,
                                   LiteRtAccelerator* accelerator);
 
 // Fetches the name of the accelerator.
@@ -46,7 +49,10 @@ LiteRtStatus LiteRtGetAcceleratorName(LiteRtAccelerator accelerator,
 //
 // The identifier is a runtime unique number, provided by the registrar to the
 // accelerator upon registration.
-LiteRtStatus LiteRtGetAcceleratorId(LiteRtAccelerator accelerator,
+// TODO(piyu): Remove the environment parameter and have accelerator store a
+// pointer to the environment.
+LiteRtStatus LiteRtGetAcceleratorId(LiteRtEnvironment environment,
+                                    LiteRtAccelerator accelerator,
                                     LiteRtAcceleratorId* id);
 
 // Fetches the version of the accelerator implementation.

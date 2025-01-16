@@ -54,7 +54,8 @@ TEST(JitCompilation, Qualcomm) {
           /*.value=*/kCompilerPluginLibSearchPath,
       },
   };
-  ASSERT_TRUE(litert::Environment::Create(environment_options));
+  auto env = litert::Environment::Create(environment_options);
+  ASSERT_TRUE(env);
 
   auto model_path = litert::testing::GetTestFilePath(kModelFileName);
   auto model = litert::Model::CreateFromFile(model_path);
@@ -69,7 +70,7 @@ TEST(JitCompilation, Qualcomm) {
 #endif
 
   auto compiled_model =
-      litert::CompiledModel::Create(*model, kLiteRtHwAccelatorNpu);
+      litert::CompiledModel::Create(*env, *model, kLiteRtHwAccelatorNpu);
   ASSERT_TRUE(compiled_model);
 
   auto input_buffers =
@@ -101,6 +102,4 @@ TEST(JitCompilation, Qualcomm) {
     }
     EXPECT_THAT(output, Pointwise(FloatNear(1e-5), kTestOutputTensor));
   }
-
-  litert::Environment::Destroy();
 }

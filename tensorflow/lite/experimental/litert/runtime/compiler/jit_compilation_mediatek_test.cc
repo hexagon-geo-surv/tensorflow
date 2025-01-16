@@ -27,7 +27,6 @@
 #include "tensorflow/lite/c/c_api_opaque.h"
 #include "tensorflow/lite/c/common.h"
 #include "tensorflow/lite/experimental/litert/c/litert_common.h"
-#include "tensorflow/lite/experimental/litert/c/litert_dispatch_delegate.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_compiled_model.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_environment.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_model.h"
@@ -54,7 +53,8 @@ TEST(JitCompilation, MediaTek) {
           /*.value=*/kCompilerPluginLibSearchPath,
       },
   };
-  ASSERT_TRUE(litert::Environment::Create(environment_options));
+  auto env = litert::Environment::Create(environment_options);
+  ASSERT_TRUE(env);
 
   auto model_path = litert::testing::GetTestFilePath(kModelFileName);
   auto model = litert::Model::CreateFromFile(model_path);
@@ -69,7 +69,7 @@ TEST(JitCompilation, MediaTek) {
 #endif
 
   auto compiled_model =
-      litert::CompiledModel::Create(*model, kLiteRtHwAccelatorNpu);
+      litert::CompiledModel::Create(*env, *model, kLiteRtHwAccelatorNpu);
   ASSERT_TRUE(compiled_model);
 
   auto input_buffers =
@@ -101,6 +101,4 @@ TEST(JitCompilation, MediaTek) {
     }
     EXPECT_THAT(output, Pointwise(FloatNear(1e-5), kTestOutputTensor));
   }
-
-  litert::Environment::Destroy();
 }

@@ -75,7 +75,7 @@ class AcceleratorRegistry {
 
   // Wraps a pointer for LiteRtAcceleratorT with a custom deleter that handles
   // cleaning up the accelerator internal data.
-  using Ptr = std::unique_ptr<LiteRtAcceleratorT, Deleter>;
+  using Ptr = std::unique_ptr<::LiteRtAcceleratorT, Deleter>;
 
   // Internal implementation for the C API.
   [[nodiscard]]
@@ -84,7 +84,7 @@ class AcceleratorRegistry {
   }
 
   // Internal implementation for the C API.
-  static void DestroyAccelerator(LiteRtAcceleratorT* accelerator);
+  static void DestroyAccelerator(::LiteRtAcceleratorT* accelerator);
 
   // Registers an accelerator.
   Expected<LiteRtAcceleratorT*> RegisterAccelerator(Ptr accelerator);
