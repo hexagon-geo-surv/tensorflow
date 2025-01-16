@@ -2466,6 +2466,14 @@ std::optional<BufferOffset<tflite::Operator>> Translator::BuildOperator(
       return BuildStablehloOperatorwithoutOptions(
           inst, operands, results, tflite::BuiltinOperator_STABLEHLO_ADD);
     }
+    if (auto sub_op = llvm::dyn_cast<mlir::vhlo::SubtractOpV1>(inst)) {
+      return BuildStablehloOperatorwithoutOptions(
+          inst, operands, results, tflite::BuiltinOperator_STABLEHLO_SUBTRACT);
+    }
+    if (auto or_op = llvm::dyn_cast<mlir::vhlo::OrOpV1>(inst)) {
+      return BuildStablehloOperatorwithoutOptions(
+          inst, operands, results, tflite::BuiltinOperator_STABLEHLO_OR);
+    }
     if (auto vhlo_op = llvm::dyn_cast<mlir::vhlo::MulOpV1>(inst)) {
       return BuildStablehloOperatorwithoutOptions(
           inst, operands, results, tflite::BuiltinOperator_STABLEHLO_MULTIPLY);
