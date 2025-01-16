@@ -15,8 +15,53 @@ limitations under the License.
 
 #include "xla/python/ifrt/host_callback.h"
 
+#include "absl/strings/string_view.h"
+
 namespace xla {
 namespace ifrt {
+
+// TODO(dsuo): Perhaps there's a less round-about way to get an xla::nb_dtype
+// from a DataType.
+absl::string_view PrimitiveTypeToString(PrimitiveType dtype) {
+  switch (dtype) {
+    case PrimitiveType::S8:
+      return "int8";
+    case PrimitiveType::U8:
+      return "uint8";
+    case PrimitiveType::S16:
+      return "int16";
+    case PrimitiveType::U16:
+      return "uint16";
+    case PrimitiveType::S32:
+      return "int32";
+    case PrimitiveType::U32:
+      return "uint32";
+    case PrimitiveType::S64:
+      return "int64";
+    case PrimitiveType::U64:
+      return "uint64";
+    case PrimitiveType::F16:
+      return "float16";
+    case PrimitiveType::F32:
+      return "float32";
+    case PrimitiveType::F64:
+      return "float64";
+    case PrimitiveType::BF16:
+      return "bfloat16";
+    case PrimitiveType::C64:
+      return "complex64";
+    case PrimitiveType::C128:
+      return "complex128";
+    case PrimitiveType::PRED:
+      return "bool";
+    case PrimitiveType::TUPLE:
+      return "tuple";
+    case PrimitiveType::TOKEN:
+      return "token";
+    default:
+      return "unknown";
+  }
+}
 
 char HostCallback::ID = 0;
 char LoadedHostCallback::ID = 0;

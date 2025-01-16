@@ -42,6 +42,7 @@ limitations under the License.
 #include "xla/python/ifrt/array.h"
 #include "xla/python/ifrt/attribute_map.h"
 #include "xla/python/ifrt/executable.h"
+#include "xla/python/ifrt/host_callback.h"
 #include "xla/python/nb_class_ptr.h"
 #include "xla/python/pjrt_ifrt/pjrt_executable.h"
 #include "xla/python/py_array.h"
@@ -135,6 +136,7 @@ class PyLoadedExecutable {
   PyLoadedExecutable(
       nb_class_ptr<PyClient> client,
       std::shared_ptr<ifrt::LoadedExecutable> ifrt_loaded_executable,
+      std::vector<uint64_t> host_callback_descriptors,
       std::optional<nb_traceback> traceback,
       std::optional<std::string> fingerprint);
   ~PyLoadedExecutable();

@@ -126,6 +126,8 @@ struct ExecuteOptions {
   // are responsible for ensuring version compatibility.
   std::optional<AttributeMap> custom_options;
 
+  std::vector<uint64_t> host_callback_descriptors;
+
   absl::StatusOr<ExecuteOptionsProto> ToProto() const;
 
   static absl::StatusOr<ExecuteOptions> FromProto(

@@ -406,9 +406,20 @@ PyClient::CompileIfrtProgram(
           client->ifrt_client_.get());
   auto* ifrt_xla_options =
       llvm::dyn_cast_or_null<ifrt::XlaCompileOptions>(ifrt_options.get());
+  std::vector<uint64_t> host_callback_descriptors;
   // For XLA programs, pass allocated device memory size to compile options for
   // pjrt compatible backends.
   if (pjrt_compatible_client != nullptr && ifrt_xla_options != nullptr) {
+    auto host_callbacks = ifrt_xla_options->loaded_host_callbacks;
+    host_callback_descriptors.reserve(host_callbacks.size());
+    for (auto& host_callback : host_callbacks) {
+      auto py_host_callback =
+          llvm::dyn_cast_or_null<PyCpuLoadedHostCallback>(host_callback.get());
+      if (py_host_callback != nullptr) {
+        auto descriptor = py_host_callback->descriptor();
+        host_callback_descriptors.push_back(descriptor);
+      }
+    }
     xla::CompileOptions& options = ifrt_xla_options->compile_options;
     auto addressable_devices =
         pjrt_compatible_client->pjrt_client()->addressable_devices();
@@ -444,7 +455,8 @@ PyClient::CompileIfrtProgram(
   auto traceback = Traceback::Get();
   return make_nb_class<PyLoadedExecutable>(
       std::move(client), std::move(ifrt_loaded_executable),
-      std::move(traceback), std::move(fingerprint));
+      std::move(host_callback_descriptors), std::move(traceback),
+      std::move(fingerprint));
 }
 
 /* static */ absl::StatusOr<nb_class_ptr<PyLoadedExecutable>> PyClient::Compile(
@@ -479,6 +491,22 @@ PyClient::DeserializeExecutable(nb_class_ptr<PyClient> client,
   std::optional<std::string> fingerprint;
   auto ifrt_deserialize_options = MakeIfrtDeserializeExecutableOptions(
       std::move(options), std::move(host_callbacks));
+  auto* ifrt_xla_deserialize_options =
+      llvm::dyn_cast_or_null<ifrt::XlaDeserializeExecutableOptions>(
+          ifrt_deserialize_options.get());
+  std::vector<uint64_t> host_callback_descriptors;
+  if (ifrt_xla_deserialize_options != nullptr) {
+    host_callback_descriptors.reserve(
+        ifrt_xla_deserialize_options->loaded_host_callbacks.size());
+    for (auto& loaded_host_callback :
+         ifrt_xla_deserialize_options->loaded_host_callbacks) {
+      auto py_host_callback = llvm::dyn_cast_or_null<PyCpuLoadedHostCallback>(
+          loaded_host_callback.get());
+      if (py_host_callback != nullptr) {
+        host_callback_descriptors.push_back(py_host_callback->descriptor());
+      }
+    }
+  }
   {
     nb::gil_scoped_release gil_release;
     TF_ASSIGN_OR_RETURN(
@@ -491,7 +519,8 @@ PyClient::DeserializeExecutable(nb_class_ptr<PyClient> client,
   auto traceback = Traceback::Get();
   return make_nb_class<PyLoadedExecutable>(
       std::move(client), std::move(ifrt_loaded_executable),
-      std::move(traceback), std::move(fingerprint));
+      std::move(host_callback_descriptors), std::move(traceback),
+      std::move(fingerprint));
 }
 
 namespace {
@@ -646,6 +675,18 @@ PyClient::GetEmitPythonCallbackDescriptor(
   return std::make_pair(descriptor, nb::object(std::move(callback_capsule)));
 }
 
+absl::StatusOr<nb::object> PyClient::GetEmitPythonCallback(
+    nb::callable callable) {
+  TF_ASSIGN_OR_RETURN(
+      auto loaded_host_callback,
+      PyCpuLoadedHostCallback::Create(ifrt_client(), std::move(callable)));
+  nb::capsule callback_capsule(
+      loaded_host_callback.release(), [](void* ptr) noexcept {
+        static_cast<ifrt::LoadedHostCallback*>(ptr)->DropRef();
+      });
+  return nb::object(std::move(callback_capsule));
+}
+
 XLA_CPU_REGISTER_CUSTOM_CALL_TARGET_WITH_SYM("xla_python_cpu_callback",
                                              &XlaPythonCpuCallback);
 
@@ -763,6 +804,9 @@ PyType_Slot PyClient::slots_[] = {
            xla::ValueOrThrowWrapper(&PyClient::GetEmitPythonCallbackDescriptor),
            nb::arg("callable"), nb::arg("operand_shapes"),
            nb::arg("result_shapes").none() = nb::none())
+      .def("get_emit_python_callback",
+           xla::ValueOrThrowWrapper(&PyClient::GetEmitPythonCallback),
+           nb::arg("callable"))
       .def("make_python_callback_from_host_send_and_recv",
            xla::ValueOrThrowWrapper(
                &PyClient::MakePythonCallbackUsingHostSendAndRecv),

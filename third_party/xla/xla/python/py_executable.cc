@@ -18,6 +18,7 @@ limitations under the License.
 #include <Python.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -40,6 +41,7 @@ limitations under the License.
 #include "xla/python/ifrt/device_list.h"
 #include "xla/python/ifrt/executable.h"
 #include "xla/python/ifrt/future.h"
+#include "xla/python/ifrt/host_callback.h"
 #include "xla/python/ifrt/memory.h"
 #include "xla/python/ifrt/sharding.h"
 #include "xla/python/nb_class_ptr.h"
@@ -79,6 +81,7 @@ absl::Status PyShardedToken::Await() {
 PyLoadedExecutable::PyLoadedExecutable(
     nb_class_ptr<PyClient> client,
     std::shared_ptr<ifrt::LoadedExecutable> ifrt_loaded_executable,
+    std::vector<uint64_t> host_callback_descriptors,
     std::optional<nb_traceback> traceback,
     std::optional<std::string> fingerprint)
     : client_(std::move(client)),
@@ -91,6 +94,7 @@ PyLoadedExecutable::PyLoadedExecutable(
     VLOG(1) << "Fingerprint for executable " << ifrt_loaded_executable_->name()
             << ": " << *fingerprint_;
   }
+  options_.host_callback_descriptors = std::move(host_callback_descriptors);
   nb::ft_lock_guard lock(client_->executables_mutex_);
   next_ = client_->executables_;
   client_->executables_ = this;

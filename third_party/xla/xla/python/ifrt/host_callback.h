@@ -19,11 +19,22 @@ limitations under the License.
 #include <string>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "llvm/Support/ExtensibleRTTI.h"
+#include "xla/ffi/ffi.h"
 #include "xla/tsl/concurrency/ref_count.h"
+#include "xla/xla_data.pb.h"
 
 namespace xla {
 namespace ifrt {
+
+// TODO(dsuo): Is there a better home for these?
+absl::string_view PrimitiveTypeToString(PrimitiveType dtype);
+struct HostCallBackDescriptors {
+  explicit HostCallBackDescriptors(std::vector<uint64_t> descriptors)
+      : descriptors(std::move(descriptors)) {};
+  std::vector<uint64_t> descriptors;
+};
 
 class Client;
 
