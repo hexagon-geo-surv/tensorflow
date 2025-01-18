@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <variant>
 
@@ -56,6 +57,10 @@ namespace se = ::stream_executor;
 #define GEN_PASS_DEF_LOWERTOLLVMPASS
 #include "xla/codegen/emitters/transforms/passes.h.inc"
 
+struct CpuDeviceDescription {};
+using DeviceDescription =
+    std::variant<se::DeviceDescription, CpuDeviceDescription>;
+
 class LowerToLLVMPass : public impl::LowerToLLVMPassBase<LowerToLLVMPass> {
  public:
   explicit LowerToLLVMPass(const LowerToLLVMPassOptions& options)
@@ -65,11 +70,14 @@ class LowerToLLVMPass : public impl::LowerToLLVMPassBase<LowerToLLVMPass> {
       : device_description_(device_description) {}
 
   void runOnOperation() override {
-    if (!gpu_device_info_.empty()) {
+    if (target_type_ == "gpu" && !gpu_device_info_.empty()) {
       se::GpuDeviceInfoProto device_info;
       CHECK(tsl::protobuf::TextFormat::ParseFromString(gpu_device_info_,
                                                        &device_info));
       device_description_ = se::DeviceDescription(device_info);
+    } else if (target_type_ == "cpu") {
+      CHECK(gpu_device_info_.empty());
+      device_description_ = CpuDeviceDescription{};
     }
     // Populate type conversions.
     mlir::LowerToLLVMOptions llvm_opts(&getContext(),
@@ -83,14 +91,17 @@ class LowerToLLVMPass : public impl::LowerToLLVMPassBase<LowerToLLVMPass> {
     mlir::arith::populateArithExpandOpsPatterns(patterns);
     mlir::arith::populateArithToLLVMConversionPatterns(type_converter,
                                                        patterns);
-    if (std::holds_alternative<se::RocmComputeCapability>(
-            device_description_.gpu_compute_capability())) {
-      mlir::populateGpuToROCDLConversionPatterns(
-          type_converter, patterns, mlir::gpu::amd::Runtime::Unknown);
-      mlir::configureGpuToROCDLConversionLegality(target);
-    } else {
-      mlir::populateGpuToNVVMConversionPatterns(type_converter, patterns);
-      mlir::configureGpuToNVVMConversionLegality(target);
+    if (const auto* gpu_description =
+            std::get_if<se::DeviceDescription>(&device_description_)) {
+      if (std::holds_alternative<se::RocmComputeCapability>(
+              gpu_description->gpu_compute_capability())) {
+        mlir::populateGpuToROCDLConversionPatterns(
+            type_converter, patterns, mlir::gpu::amd::Runtime::Unknown);
+        mlir::configureGpuToROCDLConversionLegality(target);
+      } else {
+        mlir::populateGpuToNVVMConversionPatterns(type_converter, patterns);
+        mlir::configureGpuToNVVMConversionLegality(target);
+      }
     }
     mlir::populateFuncToLLVMConversionPatterns(type_converter, patterns);
     mlir::populateVectorToLLVMConversionPatterns(type_converter, patterns);
@@ -122,15 +133,16 @@ class LowerToLLVMPass : public impl::LowerToLLVMPassBase<LowerToLLVMPass> {
   }
 
  private:
-  se::DeviceDescription device_description_;
+  DeviceDescription device_description_;
 };
 
 }  // namespace
 
 std::unique_ptr<::mlir::Pass> CreateLowerToLLVMPass(
-    const std::string& gpu_device_info) {
+    const std::string& target_type, const std::string& gpu_device_info) {
   LowerToLLVMPassOptions options;
   options.gpu_device_info_ = gpu_device_info;
+  options.target_type_ = target_type;
   return std::make_unique<LowerToLLVMPass>(options);
 }
 

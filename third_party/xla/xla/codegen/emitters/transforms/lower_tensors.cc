@@ -98,9 +98,20 @@ namespace scf = ::mlir::scf;
 namespace ml = ::mlir::LLVM;
 namespace vector = ::mlir::vector;
 
-bool IsAMD(const se::DeviceDescription& device_description) {
+struct CpuDeviceDescription {};
+using DeviceDescription =
+    std::variant<se::DeviceDescription, CpuDeviceDescription>;
+
+bool IsCpu(const DeviceDescription& device_description) {
+  return std::holds_alternative<CpuDeviceDescription>(device_description);
+}
+
+bool IsAMD(const DeviceDescription& device_description) {
+  if (IsCpu(device_description)) return false;
+  const auto& gpu_device_description =
+      std::get<se::DeviceDescription>(device_description);
   return std::holds_alternative<se::RocmComputeCapability>(
-      device_description.gpu_compute_capability());
+      gpu_device_description.gpu_compute_capability());
 }
 
 Value GetDestinationBuffer(Value dest) {
@@ -136,7 +147,11 @@ bool IsSupportedTransfer(Op op) {
 }
 
 struct RewriteFunctionSignatures : OpRewritePattern<mlir::func::FuncOp> {
-  using OpRewritePattern::OpRewritePattern;
+ public:
+  RewriteFunctionSignatures(mlir::MLIRContext* context,
+                            const DeviceDescription& device_description)
+      : OpRewritePattern<mlir::func::FuncOp>(context),
+        device_description_(device_description) {}
 
   LogicalResult matchAndRewrite(
       mlir::func::FuncOp op, mlir::PatternRewriter& rewriter) const override {
@@ -150,11 +165,14 @@ struct RewriteFunctionSignatures : OpRewritePattern<mlir::func::FuncOp> {
 
     bool some_tensor_result =
         llvm::any_of(op.getFunctionType().getResults(), is_tensor);
-    bool all_tensor_results =
-        llvm::all_of(op.getFunctionType().getResults(), is_tensor);
-    if (some_tensor_result && !all_tensor_results) {
-      op->emitOpError("function has a mix of tensor and non-tensor results");
-      return failure();
+
+    if (!IsCpu(device_description_)) {
+      bool all_tensor_results =
+          llvm::all_of(op.getFunctionType().getResults(), is_tensor);
+      if (some_tensor_result && !all_tensor_results) {
+        op->emitOpError("function has a mix of tensor and non-tensor results");
+        return failure();
+      }
     }
 
     TypeRange new_results = op.getFunctionType().getResults();
@@ -184,6 +202,9 @@ struct RewriteFunctionSignatures : OpRewritePattern<mlir::func::FuncOp> {
 
     return success();
   }
+
+ private:
+  const DeviceDescription& device_description_;
 };
 
 Value GetPtr(Value value) {
@@ -559,15 +580,32 @@ struct RewriteCall : OpRewritePattern<mlir::func::CallOp> {
       return rewriter.notifyMatchFailure(op, "the call has no input tensors");
     }
 
+    auto ptr_ty = mlir::LLVM::LLVMPointerType::get(op.getContext());
+    llvm::SmallVector<Value, 4> new_operands;
+    new_operands.reserve(op.getNumOperands());
+    llvm::SmallVector<Type, 4> new_result_types;
     for (const auto&& [index, arg] : llvm::enumerate(op.getOperands())) {
       if (mlir::isa<mlir::RankedTensorType>(arg.getType())) {
-        op.setOperand(
-            index,
-            rewriter
-                .create<UnrealizedConversionCastOp>(
-                    op.getLoc(), ml::LLVMPointerType::get(op.getContext()), arg)
-                .getResult(0));
+        new_operands.push_back(rewriter
+                                   .create<mlir::UnrealizedConversionCastOp>(
+                                       op.getLoc(), ptr_ty, arg)
+                                   .getResult(0));
+      } else {
+        new_operands.push_back(arg);
       }
+    }
+    for (const auto result_type : op.getResultTypes()) {
+      if (!mlir::isa<mlir::RankedTensorType>(result_type)) {
+        new_result_types.push_back(result_type);
+      }
+    }
+    auto new_call = rewriter.create<mlir::func::CallOp>(
+        op.getLoc(), op.getCallee(), new_result_types, new_operands);
+
+    if (new_call.getNumResults() == 0) {
+      rewriter.eraseOp(op);
+    } else {
+      rewriter.replaceOp(op, new_call.getResults());
     }
     return success();
   }
@@ -755,7 +793,7 @@ Value CreateBitcast(mlir::ImplicitLocOpBuilder& b, mlir::Operation* op,
 class RewriteAtomicRMW : public OpRewritePattern<AtomicRMWOp> {
  public:
   RewriteAtomicRMW(mlir::MLIRContext* context,
-                   const se::DeviceDescription* device_description)
+                   const DeviceDescription& device_description)
       : OpRewritePattern<AtomicRMWOp>(context),
         device_description_(device_description) {}
 
@@ -764,8 +802,10 @@ class RewriteAtomicRMW : public OpRewritePattern<AtomicRMWOp> {
     auto modifier_parameters = GetAtomicModifierParameters(op);
     if (modifier_parameters.has_value()) {
       if (mlir::isa<mlir::VectorType>(modifier_parameters->first.getType()) &&
-          (IsAMD(*device_description_) ||
-           !device_description_->cuda_compute_capability().IsAtLeastHopper())) {
+          (IsCpu(device_description_) || IsAMD(device_description_) ||
+           !std::get<se::DeviceDescription>(device_description_)
+                .cuda_compute_capability()
+                .IsAtLeastHopper())) {
         return rewriter.notifyMatchFailure(
             op,
             "atomic vectorization currently only supported on Hopper or later");
@@ -790,12 +830,14 @@ class RewriteAtomicRMW : public OpRewritePattern<AtomicRMWOp> {
       std::optional<std::pair<mlir::Value, ml::AtomicBinOp>>
           modifier_parameters,
       mlir::PatternRewriter& rewriter) const {
+    CHECK(!IsCpu(device_description_)) << "Unimplemented";
+
     Value modifier_arg = modifier_parameters->first;
     Type element_type = modifier_arg.getType();
     ml::AtomicBinOp atomic_bin_op = modifier_parameters->second;
 
     Location loc = op.getLoc();
-    bool is_amd = IsAMD(*device_description_);
+    bool is_amd = IsAMD(device_description_);
     llvm::StringRef sync_scope = is_amd ? "agent" : "";
     mlir::ImplicitLocOpBuilder b(loc, rewriter);
     Value addr = CreateGep(op.getInput(), op.getIndices(), b);
@@ -821,13 +863,15 @@ class RewriteAtomicRMW : public OpRewritePattern<AtomicRMWOp> {
       }
       case ml::AtomicBinOp::fadd: {
         // TODO(b/336367154): Introduce an atomic_rmw op with the binOp attr.
+        const auto& gpu_device_description =
+            std::get<se::DeviceDescription>(device_description_);
         return is_amd ? emitAMDAtomicFAdd(
                             loc, modifier_arg, addr, sync_scope,
-                            device_description_->rocm_compute_capability(),
+                            gpu_device_description.rocm_compute_capability(),
                             rewriter)
                       : emitNVidiaAtomicFAdd(
                             loc, modifier_arg, addr, sync_scope,
-                            device_description_->cuda_compute_capability(),
+                            gpu_device_description.cuda_compute_capability(),
                             rewriter, op);
       }
       case ml::AtomicBinOp::fmax: {
@@ -1148,7 +1192,7 @@ class RewriteAtomicRMW : public OpRewritePattern<AtomicRMWOp> {
         });
   }
 
-  const se::DeviceDescription* device_description_;
+  const DeviceDescription& device_description_;
 };
 
 class LowerTensorsPass : public impl::LowerTensorsPassBase<LowerTensorsPass> {
@@ -1160,16 +1204,20 @@ class LowerTensorsPass : public impl::LowerTensorsPassBase<LowerTensorsPass> {
       : device_description_(device_description) {}
 
   void runOnOperation() override {
-    if (!gpu_device_info_.empty()) {
+    if (target_type_ == "gpu" && !gpu_device_info_.empty()) {
       se::GpuDeviceInfoProto device_info;
       CHECK(tsl::protobuf::TextFormat::ParseFromString(gpu_device_info_,
                                                        &device_info));
       device_description_ = se::DeviceDescription(device_info);
+    } else if (target_type_ == "cpu") {
+      CHECK(gpu_device_info_.empty());
+      device_description_ = CpuDeviceDescription{};
     }
+
     MLIRContext* mlir_context = &getContext();
     mlir::RewritePatternSet tensor_patterns(mlir_context);
 
-    tensor_patterns.add<RewriteAtomicRMW>(mlir_context, &device_description_);
+    tensor_patterns.add<RewriteAtomicRMW>(mlir_context, device_description_);
     tensor_patterns
         .add<RewriteAllocateShared, RewriteNonScalarConstants,
              RewriteSyncThreads, RewriteTensorExtract, RewriteTransferRead,
@@ -1181,9 +1229,11 @@ class LowerTensorsPass : public impl::LowerTensorsPassBase<LowerTensorsPass> {
     }
 
     mlir::RewritePatternSet function_patterns(mlir_context);
-    function_patterns.add<RewriteFunctionSignatures, RewriteCall,
-                          RemoveUnusedIndexSwitchResults, RewriteFor>(
-        mlir_context);
+    function_patterns.add<RewriteFunctionSignatures>(mlir_context,
+                                                     device_description_);
+    function_patterns
+        .add<RewriteCall, RemoveUnusedIndexSwitchResults, RewriteFor>(
+            mlir_context);
     scf::ForOp::getCanonicalizationPatterns(function_patterns, mlir_context);
     scf::IfOp::getCanonicalizationPatterns(function_patterns, mlir_context);
     if (mlir::failed(mlir::applyPatternsGreedily(
@@ -1216,19 +1266,23 @@ class LowerTensorsPass : public impl::LowerTensorsPassBase<LowerTensorsPass> {
           return;
         }
       }
-      load.emitOpError("load op address is not (a GEP of) a function argument");
-      signalPassFailure();
+      if (!IsCpu(device_description_)) {
+        load.emitOpError(
+            "load op address is not (a GEP of) a function argument");
+        signalPassFailure();
+      }
     });
   }
-  se::DeviceDescription device_description_;
+  DeviceDescription device_description_;
 };
 
 }  // namespace
 
 std::unique_ptr<::mlir::Pass> CreateLowerTensorsPass(
-    const std::string& gpu_device_info) {
+    const std::string& target_type, const std::string& gpu_device_info) {
   LowerTensorsPassOptions options;
   options.gpu_device_info_ = gpu_device_info;
+  options.target_type_ = target_type;
   return std::make_unique<LowerTensorsPass>(options);
 }
 
