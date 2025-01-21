@@ -127,3 +127,26 @@ cc_library(
     hdrs = ["test_macros.h"],
     deps = ["//tensorflow/lite/experimental/litert/c:litert_common"],
 )
+
+cc_library(
+    name = "matchers",
+    testonly = True,
+    hdrs = ["matchers.h"],
+    deps = [
+        "//tensorflow/lite/experimental/litert/c:litert_common",
+        "//tensorflow/lite/experimental/litert/cc:litert_expected",
+        "//testing/base/public:gunit_for_library_testonly",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_test(
+    name = "matchers_test",
+    srcs = ["matchers_test.cc"],
+    deps = [
+        ":matchers",
+        "//tensorflow/lite/experimental/litert/c:litert_common",
+        "//tensorflow/lite/experimental/litert/cc:litert_expected",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
