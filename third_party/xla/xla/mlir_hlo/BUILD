@@ -312,6 +312,7 @@ cc_library(
         ":hlo_ops_inc_gen",
         ":hlo_ops_pattern_inc_gen",
         ":hlo_ops_typedefs_inc_gen",
+        "@com_google_absl//absl/strings",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:Analysis",
         "@llvm-project//mlir:ArithDialect",
