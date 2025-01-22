@@ -57,3 +57,12 @@ def StablehloFlattenTuplePass : Pass<"stablehlo-ext-flatten-tuple", "func::FuncO
     "support both tuple and variadic type.";
   let constructor = "createStablehloFlattenTuplePass()";
 }
+
+def StablehloExpandTuplePass : Pass<"stablehlo-ext-expand-tuple", "ModuleOp"> {
+  let summary = "Expand HLO tuple for the entry function of the module.";
+  let options = [
+    Option<"entryFunctionNameOption", "entry-function", "std::string",
+           /*default=*/"", "the name of entry function of the module">,
+  ];
+  let dependentDialects = ["mlir::stablehlo::StablehloDialect"];
+}
