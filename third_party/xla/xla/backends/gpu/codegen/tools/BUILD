@@ -1,3 +1,4 @@
+load("//xla:pytype.default.bzl", "pytype_strict_binary")
 load("//xla:xla.bzl", "xla_cc_binary")
 
 package(
@@ -104,5 +105,15 @@ xla_cc_binary(
         "@com_google_absl//absl/status",
         "@llvm-project//llvm:Support",
         "@local_tsl//tsl/platform:platform_port",
+    ],
+)
+
+pytype_strict_binary(
+    name = "ncu_rep",
+    srcs = ["ncu_rep.py"],
+    deps = [
+        "@absl_py//absl:app",
+        "@absl_py//absl/flags",
+        "@absl_py//absl/logging",
     ],
 )
