@@ -201,10 +201,6 @@ class ThunkExecutor {
     static_assert(std::is_trivially_destructible_v<Node>,
                   "Node must be trivially destructible");
 
-    // We use indirection via NodeStorage to be able to allocate uninitialized
-    // memory and do not pay the cost of default initializing all nodes.
-    using NodeStorage = std::aligned_storage_t<sizeof(Node), alignof(Node)>;
-
     ExecuteState(ThunkExecutor* executor, Thunk::TaskRunner* runner);
 
     Node& node(NodeId id) {
@@ -215,7 +211,9 @@ class ThunkExecutor {
     ThunkExecutor* executor;
     Thunk::TaskRunner* runner;
 
-    absl::FixedArray<NodeStorage> nodes;
+    // Allows to allocate uninitialized memory for each node and not pay the
+    // cost of default initializing all nodes.
+    alignas(Node) absl::FixedArray<char[sizeof(Node)]> nodes;
     tsl::AsyncValueRef<ExecuteEvent> execute_event;
 
     // Once the number of pending sink nodes drops to zero, the execution is

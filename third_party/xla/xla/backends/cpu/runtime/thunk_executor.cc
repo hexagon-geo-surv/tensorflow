@@ -188,7 +188,7 @@ ThunkExecutor::ExecuteState::ExecuteState(ThunkExecutor* executor,
       execute_event(tsl::MakeConstructedAsyncValueRef<ExecuteEvent>()),
       pending_sink_nodes(executor->sink().size()),
       abort(false) {
-  NodeStorage* node = nodes.data();
+  auto* node = nodes.data();
   for (const NodeDef& node_def : executor->nodes_defs()) {
     new (node++) Node(node_def);
   }

@@ -703,9 +703,8 @@ class ConcreteAsyncValue : public AsyncValue {
 
    private:
     friend class ConcreteAsyncValue;
-    using StorageT = typename std::aligned_storage<sizeof(T), alignof(T)>::type;
 
-    StorageT data_;
+    alignas(T) char data_[sizeof(T)];
     bool has_data_ = false;
     std::unique_ptr<absl::Status> error_;
   };
