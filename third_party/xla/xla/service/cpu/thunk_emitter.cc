@@ -30,6 +30,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/types/span.h"
+#include "xla/backends/cpu/codegen/dot_kernel_emitter.h"
 #include "xla/backends/cpu/codegen/elemental_kernel_emitter.h"
 #include "xla/backends/cpu/codegen/target_machine_features.h"
 #include "xla/backends/cpu/runtime/all_gather_thunk.h"
@@ -89,7 +90,6 @@ limitations under the License.
 #include "xla/util.h"
 #include "xla/xla_data.pb.h"
 #include "tsl/platform/casts.h"
-#include "tsl/platform/statusor.h"
 
 namespace xla::cpu {
 
@@ -820,12 +820,23 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitDotThunk(
     case DotImplementationStrategy::kNaiveLlvmIr:
     case DotImplementationStrategy::kTiledLlvmIrGemm:
     case DotImplementationStrategy::kTiledLlvmIrGemv: {
-      TF_ASSIGN_OR_RETURN(auto kernel,
-                          ir_emitter_.EmitDotHostKernel(instruction));
-      TF_ASSIGN_OR_RETURN(auto buffers,
-                          GetHostKernelAllocationSlices(instruction));
+      DotKernelEmitter emitter(instruction, &buffer_assignment_,
+                               &target_machine_features_);
+      TF_ASSIGN_OR_RETURN(KernelDefinition kernel_definition,
+                          emitter.EmitKernelDefinition());
 
-      return MakeKernelThunkSequence(instruction, buffers, kernel);
+      auto [kernel_spec, kernel_source] =
+          std::move(kernel_definition).release();
+      auto llvm_ir_kernel_source = absl::WrapUnique<LlvmIrKernelSource>(
+          tsl::down_cast<LlvmIrKernelSource*>(kernel_source.release()));
+
+      kernels_.push_back(
+          {kernel_spec.name(),
+           std::move(*llvm_ir_kernel_source).thread_safe_module()});
+
+      return MakeKernelThunkSequence(
+          instruction, std::move(kernel_spec),
+          /*min_alignment=*/cpu_function_runtime::MinAlign());
     }
 
     // Emit DotThunk implementing dot instruction as a library call.
