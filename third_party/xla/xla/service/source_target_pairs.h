@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef XLA_SERVICE_SOURCE_TARGET_PAIRS_H_
 #define XLA_SERVICE_SOURCE_TARGET_PAIRS_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -23,6 +24,8 @@ limitations under the License.
 
 #include "absl/container/inlined_vector.h"
 #include "absl/log/check.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 
 namespace xla {
 
@@ -33,6 +36,8 @@ class SourceTargetPairs {
   };
 
  public:
+  enum class CycleType { kUnknown, kForward, kBackward };
+
   SourceTargetPairs() = default;
 
   explicit SourceTargetPairs(
@@ -41,6 +46,8 @@ class SourceTargetPairs {
       pairs_.push_back({.source = pair.first, .target = pair.second});
     }
   }
+
+  static absl::StatusOr<SourceTargetPairs> FromString(absl::string_view str);
 
   // Returns a cannoical string such as {{0,1},{1,2},{2,3},{3,0}}.
   std::string ToString() const;
@@ -56,7 +63,29 @@ class SourceTargetPairs {
     return pairs_[i];
   }
 
+  bool operator==(const SourceTargetPairs& other) const {
+    if (pairs_.size() != other.pairs_.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < pairs_.size(); ++i) {
+      if (pairs_[i].source != other.pairs_[i].source ||
+          pairs_[i].target != other.pairs_[i].target) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SourceTargetPairs& pairs) {
+    absl::Format(&sink, "%s", pairs.ToString());
+  }
+
   int64_t size() const { return pairs_.size(); }
+  void push_back(int64_t source, int64_t target) {
+    pairs_.push_back({.source = source, .target = target});
+  }
+  void push_back(const SourceTargetPair& pair) { pairs_.push_back(pair); }
 
   std::vector<std::pair<int64_t, int64_t>> data() const {
     std::vector<std::pair<int64_t, int64_t>> data;
@@ -68,6 +97,12 @@ class SourceTargetPairs {
 
   // Returns true if the (source, target) relationship has a cycle.
   bool HasCycles();
+
+  // Splits input into backward (first) and forwards (second) edges.
+  // In backward cycle, backwards edge is the first element and in forwards
+  // cycle, backward edge is the last element.
+  std::pair<SourceTargetPairs, SourceTargetPairs> SplitEdges(
+      CycleType cycle_type) const;
 
   // Returns true if the (source, target) pairs form a forward cycle with all
   // participants in the cycle, such as {{0,1},{1,2},{2,3},{3,0}}. We assume
