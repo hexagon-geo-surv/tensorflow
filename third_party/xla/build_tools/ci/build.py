@@ -88,6 +88,7 @@ def _write_to_sponge_config(key, value) -> None:
 class BuildType(enum.Enum):
   """Enum representing all types of builds."""
   CPU_X86 = enum.auto()
+  CPU_X86_SELF_HOSTED = enum.auto()
   CPU_ARM64 = enum.auto()
   GPU = enum.auto()
   GPU_CONTINUOUS = enum.auto()
@@ -292,6 +293,16 @@ _CPU_X86_BUILD = Build(
     test_tag_filters=cpu_x86_tag_filter,
     options=_DEFAULT_BAZEL_OPTIONS,
 )
+_SELF_HOSTED_GHA_BUILD = Build(
+    type_=BuildType.CPU_X86_SELF_HOSTED,
+    repo="openxla/xla",
+    image_url=None,
+    configs=("warnings", "nonccl", "rbe_linux_cpu"),
+    target_patterns=_XLA_DEFAULT_TARGET_PATTERNS,
+    build_tag_filters=cpu_x86_tag_filter,
+    test_tag_filters=cpu_x86_tag_filter,
+    options=_DEFAULT_BAZEL_OPTIONS,
+)
 
 cpu_arm_tag_filter = (
     "-no_oss",
@@ -454,6 +465,7 @@ _TENSORFLOW_GPU_BUILD = Build(
 _KOKORO_JOB_NAME_TO_BUILD_MAP = {
     "tensorflow/xla/linux/arm64/build_cpu": _CPU_ARM64_BUILD,
     "tensorflow/xla/linux/cpu/build_cpu": _CPU_X86_BUILD,
+    "tensorflow/xla/linux/cpu/test_self_hosted": _SELF_HOSTED_GHA_BUILD,
     "tensorflow/xla/linux/gpu/build_gpu": _GPU_BUILD,
     "tensorflow/xla/linux/github_continuous/arm64/build_cpu": _CPU_ARM64_BUILD,
     "tensorflow/xla/linux/github_continuous/build_gpu": _GPU_BUILD,
