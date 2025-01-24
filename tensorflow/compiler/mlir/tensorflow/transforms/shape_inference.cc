@@ -60,6 +60,7 @@ limitations under the License.
 #include "mlir/IR/Matchers.h"  // from @llvm-project
 #include "mlir/IR/Operation.h"  // from @llvm-project
 #include "mlir/IR/OperationSupport.h"  // from @llvm-project
+#include "mlir/IR/OwningOpRef.h"  // from @llvm-project
 #include "mlir/IR/SymbolTable.h"  // from @llvm-project
 #include "mlir/IR/TypeUtilities.h"  // from @llvm-project
 #include "mlir/IR/Value.h"  // from @llvm-project
@@ -75,6 +76,8 @@ limitations under the License.
 #include "mlir/Support/LogicalResult.h"  // from @llvm-project
 #include "mlir/Support/TypeID.h"  // from @llvm-project
 #include "mlir/Transforms/FoldUtils.h"  // from @llvm-project
+#include "stablehlo/dialect/Serialization.h"  // from @stablehlo
+#include "stablehlo/dialect/Version.h"  // from @stablehlo
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_device.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_executor.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_ops.h"
@@ -1335,8 +1338,25 @@ bool ShapeInference::InferShapeForXlaCallModule(XlaCallModuleOp op) {
 
     changed = RefineResultType(op, result, new_type) || changed;
   }
+  if (!changed) return false;
 
-  return changed;
+  // If the output shapes are changed as a result of the refinement, update the
+  // serialized module so that the new shapes are reflected in the serialized
+  // module. Create a copy of the module since the serialization mutates the
+  // module and it could be reused else where.
+  mlir::OwningOpRef<mlir::ModuleOp> cloned_module;
+  cloned_module = loader->module().clone();
+  std::string bytecode;
+  llvm::raw_string_ostream os(bytecode);
+  if (failed(stablehlo::serializePortableArtifact(
+          cloned_module.get(),
+          mlir::vhlo::Version::getCurrentVersion().toString(), os))) {
+    llvm::errs() << "Failed to serialize StableHLO module for" << op->getName();
+    return true;
+  }
+  op.setModule(bytecode);
+
+  return true;
 }
 
 bool ShapeInference::InferShapeForFunctionAttachedToXlaHostCompute(

@@ -843,6 +843,8 @@ cc_library(
         "@local_xla//xla/hlo/translate/mhlo_to_hlo:type_to_shape",
         "@local_xla//xla/service:shape_inference",
         "@local_xla//xla/tsl/util:env_var",
+        "@stablehlo//:stablehlo_serialization",
+        "@stablehlo//:version",
     ],
 )
 
