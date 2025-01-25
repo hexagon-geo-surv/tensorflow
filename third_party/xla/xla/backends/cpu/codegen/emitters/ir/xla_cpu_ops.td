@@ -72,7 +72,28 @@ def XLACPU_StoreOp : XLACPU_Op<"store"> {
   let assemblyFormat = [{
     $tensor `into` $call_frame `,` $index attr-dict `:` type($tensor)
   }];
+}
 
+//===----------------------------------------------------------------------===//
+// !xla_cpu.thread_id
+//===----------------------------------------------------------------------===//
+
+def XLACPU_ThreadIdOp : XLACPU_Op<"thread_id"> {
+  let summary = "Extracts thread_id from the call frame";
+  let arguments = (ins XLACPU_CallFrame:$call_frame);
+  let results = (outs Index:$result);
+  let assemblyFormat = [{ $call_frame  attr-dict `:` type($result) }];
+}
+
+//===----------------------------------------------------------------------===//
+// !xla_cpu.create_empty_error
+//===----------------------------------------------------------------------===//
+
+def XLACPU_CreateErrorOp : XLACPU_Op<"create_empty_error"> {
+  let summary = "Creates an empty error";
+  let arguments = (ins);
+  let results = (outs XLACPU_Error:$result);
+  let assemblyFormat = " attr-dict `:` type($result) ";
 }
 
 #endif // XLA_BACKENDS_CPU_CODEGEN_EMITTERS_IR_XLA_CPU_OPS
