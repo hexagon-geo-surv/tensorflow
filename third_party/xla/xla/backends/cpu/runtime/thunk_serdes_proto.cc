@@ -35,6 +35,7 @@ limitations under the License.
 #include "xla/backends/cpu/runtime/collective_permute_thunk.h"
 #include "xla/backends/cpu/runtime/collective_thunk.h"
 #include "xla/backends/cpu/runtime/conditional_thunk.h"
+#include "xla/backends/cpu/runtime/convolution_lib.h"
 #include "xla/backends/cpu/runtime/convolution_thunk.h"
 #include "xla/backends/cpu/runtime/copy_thunk.h"
 #include "xla/backends/cpu/runtime/custom_call_thunk.h"
@@ -481,16 +482,18 @@ static absl::Status ToProto(const ConvolutionThunk& thunk, ThunkProto& proto) {
 
   convolution_thunk_proto->set_feature_group_count(thunk.feature_group_count());
 
+  const ConvolutionSlices& convolution_slices = thunk.convolution_slices();
+
   TF_RETURN_IF_ERROR(SerializeSliceShapeIntoProto(
-      thunk.input_buffer(), thunk.input_shape(),
+      convolution_slices.input_buffer, convolution_slices.input_shape,
       convolution_thunk_proto->mutable_input_buffer_shape()));
 
   TF_RETURN_IF_ERROR(SerializeSliceShapeIntoProto(
-      thunk.output_buffer(), thunk.output_shape(),
+      convolution_slices.output_buffer, convolution_slices.output_shape,
       convolution_thunk_proto->mutable_output_buffer_shape()));
 
   TF_RETURN_IF_ERROR(SerializeSliceShapeIntoProto(
-      thunk.kernel_buffer(), thunk.kernel_shape(),
+      convolution_slices.kernel_buffer, convolution_slices.kernel_shape,
       convolution_thunk_proto->mutable_kernel_buffer_shape()));
 
   convolution_thunk_proto->mutable_options()->set_multi_threaded(
@@ -1246,6 +1249,10 @@ static absl::StatusOr<std::unique_ptr<XnnDotThunk>> XnnDotThunkFromProto(
     const ThunkProto& proto, const BufferAssignment& buffer_assignment) {
   TF_ASSIGN_OR_RETURN(Thunk::Info info, ThunkInfoFromProto(proto.info()));
 
+  XnnDotThunk::Options options = {
+      proto.xnn_fusion_thunk().options().use_threadpool(),
+  };
+
   TF_ASSIGN_OR_RETURN(
       auto lhs_slice_shape,
       DeserializeSliceShapeFromProto(
@@ -1268,7 +1275,7 @@ static absl::StatusOr<std::unique_ptr<XnnDotThunk>> XnnDotThunkFromProto(
   const auto& [out_buffer, out_shape] = out_slice_shape;
 
   return XnnDotThunk::Create(
-      std::move(info),
+      std::move(options), std::move(info),
       proto.xnn_fusion_thunk().xnn_dot_thunk().dot_dimensions(), lhs_buffer,
       lhs_shape, rhs_buffer, rhs_shape, out_buffer, out_shape);
 }
