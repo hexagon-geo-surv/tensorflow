@@ -199,6 +199,10 @@ cc_library(
     name = "model_buffer",
     srcs = ["model_buffer.cc"],
     hdrs = ["model_buffer.h"],
+    visibility = [
+        "//tensorflow/lite/experimental/litert:__subpackages__",
+        "//third_party/odml/infra/genai/conversion:__subpackages__",
+    ],
     deps = [
         ":model",
         ":model_load",
