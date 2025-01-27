@@ -150,3 +150,5 @@ cc_test(
         "@com_google_googletest//:gtest_main",
     ],
 )
+
+exports_files(srcs = ["testdata/simple_model_google_tensor.bin"])
