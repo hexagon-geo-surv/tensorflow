@@ -21,6 +21,7 @@ limitations under the License.
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/log/check.h"
@@ -34,6 +35,8 @@ limitations under the License.
 #include "xla/pjrt/plugin/xla_gpu/xla_gpu_client_options.h"
 #include "xla/tools/multihost_hlo_runner/create_client.h"
 #include "xla/tools/multihost_hlo_runner/functional_hlo_runner.h"
+#include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/util/command_line_flags.h"
 #include "tsl/platform/errors.h"
 #include "tsl/platform/init_main.h"
@@ -240,6 +243,11 @@ static absl::Status RunMultihostHloRunner(int argc, char** argv,
         env, xla::GetPjRtEnvironmentForGpu(
                  opts.address_str, gpu_options,
                  absl::Seconds(opts.gpu_client_initialization_timeout_sec)));
+    // Create a GPURunnerProfiler to profile GPU executions.
+    TF_ASSIGN_OR_RETURN(auto profiler,
+                        GPURunnerProfiler::Create(std::move(env.client)));
+    running_options.profiler = profiler.get();
+
   } else if (opts.device_type_str == "host") {
     TF_ASSIGN_OR_RETURN(env, xla::GetPjRtEnvironmentForHostCpu());
   } else {

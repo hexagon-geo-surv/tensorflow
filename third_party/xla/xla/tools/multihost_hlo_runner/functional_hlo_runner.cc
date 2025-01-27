@@ -70,6 +70,7 @@ limitations under the License.
 #include "tsl/platform/errors.h"
 #include "tsl/platform/status.h"
 #include "tsl/platform/statusor.h"
+#include "tsl/profiler/lib/profiler_session.h"
 
 namespace xla {
 
@@ -1558,6 +1559,32 @@ FunctionalHloRunner::FetchAndLogOutput(
     }
   }
   return outputs;
+}
+
+absl::StatusOr<std::unique_ptr<GPURunnerProfiler>> GPURunnerProfiler::Create(
+    std::unique_ptr<xla::PjRtClient> pjrt_client) {
+  if (pjrt_client == nullptr) {
+    return absl::InvalidArgumentError(
+        "Please create a valid PjRtClient before creating a "
+        "GPURunnerProfiler.");
+  }
+  return std::make_unique<GPURunnerProfiler>();
+}
+
+void GPURunnerProfiler::CreateSession() {
+  auto options = tsl::ProfilerSession::DefaultOptions();
+  options.set_device_type(tensorflow::ProfileOptions::GPU);
+  session_ = tsl::ProfilerSession::Create(options);
+}
+
+void GPURunnerProfiler::UploadSession() {
+  xspace_ = std::make_unique<tensorflow::profiler::XSpace>();
+  // Stops the ProfilerSession
+  CHECK_OK(session_->CollectData(xspace_.get()));
+}
+
+const tensorflow::profiler::XSpace* GPURunnerProfiler::GetXSpace() {
+  return xspace_.get();
 }
 
 }  // namespace xla

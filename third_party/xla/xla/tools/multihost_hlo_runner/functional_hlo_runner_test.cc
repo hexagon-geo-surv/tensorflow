@@ -18,6 +18,7 @@ limitations under the License.
 #include <cstdlib>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -37,6 +38,7 @@ limitations under the License.
 #include "xla/tools/multihost_hlo_runner/create_client.h"
 #include "xla/tsl/lib/core/status_test_util.h"
 #include "xla/tsl/platform/env.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/subprocess.h"
 #include "xla/tsl/util/command_line_flags.h"
 #include "xla/xla.pb.h"
@@ -51,7 +53,9 @@ limitations under the License.
 namespace xla {
 namespace {
 
+using ::testing::HasSubstr;
 using ::testing::SizeIs;
+using ::testing::status::StatusIs;
 
 bool IsTestingCpu() {
 #ifdef XLA_TEST_BACKEND_CPU
@@ -109,6 +113,42 @@ TEST_F(FunctionalHloRunnerTest, SingleDeviceHloWithExecutionProfile) {
     EXPECT_GT(profiles[0].compute_time_ns(), 0);
     EXPECT_GT(profiles[1].compute_time_ns(), 0);
   }
+}
+
+TEST_F(FunctionalHloRunnerTest, GPUProfilerWithNullPJRTClientReturnsError) {
+  std::unique_ptr<xla::PjRtClient> null_client;
+  EXPECT_THAT(
+      GPURunnerProfiler::Create(std::move(null_client)),
+      StatusIs(tensorflow::error::INVALID_ARGUMENT,
+               HasSubstr("Please create a valid PjRtClient before creating a "
+                         "GPURunnerProfiler.")));
+}
+
+TEST_F(FunctionalHloRunnerTest, GPUProfilerReturnsNonNullXSpace) {
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<xla::PjRtClient> client,
+                          GetPjRtClient());
+  FunctionalHloRunner::RunningOptions running_options;
+  TF_ASSERT_OK_AND_ASSIGN(auto profiler,
+                          GPURunnerProfiler::Create(std::move(client)));
+  running_options.profiler = profiler.get();
+
+  profiler->CreateSession();
+  profiler->UploadSession();
+  EXPECT_NE(profiler->GetXSpace(), nullptr);
+  EXPECT_GT(profiler->GetXSpace()->planes_size(), 0);
+}
+
+TEST_F(FunctionalHloRunnerTest,
+       SingleDeviceHloWithGPUProfilerReturnsNonNullXSpace) {
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<xla::PjRtClient> client,
+                          GetPjRtClient());
+  FunctionalHloRunner::RunningOptions running_options;
+
+  TF_EXPECT_OK(FunctionalHloRunner::LoadAndRunAndDump(
+      *client,
+      /* debug_options= */ {}, /* preproc_options= */ {},
+      /* raw_compile_options = */ {}, running_options,
+      {GetHloPath("single_device.hlo")}, InputFormat::kText));
 }
 
 TEST_F(FunctionalHloRunnerTest, Sharded2Devices) {
