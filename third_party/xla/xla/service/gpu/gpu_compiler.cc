@@ -943,34 +943,37 @@ absl::Status RunCollectiveOptimizationPasses(
 
   collectives_pipeline.AddPass<ReduceScatterCreator>();
 
-  collectives_pipeline.AddPass<CollectivePermuteCycleDecomposer>(
+  DebugOptions::PipelineParallelismOptLevel pipeline_parallelism_opt_level =
       hlo_module->config()
           .debug_options()
-          .xla_gpu_collective_permute_decomposer_threshold());
-
-  if (hlo_module->config()
-          .debug_options()
-          .xla_gpu_experimental_enable_pipeline_parallelism_opt()) {
+          .xla_gpu_experimental_pipeline_parallelism_opt_level();
+  if (pipeline_parallelism_opt_level ==
+      DebugOptions::PIPELINE_PARALLELISM_OPT_LEVEL_ENABLE_CYCLE_DECOMPOSER) {
+    collectives_pipeline.AddPass<CollectivePermuteCycleDecomposer>(
+        hlo_module->config()
+            .debug_options()
+            .xla_gpu_collective_permute_decomposer_threshold());
     collectives_pipeline.AddPass<CollectiveSelectFolder>();
   }
 
-  collectives_pipeline.AddPass<CollectivePermuteDecomposer>(
-      hlo_module->config()
-          .debug_options()
-          .xla_gpu_collective_permute_decomposer_threshold());
+  if (pipeline_parallelism_opt_level !=
+      DebugOptions::PIPELINE_PARALLELISM_OPT_LEVEL_DISABLE) {
+    collectives_pipeline.AddPass<CollectivePermuteDecomposer>(
+        hlo_module->config()
+            .debug_options()
+            .xla_gpu_collective_permute_decomposer_threshold());
+  }
 
   if (hlo_module->config()
           .debug_options()
           .xla_gpu_enable_pipelined_collectives() ||
       hlo_module->config().debug_options().xla_gpu_enable_pipelined_p2p() ||
-      hlo_module->config()
-          .debug_options()
-          .xla_gpu_experimental_enable_pipeline_parallelism_opt()) {
-    AddP2PPipeliner(
-        collectives_pipeline,
-        hlo_module->config()
-            .debug_options()
-            .xla_gpu_experimental_enable_pipeline_parallelism_opt());
+      pipeline_parallelism_opt_level !=
+          DebugOptions::PIPELINE_PARALLELISM_OPT_LEVEL_DISABLE) {
+    AddP2PPipeliner(collectives_pipeline,
+                    hlo_module->config()
+                        .debug_options()
+                        .xla_gpu_experimental_pipeline_parallelism_opt_level());
   }
 
   // Run algebraic simplifier to reshape(broadcast) into a broadcast when
@@ -2674,7 +2677,7 @@ absl::Status GpuCompiler::RunPostSchedulingPipelines(
 
     if (!module->config()
              .debug_options()
-             .xla_gpu_experimental_enable_pipeline_parallelism_opt() &&
+             .xla_gpu_experimental_pipeline_parallelism_opt_level() &&
         (module->config()
              .debug_options()
              .xla_gpu_enable_pipelined_collectives() ||
