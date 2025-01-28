@@ -483,6 +483,10 @@ PyArray_Storage::PyArray_Storage(
 void PyArray::PyInit(PyArray self, nb::object aval, nb::object sharding,
                      absl::Span<const PyArray> py_arrays, bool committed,
                      bool skip_checks) {
+  if (!skip_checks) {
+    py_arrays = nb::cast<absl::Span<const PyArray>>(
+        self.CheckAndRearrange(py_arrays, sharding, aval));
+  }
   auto dtype = nb::cast<nb_dtype>(aval.attr("dtype"));
   auto shape = nb::cast<std::vector<int64_t>>(aval.attr("shape"));
   auto ifrt_array =
@@ -492,10 +496,7 @@ void PyArray::PyInit(PyArray self, nb::object aval, nb::object sharding,
             std::move(shape), std::move(sharding), committed,
             py_arrays.at(0).py_client(), Traceback::Get(),
             std::move(ifrt_array), xla::PjRtFuture<>());
-
-  if (!skip_checks) {
-    self.CheckAndRearrange();
-  }
+  self.attr("_arrays") = py_arrays;
 }
 
 PyArray PyArray::MakeFromSingleDeviceArray(
@@ -595,7 +596,11 @@ PyArray::PyArray(nb::object aval, bool weak_type, nb_dtype dtype,
             std::move(result_status));
 
   if (!skip_checks) {
-    CheckAndRearrange();
+    nb::object rearranged_arrays = CheckAndRearrange(
+        nb::cast<absl::Span<const PyArray>>(this->attr("_arrays")),
+        this->attr("_sharding"), this->attr("aval"));
+    this->attr("_arrays") =
+        nb::cast<absl::Span<const PyArray>>(rearranged_arrays);
   }
 }
 
@@ -607,7 +612,11 @@ const PyArray::Storage& PyArray::GetStorage() const {
   return *GetPyArrayStorageFromObject(reinterpret_cast<PyArrayObject*>(ptr()));
 }
 
-void PyArray::CheckAndRearrange() { this->attr("_check_and_rearrange")(); }
+nb::object PyArray::CheckAndRearrange(const absl::Span<const PyArray> py_arrays,
+                                      const nb::object sharding,
+                                      const nb::object aval) {
+  return this->attr("_check_and_rearrange")(py_arrays, sharding, aval);
+}
 
 void PyArray::SetIfrtArray(tsl::RCReference<ifrt::Array> ifrt_array) {
   GetStorage().ifrt_array = std::move(ifrt_array);
