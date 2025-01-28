@@ -83,6 +83,7 @@ limitations under the License.
 #include "xla/pjrt/semaphore.h"
 #include "xla/pjrt/transpose.h"
 #include "xla/pjrt/utils.h"
+#include "xla/primitive_util.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/service/compiler.h"
 #include "xla/service/computation_placer.h"
@@ -127,9 +128,18 @@ namespace xla {
 namespace {
 
 absl::StatusOr<std::unique_ptr<TfrtCpuBuffer>> AllocateDestinationBuffer(
-    const Shape& on_device_shape,
+    const Shape& shape,
     absl::InlinedVector<tsl::AsyncValueRef<CpuEvent>, 4> definition_events,
     TfrtCpuDevice* device, TfrtCpuClient* client) {
+  // AbstractTfrtCpuBuffer packs sub-byte non-pred types. The on-device shape
+  // should reflect this so that our memory allocation and overflow checks are
+  // correct.
+  Shape on_device_shape = shape;
+  if (primitive_util::IsSubByteNonPredType(shape.element_type())) {
+    on_device_shape.mutable_layout()->set_element_size_in_bits(
+        primitive_util::BitWidth(shape.element_type()));
+  }
+
   TF_ASSIGN_OR_RETURN(
       std::unique_ptr<TrackedTfrtCpuDeviceBuffer> tracked_device_buffer,
       AbstractTfrtCpuBuffer::AllocateTrackedDeviceBuffer(
