@@ -32,6 +32,12 @@ jobs:
             container: "us-central1-docker.pkg.dev/tensorflow-sigs/tensorflow/ml-build:latest",
             kokoro_job_name: "xla-linux-x86-cpu",
             pretty_name: "XLA Linux x86 CPU",
+          },
+          {
+            pool: "linux-arm64-c4a-16",
+            container: "us-central1-docker.pkg.dev/tensorflow-sigs/tensorflow/ml-build-arm64:latest",
+            kokoro_job_name: "xla-linux-arm64-cpu",
+            pretty_name: "XLA Linux ARM64 CPU",
           }
         ]
     name: ${{ matrix.job_info.pretty_name }}
