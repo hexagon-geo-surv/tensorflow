@@ -247,7 +247,7 @@ class InstallHeaders(Command):
         '/tensorflow/include/external/com_google_absl': '',
         '/tensorflow/include/external/ducc': '/ducc',
         '/tensorflow/include/external/eigen_archive': '',
-        '/tensorflow/include/external/ml_dtypes': '/ml_dtypes',
+        '/tensorflow/include/external/ml_dtypes_py': '',
         '/tensorflow/include/tensorflow/compiler/xla': (
             '/tensorflow/include/xla'
         ),
@@ -358,7 +358,7 @@ headers = (
     + list(find_files('*.inc', 'tensorflow/include/external/com_google_absl'))
     + list(find_files('*.h', 'tensorflow/include/external/ducc/google'))
     + list(find_files('*', 'tensorflow/include/external/eigen_archive'))
-    + list(find_files('*.h', 'tensorflow/include/external/ml_dtypes'))
+    + list(find_files('*.h', 'tensorflow/include/external/ml_dtypes_py'))
 )
 
 # Quite a lot of setup() options are different if this is a collaborator package
