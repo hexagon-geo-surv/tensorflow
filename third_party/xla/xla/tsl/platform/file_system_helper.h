@@ -20,8 +20,7 @@ limitations under the License.
 #include <vector>
 
 #include "xla/tsl/platform/env.h"
-#include "xla/tsl/platform/status.h"
-#include "xla/tsl/platform/statusor.h"
+#include "xla/tsl/platform/file_system.h"
 
 namespace tsl {
 
@@ -59,6 +58,76 @@ absl::Status GetMatchingPaths(FileSystem* fs, Env* env, const string& pattern,
 absl::StatusOr<bool> FileExists(Env* env, const string& fname);
 
 }  // namespace internal
+
+//  A CopyingOutputStream wrapper over tsl::WritableFile. It adapts the
+//  CopyingOutputStream interface to the WritableFile's Append method. This
+//  allows using a WritableFile with systems expecting a CopyingOutputStream and
+//  convert it to a ZeroCopyOutputStream easily using
+//  CopyingOutputStreamAdaptor.
+class WritableFileCopyingOutputStream
+    : public tsl::protobuf::io::CopyingOutputStream {
+ public:
+  explicit WritableFileCopyingOutputStream(WritableFile* file)
+      : tsl::protobuf::io::CopyingOutputStream(), file_(file) {}
+
+  bool Write(const void* buffer, int size) override {
+    return file_
+        ->Append(absl::string_view(static_cast<const char*>(buffer), size))
+        .ok();
+  }
+
+ private:
+  WritableFile* file_;
+};
+
+class RandomAccessFileCopyingInputStream
+    : public protobuf::io::CopyingInputStream {
+ public:
+  explicit RandomAccessFileCopyingInputStream(RandomAccessFile* file)
+      : file_(file), file_size_(-1), position_(0) {}
+
+  int Read(void* buffer, int size) override {
+    if (!file_) {
+      return -1;
+    }
+
+    // Only read the file size once on a first read call.
+    if (file_size_ < 0) {
+      file_size_ = GetFileSize();
+      if (file_size_ < 0) {
+        return -1;
+      }
+    }
+
+    size = std::min(static_cast<int64_t>(size), file_size_ - position_);
+    absl::string_view result;
+    if (!file_->Read(position_, size, &result, static_cast<char*>(buffer))
+             .ok()) {
+      return -1;
+    }
+
+    position_ += result.size();
+    return result.size();
+  }
+
+ private:
+  int64_t GetFileSize() {
+    absl::string_view file_name;
+    size_t size;
+    if (!file_->Name(&file_name).ok()) {
+      return -1;
+    }
+    if (!tsl::Env::Default()->GetFileSize(std::string(file_name), &size).ok()) {
+      return -1;
+    }
+    return size;
+  }
+
+  RandomAccessFile* file_;
+  int64_t file_size_;
+  int64_t position_;
+};
+
 }  // namespace tsl
 
 #endif  // XLA_TSL_PLATFORM_FILE_SYSTEM_HELPER_H_

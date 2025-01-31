@@ -58,6 +58,7 @@ limitations under the License.
 #include "xla/pjrt/pjrt_future.h"
 #include "xla/pjrt/pjrt_layout.h"
 #include "xla/primitive_util.h"
+#include "xla/runtime/large_hlo_snapshot_serialization/serialization.h"
 #include "xla/service/computation_layout.h"
 #include "xla/service/computation_placer.h"
 #include "xla/service/hlo.pb.h"
@@ -68,11 +69,14 @@ limitations under the License.
 #include "xla/tools/hlo_control_flow_flattening.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/file_system.h"
+#include "xla/tsl/platform/file_system_helper.h"
 #include "xla/tsl/platform/status.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
 #include "xla/xla.pb.h"
 #include "xla/xla_data.pb.h"
+#include "tsl/platform/protobuf.h"
 #include "tsl/profiler/lib/profiler_session.h"
 
 namespace xla {
@@ -713,10 +717,21 @@ FunctionalHloRunner::ReadModuleFromSnapshotBinaryProtoFile(
 absl::StatusOr<FunctionalHloRunner::HloModuleAndArguments>
 FunctionalHloRunner::ReadModuleFromUnoptimizedSnapshotBinaryProtoFile(
     absl::string_view hlo_file) {
-  HloUnoptimizedSnapshot proto;
   HloModuleAndArguments hlo_module_and_arguments;
-  TF_RETURN_IF_ERROR(
-      tsl::ReadBinaryProto(tsl::Env::Default(), std::string(hlo_file), &proto));
+
+  auto env = tsl::Env::Default();
+
+  std::unique_ptr<tsl::RandomAccessFile> file;
+  TF_RETURN_IF_ERROR(env->NewRandomAccessFile(std::string(hlo_file), &file));
+
+  auto input_stream = tsl::RandomAccessFileCopyingInputStream(file.get());
+  auto adaptor = tsl::protobuf::io::CopyingInputStreamAdaptor(&input_stream);
+
+  std::unique_ptr<tsl::FileStream> stream(new tsl::FileStream(file.get()));
+
+  TF_ASSIGN_OR_RETURN(HloUnoptimizedSnapshot proto,
+                      DeserializeHloUnoptimizedSnapshot(&adaptor));
+
   TF_ASSIGN_OR_RETURN(hlo_module_and_arguments.hlo_module,
                       HloProtoToModule(proto.hlo_module()));
 

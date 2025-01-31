@@ -714,6 +714,27 @@ struct Register {
 
 }  // namespace register_file_system
 
+// A ZeroCopyInputStream on a RandomAccessFile.
+class FileStream : public protobuf::io::ZeroCopyInputStream {
+ public:
+  explicit FileStream(RandomAccessFile* file);
+
+  void BackUp(int count) override;
+  bool Skip(int count) override;
+  int64_t ByteCount() const override;
+  absl::Status status() const;
+
+  bool Next(const void** data, int* size) override;
+
+ private:
+  static constexpr int kBufSize = 512 << 10;
+
+  RandomAccessFile* file_;
+  int64_t pos_;
+  absl::Status status_;
+  char scratch_[kBufSize];
+};
+
 // END_SKIP_DOXYGEN
 
 }  // namespace tsl

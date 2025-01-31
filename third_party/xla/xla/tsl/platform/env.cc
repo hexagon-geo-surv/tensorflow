@@ -551,43 +551,31 @@ absl::Status FileSystemCopyFile(FileSystem* src_fs, const string& src,
   return target_file->Close();
 }
 
-// A ZeroCopyInputStream on a RandomAccessFile.
-namespace {
-class FileStream : public protobuf::io::ZeroCopyInputStream {
- public:
-  explicit FileStream(RandomAccessFile* file) : file_(file), pos_(0) {}
+FileStream::FileStream(RandomAccessFile* file) : file_(file), pos_(0) {}
 
-  void BackUp(int count) override { pos_ -= count; }
-  bool Skip(int count) override {
-    pos_ += count;
-    return true;
+void FileStream::BackUp(int count) { pos_ -= count; }
+
+bool FileStream::Skip(int count) {
+  pos_ += count;
+  return true;
+}
+
+int64_t FileStream::ByteCount() const { return pos_; }
+
+absl::Status FileStream::status() const { return status_; }
+
+bool FileStream::Next(const void** data, int* size) {
+  absl::string_view result;
+  absl::Status s = file_->Read(pos_, kBufSize, &result, scratch_);
+  if (result.empty()) {
+    status_ = s;
+    return false;
   }
-  int64_t ByteCount() const override { return pos_; }
-  absl::Status status() const { return status_; }
-
-  bool Next(const void** data, int* size) override {
-    absl::string_view result;
-    absl::Status s = file_->Read(pos_, kBufSize, &result, scratch_);
-    if (result.empty()) {
-      status_ = s;
-      return false;
-    }
-    pos_ += result.size();
-    *data = result.data();
-    *size = result.size();
-    return true;
-  }
-
- private:
-  static constexpr int kBufSize = 512 << 10;
-
-  RandomAccessFile* file_;
-  int64_t pos_;
-  absl::Status status_;
-  char scratch_[kBufSize];
-};
-
-}  // namespace
+  pos_ += result.size();
+  *data = result.data();
+  *size = result.size();
+  return true;
+}
 
 absl::Status WriteBinaryProto(Env* env, const string& fname,
                               const protobuf::MessageLite& proto) {
