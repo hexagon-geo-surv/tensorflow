@@ -84,20 +84,24 @@ class IotaReplicaGroupList {
 // replica groups, it may be used to represent these lists in compact forms.
 class CollectiveDeviceList {
  public:
-  explicit CollectiveDeviceList(absl::Span<const ReplicaGroup> replica_groups);
+  explicit CollectiveDeviceList() = default;
+
+  explicit CollectiveDeviceList(absl::Span<const ReplicaGroup> replica_groups)
+      : replica_groups_(replica_groups.begin(), replica_groups.end()) {};
 
   explicit CollectiveDeviceList(
-      absl::Span<const std::vector<int64_t>> replica_groups);
+      absl::Span<const std::vector<int64_t>> replica_groups)
+      : replica_groups_(ToReplicaGroupVector(replica_groups)) {};
 
   explicit CollectiveDeviceList(
       const IotaReplicaGroupList& iota_replica_group_list)
-      : iota_replica_group_list_(iota_replica_group_list) {}
+      : iota_replica_group_list_(iota_replica_group_list),
+        needs_materialization_(true) {}
 
-  // TODO(b/316622399): Remove this constructor and its usage as creating an
-  // empty collective device list has no meaning.
-  explicit CollectiveDeviceList();
-
-  const std::vector<ReplicaGroup>& replica_groups() const;
+  const std::vector<ReplicaGroup>& replica_groups() const {
+    MaybeMaterializeFullReplicaGroupList();
+    return replica_groups_;
+  }
 
   const std::optional<IotaReplicaGroupList>& iota_replica_group_list() const {
     return iota_replica_group_list_;
@@ -112,17 +116,29 @@ class CollectiveDeviceList {
   static CollectiveDeviceList FromProto(const HloInstructionProto& proto);
 
  private:
-  // Construct collective device list from replica group start and end
+  // Construct collective device list from protobuf replica group start and end
   // iterators.
   CollectiveDeviceList(
       tsl::protobuf::RepeatedPtrField<ReplicaGroup>::const_iterator start,
-      tsl::protobuf::RepeatedPtrField<ReplicaGroup>::const_iterator end);
+      tsl::protobuf::RepeatedPtrField<ReplicaGroup>::const_iterator end)
+      : replica_groups_(start, end) {};
+
+  static std::vector<ReplicaGroup> ToReplicaGroupVector(
+      absl::Span<const std::vector<int64_t>> replica_groups) {
+    std::vector<ReplicaGroup> res;
+    res.reserve(replica_groups.size());
+    for (const std::vector<int64_t>& g : replica_groups) {
+      auto& group = res.emplace_back();
+      *group.mutable_replica_ids() = {g.begin(), g.end()};
+    }
+    return res;
+  }
 
   void MaybeMaterializeFullReplicaGroupList() const;
-  std::optional<IotaReplicaGroupList> iota_replica_group_list_ = std::nullopt;
-  mutable std::shared_ptr<const std::vector<ReplicaGroup>>
-      replica_groups_shared_ = nullptr;
-  mutable const std::vector<ReplicaGroup>* replica_groups_ = nullptr;
+
+  std::optional<IotaReplicaGroupList> iota_replica_group_list_;
+  bool needs_materialization_ = false;
+  mutable std::vector<ReplicaGroup> replica_groups_;
 };
 
 }  // namespace xla
