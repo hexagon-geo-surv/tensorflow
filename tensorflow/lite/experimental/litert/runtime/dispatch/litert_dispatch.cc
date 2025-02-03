@@ -323,6 +323,51 @@ LiteRtStatus LiteRtDispatchInvoke(
   INVOKE_FUNC(invoke, invocation_context);
 }
 
+LiteRtStatus LiteRtDispatchStartMetricsCollection(
+    LiteRtDispatchInvocationContext invocation_context) {
+  if (!invocation_context) {
+    LITERT_LOG(LITERT_ERROR, "Null input");
+    return kLiteRtStatusErrorInvalidArgument;
+  }
+  INVOKE_FUNC(start_metrics_collection, invocation_context);
+}
+
+LiteRtStatus LiteRtDispatchStopMetricsCollection(
+    LiteRtDispatchInvocationContext invocation_context,
+    LiteRtDispatchMetrics* metrics) {
+  if (!invocation_context || !metrics) {
+    LITERT_LOG(LITERT_ERROR, "Null input");
+    return kLiteRtStatusErrorInvalidArgument;
+  }
+  INVOKE_FUNC(stop_metrics_collection, invocation_context, metrics);
+}
+
+LiteRtStatus LiteRtDispatchGetNumMetrics(LiteRtDispatchMetrics metrics,
+                                         int* num_metrics) {
+  if (!metrics || !num_metrics) {
+    LITERT_LOG(LITERT_ERROR, "Null input");
+    return kLiteRtStatusErrorInvalidArgument;
+  }
+  INVOKE_FUNC(get_num_metrics, metrics, num_metrics);
+}
+
+LiteRtStatus LiteRtDispatchGetMetric(LiteRtDispatchMetrics metrics,
+                                     int metric_index, LiteRtMetric* metric) {
+  if (!metrics || !metric) {
+    LITERT_LOG(LITERT_ERROR, "Null input");
+    return kLiteRtStatusErrorInvalidArgument;
+  }
+  INVOKE_FUNC(get_metric, metrics, metric_index, metric);
+}
+
+LiteRtStatus LiteRtDispatchDestroyMetrics(LiteRtDispatchMetrics metrics) {
+  if (!metrics) {
+    LITERT_LOG(LITERT_ERROR, "Null input");
+    return kLiteRtStatusErrorInvalidArgument;
+  }
+  INVOKE_FUNC(destroy_metrics, metrics);
+}
+
 // /////////////////////////////////////////////////////////////////////////////
 // Async Execution API
 // /////////////////////////////////////////////////////////////////////////////
