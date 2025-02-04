@@ -41,6 +41,7 @@ struct NcclRaggedAllToAllConfig {
   NcclCollectiveConfig config;
   int64_t num_ragged_rows = 1;
   int64_t ragged_row_element_size = 1;
+  int64_t num_updates_per_replica = 1;
 };
 
 // Thunk that performs a NCCL-based Ragged-All-to-All among CUDA GPU-based
@@ -92,6 +93,7 @@ class NcclRaggedAllToAllStartThunk : public NcclCollectiveThunk {
 
 absl::Status RunRaggedAllToAll(
     GpuCollectives* collectives, int64_t ragged_row_element_size,
+    int64_t num_updates_per_replica,
     const std::vector<DeviceBufferPair>& buffers, se::Stream& stream,
     Communicator* comm, const std::vector<int64_t*>& ragged_metadata_allocs,
     const se::DeviceMemoryBase& output_offsets_device_buffer);

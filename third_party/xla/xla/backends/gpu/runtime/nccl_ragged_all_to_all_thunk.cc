@@ -57,7 +57,12 @@ NcclRaggedAllToAllConfig GetNcclRaggedAllToAllConfig(
     const HloRaggedAllToAllInstruction* instr) {
   NcclRaggedAllToAllConfig config;
   config.config = GetNcclCollectiveConfig(instr, std::nullopt);
-  config.num_ragged_rows = instr->operand(2)->shape().dimensions(0);
+
+  const Shape& input_size_shape = instr->operand(2)->shape();
+  config.num_ragged_rows = input_size_shape.dimensions(0);
+  config.num_updates_per_replica = input_size_shape.dimensions_size() == 1
+                                       ? 1
+                                       : input_size_shape.dimensions(1);
   config.ragged_row_element_size =
       ShapeUtil::ElementsIn(instr->shape()) / instr->shape().dimensions(0);
   return config;
@@ -159,9 +164,11 @@ absl::Status NcclRaggedAllToAllStartThunk::Initialize(
   if (!host_buffer_allocs_.contains(params.executor)) {
     std::vector<std::unique_ptr<se::MemoryAllocation>> allocs;
     for (int64_t i = 0; i < kNumRaggedMetadataOperands; ++i) {
-      TF_ASSIGN_OR_RETURN(std::unique_ptr<se::MemoryAllocation> alloc,
-                          params.executor->HostMemoryAllocate(
-                              config_.num_ragged_rows * sizeof(int64_t)));
+      TF_ASSIGN_OR_RETURN(
+          std::unique_ptr<se::MemoryAllocation> alloc,
+          params.executor->HostMemoryAllocate(config_.num_ragged_rows *
+                                              config_.num_updates_per_replica *
+                                              sizeof(int64_t)));
       allocs.push_back(std::move(alloc));
     }
     host_buffer_allocs_.emplace(params.executor, std::move(allocs));
@@ -169,7 +176,9 @@ absl::Status NcclRaggedAllToAllStartThunk::Initialize(
 
   if (!device_buffer_allocs_.contains(params.executor)) {
     se::DeviceMemoryBase output_offsets_device_buffer =
-        params.executor->Allocate(config_.num_ragged_rows * sizeof(int64_t));
+        params.executor->Allocate(config_.num_ragged_rows *
+                                  config_.num_updates_per_replica *
+                                  sizeof(int64_t));
 
     if (output_offsets_device_buffer.is_null()) {
       return absl::InternalError("Failed to allocate output offsets buffer.");
@@ -225,8 +234,9 @@ absl::Status NcclRaggedAllToAllStartThunk::RunNcclCollective(
   }
 
   return xla::gpu::RunRaggedAllToAll(
-      collectives, config_.ragged_row_element_size, device_buffers, stream,
-      comm_handle.comm, ragged_metadata_allocs, output_offsets_device_buffer);
+      collectives, config_.ragged_row_element_size,
+      config_.num_updates_per_replica, device_buffers, stream, comm_handle.comm,
+      ragged_metadata_allocs, output_offsets_device_buffer);
 }
 
 AsyncStreamKind NcclRaggedAllToAllStartThunk::GetAsyncStreamKind() const {
@@ -236,21 +246,26 @@ AsyncStreamKind NcclRaggedAllToAllStartThunk::GetAsyncStreamKind() const {
 // Runs AllToAll on a buffer that contains ragged tensor metadata.
 absl::Status RunAllToAllOnIndexBuffer(
     GpuCollectives* collectives, const se::DeviceMemoryBase& source_buffer,
+    int64_t num_updates_per_replica,
     const se::DeviceMemoryBase& destination_buffer, PrimitiveType element_type,
     se::Stream& stream, Communicator* comm) {
   TF_ASSIGN_OR_RETURN(int32_t num_ranks, comm->NumRanks());
 
   TF_RETURN_IF_ERROR(collectives->GroupStart());
   for (int peer = 0; peer < num_ranks; ++peer) {
+    int64_t offset = peer * num_updates_per_replica;
     se::DeviceMemoryBase send_slice = collectives->Slice(
-        source_buffer, element_type, /*offset=*/peer, /*count=*/1);
-    se::DeviceMemoryBase recv_slice = collectives->Slice(
-        destination_buffer, element_type, /*offset=*/peer, /*count=*/1);
+        source_buffer, element_type, offset, /*count=*/num_updates_per_replica);
+    se::DeviceMemoryBase recv_slice =
+        collectives->Slice(destination_buffer, element_type, offset,
+                           /*count=*/num_updates_per_replica);
 
-    TF_RETURN_IF_ERROR(comm->Send(send_slice, element_type, /*count=*/1,
+    TF_RETURN_IF_ERROR(comm->Send(send_slice, element_type,
+                                  /*count=*/num_updates_per_replica,
                                   RankId(peer), GpuCollectives::On(stream)));
 
-    TF_RETURN_IF_ERROR(comm->Recv(recv_slice, element_type, /*count=*/1,
+    TF_RETURN_IF_ERROR(comm->Recv(recv_slice, element_type,
+                                  /*count=*/num_updates_per_replica,
                                   RankId(peer), GpuCollectives::On(stream)));
   }
 
@@ -260,6 +275,7 @@ absl::Status RunAllToAllOnIndexBuffer(
 
 absl::Status RunRaggedAllToAll(
     GpuCollectives* collectives, int64_t ragged_row_element_size,
+    int64_t num_updates_per_replica,
     const std::vector<DeviceBufferPair>& original_buffers, se::Stream& stream,
     Communicator* comm, const std::vector<int64_t*>& ragged_metadata_allocs,
     const se::DeviceMemoryBase& output_offsets_device_buffer) {
@@ -281,8 +297,8 @@ absl::Status RunRaggedAllToAll(
   DeviceBufferPair& output_offsets_buffer_pair = buffers[4];
   TF_RETURN_IF_ERROR(RunAllToAllOnIndexBuffer(
       collectives, output_offsets_buffer_pair.source_buffer,
-      output_offsets_device_buffer, output_offsets_buffer_pair.element_type,
-      stream, comm));
+      num_updates_per_replica, output_offsets_device_buffer,
+      output_offsets_buffer_pair.element_type, stream, comm));
   output_offsets_buffer_pair.source_buffer = output_offsets_device_buffer;
 
   TF_ASSIGN_OR_RETURN(
@@ -297,24 +313,27 @@ absl::Status RunRaggedAllToAll(
   TF_RETURN_IF_ERROR(collectives->GroupStart());
 
   const DeviceBufferPair& data_buffer = buffers[0];
-  for (int peer = 0; peer < num_ranks; ++peer) {
-    se::DeviceMemoryBase send_slice =
-        collectives->Slice(data_buffer.source_buffer, data_buffer.element_type,
-                           input_offsets[peer] * ragged_row_element_size,
-                           send_sizes[peer] * ragged_row_element_size);
+  for (int64_t i = 0; i < num_updates_per_replica; ++i) {
+    for (int peer = 0; peer < num_ranks; ++peer) {
+      int64_t idx = peer * num_updates_per_replica + i;
+      se::DeviceMemoryBase send_slice = collectives->Slice(
+          data_buffer.source_buffer, data_buffer.element_type,
+          input_offsets[idx] * ragged_row_element_size,
+          send_sizes[idx] * ragged_row_element_size);
 
-    se::DeviceMemoryBase recv_slice = collectives->Slice(
-        data_buffer.destination_buffer, data_buffer.element_type,
-        output_offsets[peer] * ragged_row_element_size,
-        recv_sizes[peer] * ragged_row_element_size);
+      se::DeviceMemoryBase recv_slice = collectives->Slice(
+          data_buffer.destination_buffer, data_buffer.element_type,
+          output_offsets[idx] * ragged_row_element_size,
+          recv_sizes[idx] * ragged_row_element_size);
 
-    TF_RETURN_IF_ERROR(comm->Send(send_slice, data_buffer.element_type,
-                                  send_sizes[peer] * ragged_row_element_size,
-                                  RankId(peer), GpuCollectives::On(stream)));
+      TF_RETURN_IF_ERROR(comm->Send(send_slice, data_buffer.element_type,
+                                    send_sizes[idx] * ragged_row_element_size,
+                                    RankId(peer), GpuCollectives::On(stream)));
 
-    TF_RETURN_IF_ERROR(comm->Recv(recv_slice, data_buffer.element_type,
-                                  recv_sizes[peer] * ragged_row_element_size,
-                                  RankId(peer), GpuCollectives::On(stream)));
+      TF_RETURN_IF_ERROR(comm->Recv(recv_slice, data_buffer.element_type,
+                                    recv_sizes[idx] * ragged_row_element_size,
+                                    RankId(peer), GpuCollectives::On(stream)));
+    }
   }
 
   return collectives->GroupEnd();
