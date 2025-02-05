@@ -39,12 +39,11 @@ pytype_strict_library(
     name = "xla_client",
     srcs = ["xla_client.py"],
     pytype_srcs = ["xla_client.pyi"],
-    srcs_version = "PY3",
     visibility = ["//visibility:public"],
     deps = [
         ":xla_extension",  # buildcleaner: keep
     ] + if_google([
-        "@ml_dtypes",
+        "@ml_dtypes_py//ml_dtypes",
         "//third_party/py/numpy",
     ]),
 )
@@ -69,7 +68,6 @@ tsl_pybind_extension(
 py_strict_test(
     name = "xla_client_backend_independent_test",
     srcs = ["xla_client_backend_independent_test.py"],
-    python_version = "PY3",
     tags = ["no_oss"],  # TODO(phawkins): This test passes, but requires --config=monolithic.
     deps = [
         ":xla_client",
@@ -85,7 +83,6 @@ py_strict_library(
     name = "xla_client_test",
     testonly = 1,
     srcs = ["xla_client_test.py"],
-    srcs_version = "PY3",
     visibility = [":friends"],
     deps = [
         ":xla_client",
@@ -93,7 +90,7 @@ py_strict_library(
         "@absl_py//absl/logging",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
-        "@ml_dtypes",
+        "@ml_dtypes_py//ml_dtypes",
     ] + if_google(["//third_party/py/numpy"]),
 )
 
@@ -102,8 +99,6 @@ py_strict_test(
     srcs = ["xla_client_test.py"],
     args = ["--backend=cpu"],
     main = "xla_client_test.py",
-    python_version = "PY3",
-    srcs_version = "PY3",
     tags = [
         "no_oss",
         "not_run:arm",
@@ -116,15 +111,13 @@ py_strict_test(
         "@absl_py//absl/logging",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
-        "@ml_dtypes",
+        "@ml_dtypes_py//ml_dtypes",
     ] + if_google(["//third_party/py/numpy"]) + xla_py_test_deps(),
 )
 
 py_strict_test(
     name = "weakref_lru_cache_test",
     srcs = ["weakref_lru_cache_test.py"],
-    python_version = "PY3",
-    srcs_version = "PY3",
     tags = ["no_oss"],  # TODO(phawkins): This test passes, but requires --config=monolithic.
     deps = [
         ":xla_client",
@@ -140,8 +133,6 @@ py_strict_test(
     srcs = ["xla_client_test.py"],
     args = ["--backend=gpu"],
     main = "xla_client_test.py",
-    python_version = "PY3",
-    srcs_version = "PY3",
     tags = [
         "no_oss",
         "requires-gpu-nvidia",
@@ -153,7 +144,7 @@ py_strict_test(
         "@absl_py//absl/logging",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
-        "@ml_dtypes",
+        "@ml_dtypes_py//ml_dtypes",
     ] + if_google(
         [
             ":xla_gpu_extension",
@@ -181,8 +172,6 @@ py_strict_test(
     name = "status_casters_test",
     srcs = ["status_casters_test.py"],
     main = "status_casters_test.py",
-    python_version = "PY3",
-    srcs_version = "PY3",
     tags = ["no_oss"],
     deps = [
         ":status_casters_ext",
@@ -811,8 +800,6 @@ cc_library(
 py_strict_test(
     name = "pytree_test",
     srcs = ["pytree_test.py"],
-    python_version = "PY3",
-    srcs_version = "PY3",
     tags = ["no_oss"],  # TODO(phawkins): This test passes, but requires --config=monolithic.
     deps = [
         ":xla_client",
@@ -885,8 +872,6 @@ cc_library(
 py_strict_test(
     name = "config_test",
     srcs = ["config_test.py"],
-    python_version = "PY3",
-    srcs_version = "PY3",
     tags = ["no_oss"],  # TODO(phawkins): This test passes, but requires --config=monolithic.
     deps = [
         ":xla_client",
@@ -1502,8 +1487,6 @@ py_strict_test(
     name = "jax_jit_test",
     srcs = ["jax_jit_test.py"],
     main = "jax_jit_test.py",
-    python_version = "PY3",
-    srcs_version = "PY3",
     tags = [
         "no_oss",
         "not_run:arm",
@@ -1523,8 +1506,6 @@ py_strict_test(
     name = "xla_compiler_test",
     srcs = ["xla_compiler_test.py"],
     main = "xla_compiler_test.py",
-    python_version = "PY3",
-    srcs_version = "PY3",
     tags = ["no_oss"],
     deps = [
         ":xla_extension",
