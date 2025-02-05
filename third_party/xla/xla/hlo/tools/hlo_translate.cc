@@ -97,7 +97,8 @@ constexpr char kLoadHloError[] = "Failed to parse HLO.";
 
 absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> GetModuleFromHLOText(
     absl::string_view content, mlir::MLIRContext* context) {
-  auto hlo_text = xla::ParseAndReturnUnverifiedModule(content);
+  auto hlo_text = xla::ParseAndReturnUnverifiedModule(
+      content, {}, xla::HloParserOptions().set_keep_module_auto_layouts(true));
   if (!hlo_text.ok()) return absl::InvalidArgumentError(kLoadHloError);
 
   mlir::OwningOpRef<mlir::ModuleOp> module =
@@ -105,7 +106,8 @@ absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> GetModuleFromHLOText(
   auto hlo_module = std::move(hlo_text.value());
   auto status = ConvertHloToMlirHlo(*module, hlo_module.get(),
                                     /*import_all_computations=*/true,
-                                    /*flatten_computation_args_result*/ true);
+                                    /*flatten_computation_args_result=*/true,
+                                    /*import_layout_modes=*/true);
   if (!status.ok()) return status;
   return module;
 }
@@ -121,7 +123,8 @@ absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> GetModuleFromHLOProto(
   auto status =
       ConvertHloToMlirHlo(module.get(), hlo_proto.mutable_hlo_module(),
                           /*import_all_computations=*/true,
-                          /*flatten_computation_args_result=*/true);
+                          /*flatten_computation_args_result=*/true,
+                          /*import_layout_modes=*/true);
   if (!status.ok()) return status;
   return module;
 }
