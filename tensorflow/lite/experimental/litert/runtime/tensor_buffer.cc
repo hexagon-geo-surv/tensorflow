@@ -28,6 +28,7 @@
 #include <CL/cl.h>
 #include "tensorflow/lite/experimental/litert/c/litert_common.h"
 #include "tensorflow/lite/experimental/litert/c/litert_event.h"
+#include "tensorflow/lite/experimental/litert/c/litert_logging.h"
 #include "tensorflow/lite/experimental/litert/c/litert_model.h"
 #include "tensorflow/lite/experimental/litert/c/litert_tensor_buffer.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_event.h"
@@ -56,6 +57,30 @@ void Copy(size_t array_size, const T* array, std::vector<T>& vec) {
 }
 
 }  // namespace
+
+std::string BufferTypeToString(LiteRtTensorBufferType buffer_type) {
+  switch (buffer_type) {
+    case kLiteRtTensorBufferTypeUnknown:
+      return "Unknown";
+    case kLiteRtTensorBufferTypeHostMemory:
+      return "HostMemory";
+    case kLiteRtTensorBufferTypeAhwb:
+      return "Ahwb";
+    case kLiteRtTensorBufferTypeIon:
+      return "Ion";
+    case kLiteRtTensorBufferTypeDmaBuf:
+      return "DmaBuf";
+    case kLiteRtTensorBufferTypeFastRpc:
+      return "FastRpc";
+    case kLiteRtTensorBufferTypeOpenCl:
+      return "OpenCl";
+    case kLiteRtTensorBufferTypeGlBuffer:
+      return "GlBuffer";
+  }
+  LITERT_LOG(LITERT_ERROR, "Unexpected value for LiteRtTensorBufferType: %d",
+             static_cast<int>(buffer_type));
+  return "UnexpectedBufferType";
+}
 
 LiteRtTensorBufferT::LiteRtTensorBufferT(
     const LiteRtRankedTensorType& tensor_type,

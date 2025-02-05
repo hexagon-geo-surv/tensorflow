@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -42,6 +43,9 @@
 #include "tensorflow/lite/experimental/litert/runtime/gl_buffer.h"
 #endif  // LITERT_HAS_OPENGL_SUPPORT
 #include "tensorflow/lite/experimental/litert/runtime/open_cl_buffer.h"
+
+// Convert buffer type to string (for error messages).
+std::string BufferTypeToString(LiteRtTensorBufferType buffer_type);
 
 class LiteRtTensorBufferT {
  public:
