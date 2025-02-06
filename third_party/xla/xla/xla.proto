@@ -122,6 +122,8 @@ message DebugOptions {
   // go/keep-sorted start
   // Crash if HloPassFix can not converge after a fixed number of iterations.
   bool xla_unsupported_crash_on_hlo_pass_fix_max_iterations = 363;
+  // Crash if a pass reports that it did not change the HLO but in fact it did.
+  bool xla_unsupported_crash_on_hlo_pass_silent_hlo_change = 367;
   // go/keep-sorted end
 
   reserved 346;  // xla_experimental_exec_time_optimization_effort
@@ -745,6 +747,10 @@ message DebugOptions {
   // Internal debug/testing flag to switch Triton GEMM fusions on or off.
   bool xla_gpu_unsupported_enable_triton_gemm = 322;
 
+  // Enable experimental tiling for Triton GEMM fusions.
+  // TODO(b/?): remove the flag once the feature is stable.
+  bool xla_gpu_unsupported_enable_triton_gemm_tiling = 368;
+
   // This instructs the runtime whether to use memcpy for p2p communication when
   // source and target are located within a node(nvlink).
   bool xla_gpu_use_memcpy_local_p2p = 287;
@@ -1141,7 +1147,7 @@ message DebugOptions {
 
   // Note: when adding a new flag, please add it to one of the hardware-specific
   // or hardware-agnostic sections at the top of this proto message.
-  // Next id: 367
+  // Next id: 369
 
   // Extra options to pass to the compilation backend (e.g. LLVM); specific
   // interpretation of these values is left to the backend.
