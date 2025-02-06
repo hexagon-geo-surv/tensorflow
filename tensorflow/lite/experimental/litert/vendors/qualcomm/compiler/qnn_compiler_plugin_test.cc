@@ -70,6 +70,8 @@ const auto kSupportedOps =
                     "simple_gelu_op.tflite",
                     "simple_dynamic_update_slice_op.tflite",
                     "simple_pack_op.tflite",
+                    "multi_subgraph.tflite",
+                    "multi_subgraph_mul.tflite",
                     kFeedForwardModel,
                     kKeyEinsumModel,
                     kQueryEinsumModel,
