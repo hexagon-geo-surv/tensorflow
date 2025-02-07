@@ -112,6 +112,11 @@ typedef enum : int {
   kLiteRtHwAcceleratorCpu = 1 << 0,
   kLiteRtHwAcceleratorGpu = 1 << 1,
   kLiteRtHwAcceleratorNpu = 1 << 2,
+
+  // OpenCL. This is used when to select the exact GPU backend.
+  kLiteRtHwAcceleratorGpuOpenCl = 1 << 3,
+  // WebGpu. This is used when to select the exact GPU backend.
+  kLiteRtHwAcceleratorGpuWebGpu = 1 << 4,
 } LiteRtHwAccelerators;
 
 // A bit field of `LiteRtHwAccelerators` values.

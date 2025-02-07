@@ -67,13 +67,18 @@ LiteRtStatus LiteRtSetAcceleratorGetHardwareSupport(
         LiteRtAccelerator accelerator,
         LiteRtHwAcceleratorSet* supported_hardware));
 
-// Set the function used to apply the accelerator to the compiled model.
-//
-// This is called by LiteRtCreateCompiledModel.
-LiteRtStatus LiteRtSetApplyToModel(
+// Set the function used to return a Delegate to apply the accelerator by the
+// compiled model. The returned Delegate object is owned by the compiled model.
+LiteRtStatus LiteRtSetCreateDelegate(
     LiteRtAccelerator accelerator,
-    LiteRtStatus (*ApplyToModel)(LiteRtAccelerator accelerator,
-                                 LiteRtCompiledModel compiled_model));
+    LiteRtStatus (*create_delegate)(LiteRtAccelerator accelerator,
+                                    void** delegate));
+
+// Set the function used to destroy the given Delegate which was owned by the
+// compiled model.
+LiteRtStatus LiteRtSetDestroyDelegate(
+    LiteRtAccelerator accelerator,
+    LiteRtStatus (*destroy_delegate)(void* delegate));
 
 #ifdef __cplusplus
 }  // extern "C"

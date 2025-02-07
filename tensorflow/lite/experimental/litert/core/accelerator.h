@@ -56,9 +56,14 @@ struct LiteRtAcceleratorT {
       LiteRtAcceleratorT* accelerator,
       LiteRtHwAcceleratorSet* supported_hardware);
 
-  // Applies the accelerator to a compiled model.
-  LiteRtStatus (*ApplyToModel)(LiteRtAcceleratorT* accelerator,
-                               LiteRtCompiledModelT* supported_hardware);
+  // Creates a delegate for the accelerator. Due to C API compatibility, the
+  // created delegate is returned as a `void*`.
+  LiteRtStatus (*CreateDelegate)(LiteRtAcceleratorT* accelerator,
+                                 void** delegate);
+
+  // Destroys created delegate for the accelerator. Due to C API compatibility,
+  // the delegate is passed as a `void*`.
+  LiteRtStatus (*DestroyDelegate)(void* delegate);
 
   // NOLINTEND(*-readability-class-member-naming)
 };
