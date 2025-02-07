@@ -31,6 +31,37 @@ cc_library(
 )
 
 cc_library(
+    name = "onednn_emitter",
+    srcs = ["onednn_emitter.cc"],
+    hdrs = ["onednn_emitter.h"],
+    deps = [
+        ":onednn_fusion",
+        "//xla:shape_util",
+        "//xla:util",
+        "//xla:xla_data_proto_cc",
+        "//xla/backends/cpu/runtime/onednn:onednn_interop",
+        "//xla/hlo/ir:hlo",
+        "//xla/tsl/platform:logging",
+        "//xla/tsl/platform:statusor",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:str_format",
+        "@onednn//:mkl_dnn",
+    ],
+)
+
+cc_library(
+    name = "onednn_fusion",
+    hdrs = ["onednn_fusion.h"],
+    deps = [
+        "@com_google_absl//absl/strings:string_view",
+        "@onednn//:mkl_dnn",
+    ],
+)
+
+cc_library(
     name = "xnn_emitter",
     srcs = ["xnn_emitter.cc"],
     hdrs = ["xnn_emitter.h"],

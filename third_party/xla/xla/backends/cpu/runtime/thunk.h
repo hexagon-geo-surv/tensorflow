@@ -89,6 +89,7 @@ class Thunk {
     kTopK,
     kWhile,
     kXnnFusion,
+    kOneDnnFusion,
   };
 
   struct Info {

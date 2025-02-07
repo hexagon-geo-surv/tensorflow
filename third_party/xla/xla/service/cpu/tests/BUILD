@@ -454,6 +454,19 @@ xla_cc_test(
 )
 
 xla_cc_test(
+    name = "onednn_fusion_test",
+    srcs = ["onednn_fusion_test.cc"],
+    deps = [
+        "//xla:error_spec",
+        "//xla/service:cpu_plugin",
+        "//xla/tests:hlo_test_base",
+        "//xla/tsl/platform:test",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+xla_cc_test(
     name = "xnn_fusion_test",
     srcs = ["xnn_fusion_test.cc"],
     deps = [
