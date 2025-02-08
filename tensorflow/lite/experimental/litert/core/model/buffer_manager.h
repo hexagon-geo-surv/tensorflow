@@ -24,6 +24,7 @@
 #include <variant>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "tensorflow/lite/experimental/litert/c/litert_common.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_buffer_ref.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_expected.h"
@@ -37,6 +38,9 @@ struct BufferContext {
   // Whether the buffer should be appended to the flatbuffer during
   // serialization.
   bool should_append = false;
+
+  // Original tfl buffer id.
+  uint32_t tfl_buffer_id = 0;
 };
 
 // Container type for efficiently holding data buffers used by the model. These
@@ -47,6 +51,7 @@ class BufferManager {
 
   // Unique identifier for a buffer. 0 is reserved for empty buffers.
   using BufferId = uint32_t;
+  using TflBufferId = uint32_t;
   static constexpr BufferId kEmptyBufferId = 0;
 
   // Register a buffer that is not owned by the model. Caller must ensure the
@@ -55,6 +60,10 @@ class BufferManager {
       BufferRef<uint8_t> buffer,
       std::optional<BufferContext> context = std::nullopt) {
     auto&& ctx = context.has_value() ? std::move(*context) : BufferContext{};
+    if (registered_tfl_buffer_ids_.contains(ctx.tfl_buffer_id)) {
+      return registered_tfl_buffer_ids_[ctx.tfl_buffer_id];
+    }
+    registered_tfl_buffer_ids_[ctx.tfl_buffer_id] = buffers_.size() - 1;
     buffers_.emplace_back(BufferWithContext(buffer, std::move(ctx)));
     return buffers_.size() - 1;
   }
@@ -108,6 +117,7 @@ class BufferManager {
   }
 
   std::vector<BufferWithContext> buffers_;
+  absl::flat_hash_map<TflBufferId, BufferId> registered_tfl_buffer_ids_;
 };
 
 }  // namespace litert::internal

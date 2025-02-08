@@ -175,8 +175,10 @@ LiteRtStatus UnpackTensor(FlatbufferContext& context,
     if (!buffer) {
       return buffer.Error().Status();
     }
-
-    SetWeightsFromUnownedBuffer(litert_tensor.Weights(), *buffer);
+    BufferContext buffer_context;
+    buffer_context.tfl_buffer_id = buffer_ind;
+    SetWeightsFromUnownedBuffer(litert_tensor.Weights(), *buffer,
+                                buffer_context);
   }
 
   // TENSOR TYPE

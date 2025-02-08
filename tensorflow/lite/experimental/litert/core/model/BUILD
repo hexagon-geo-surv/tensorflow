@@ -288,6 +288,7 @@ cc_library(
         "//tensorflow/lite/experimental/litert/c:litert_common",
         "//tensorflow/lite/experimental/litert/cc:litert_buffer_ref",
         "//tensorflow/lite/experimental/litert/cc:litert_expected",
+        "@com_google_absl//absl/container:flat_hash_map",
     ],
 )
 
