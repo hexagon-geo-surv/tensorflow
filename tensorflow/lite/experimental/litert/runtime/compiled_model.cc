@@ -262,7 +262,7 @@ LiteRtCompiledModelT::GetInputBufferRequirements(
     return Unexpected(kLiteRtStatusErrorNotFound,
                       "Failed to get signature runner");
   }
-  auto input_names = runner->input_names();
+  auto input_names = runner->subgraph_input_names();
   if (input_index >= input_names.size()) {
     return Unexpected(kLiteRtStatusErrorIndexOOB, "Input index out of range");
   }
@@ -403,12 +403,12 @@ Expected<void> LiteRtCompiledModelT::Run(
                       "Failed to get signature runner");
   }
   size_t num_inputs = input_buffers.size();
-  if (num_inputs != runner->input_names().size()) {
+  if (num_inputs != runner->subgraph_input_names().size()) {
     return Unexpected(kLiteRtStatusErrorRuntimeFailure,
                       "Input buffer size mismatch");
   }
   size_t num_outputs = output_buffers.size();
-  if (num_outputs != runner->output_names().size()) {
+  if (num_outputs != runner->subgraph_output_names().size()) {
     return Unexpected(kLiteRtStatusErrorRuntimeFailure,
                       "Output buffer size mismatch");
   }
@@ -444,8 +444,8 @@ Expected<void> LiteRtCompiledModelT::Run(
     }
   }
 
-  for (int i = 0; i < runner->output_names().size(); ++i) {
-    const auto& output_name = runner->output_names()[i];
+  for (int i = 0; i < runner->subgraph_output_names().size(); ++i) {
+    const auto& output_name = runner->subgraph_output_names()[i];
     auto* output_tensor = runner->output_tensor(output_name);
     auto res = RegisterBuffer(runner, const_cast<TfLiteTensor*>(output_tensor),
                               output_name, output_buffers[i],
