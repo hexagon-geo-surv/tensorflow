@@ -91,6 +91,14 @@ const auto kSupportedOps =
                     // kQVauleEinsum16x8Model,
                     // kQAttnVecEinsum16x8Model
                     );
+
+const auto kSupportedSocModels = Values(
+    "V68",
+    "V69",
+    "V73",
+    "V75",
+    "V79"
+);
 // clang-format on
 
 TEST(TestQnnPlugin, GetConfigInfo) {
@@ -116,7 +124,7 @@ TEST(TestQnnPlugin, PartitionMulOps) {
   LiteRtOpListT selected_op_list;
   LITERT_ASSERT_OK(LiteRtCompilerPluginPartition(
       plugin.get(), model.Subgraph(0)->Get(), &selected_op_list));
-  const auto selected_ops = selected_op_list.Vec();
+  const auto selected_ops = selected_op_list.Values().first;
 
   ASSERT_EQ(selected_ops.size(), 1);
   EXPECT_EQ(selected_ops[0]->OpCode(), kLiteRtOpCodeTflMul);
@@ -276,6 +284,45 @@ TEST(TestLegalization, QuantizeOpLegalizedToQuantizeOp) {
   EXPECT_EQ(qnn_op_name, kQnnOpName);
 }
 
+class QnnPlyginSupportedSocCompilationTest
+    : public ::testing::TestWithParam<std::string> {};
+
+TEST_P(QnnPlyginSupportedSocCompilationTest, CompileMulSubgraph) {
+  auto plugin = CreatePlugin();
+  auto model = testing::LoadTestFileModel("one_mul.tflite");
+  auto soc_model = GetParam();
+
+  LiteRtCompiledResult compiled;
+  LITERT_ASSERT_OK(LiteRtCompilerPluginCompile(plugin.get(), soc_model.c_str(),
+                                               model.Get(), &compiled));
+
+  const void* byte_code;
+  size_t byte_code_size;
+
+  LITERT_ASSERT_OK(LiteRtGetCompiledResultByteCode(
+      compiled, /*byte_code_idx=*/0, &byte_code, &byte_code_size));
+
+  absl::string_view byte_code_string(reinterpret_cast<const char*>(byte_code),
+                                     byte_code_size);
+  ASSERT_FALSE(byte_code_string.empty());
+
+  const void* op_data;
+  size_t op_data_size;
+  LiteRtParamIndex byte_code_idx;
+
+  LITERT_ASSERT_OK(LiteRtGetCompiledResultCallInfo(
+      compiled, /*call_idx=*/0, &op_data, &op_data_size, &byte_code_idx));
+
+  absl::string_view op_data_string(reinterpret_cast<const char*>(op_data),
+                                   op_data_size);
+  ASSERT_EQ("qnn_partition_0", op_data_string);
+
+  LiteRtDestroyCompiledResult(compiled);
+}
+
+INSTANTIATE_TEST_SUITE_P(SupportedOpsTest, QnnPlyginSupportedSocCompilationTest,
+                         kSupportedSocModels);
+
 class QnnPluginOpValidationTest : public ::testing::TestWithParam<std::string> {
 };
 
@@ -291,7 +338,7 @@ TEST_P(QnnPluginOpValidationTest, SupportedOpsTest) {
   LITERT_ASSERT_OK(LiteRtCompilerPluginPartition(plugin.get(), litert_subgraph,
                                                  &selected_ops));
 
-  EXPECT_EQ(selected_ops.Vec().size(), litert_subgraph->Ops().size());
+  EXPECT_EQ(selected_ops.Values().first.size(), litert_subgraph->Ops().size());
 }
 
 INSTANTIATE_TEST_SUITE_P(SupportedOpsTest, QnnPluginOpValidationTest,

@@ -47,7 +47,6 @@
 #include "tensorflow/lite/experimental/litert/core/model/buffer_manager.h"
 #include "tensorflow/lite/experimental/litert/core/model/ir_allocator.h"
 #include "tensorflow/lite/experimental/litert/core/model/model.h"
-#include "tensorflow/lite/experimental/litert/core/model/model_serialize.h"
 #include "tensorflow/lite/experimental/litert/core/util/flatbuffer_tools.h"
 #include "tensorflow/lite/experimental/litert/vendors/c/litert_compiler_plugin.h"
 #include "tensorflow/lite/experimental/litert/vendors/c/litert_compiler_plugin_api.h"
@@ -334,12 +333,12 @@ Expected<LiteRtHwAccelerators> CompilerPlugin::SupportedHardware() const {
   return supported_hardware;
 }
 
-Expected<std::vector<LiteRtOp>> CompilerPlugin::Partition(
-    const Subgraph& subgraph) {
+Expected<std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>>
+CompilerPlugin::Partition(const Subgraph& subgraph) {
   LiteRtOpListT ops;
   LITERT_RETURN_IF_ERROR(plugin_api_.compiler_plugin_partition(
       plugin_handle_, subgraph.Get(), &ops));
-  return ops.Vec();
+  return ops.Values();
 }
 
 Expected<CompiledResult> CompilerPlugin::Compile(LiteRtModel partitions,
@@ -358,10 +357,11 @@ Expected<CompiledResult> CompilerPlugin::Compile(LiteRtModel partitions,
 
 namespace {
 
-LiteRtStatus PartitionSubgraph(std::vector<LiteRtOp> selected_ops,
-                               LiteRtSubgraphT& subgraph,
-                               PartitionResult& result,
-                               BufferManager* buffer_manager) {
+LiteRtStatus PartitionSubgraph(
+    std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>
+        selected_ops,
+    LiteRtSubgraphT& subgraph, PartitionResult& result,
+    BufferManager* buffer_manager) {
   // Group selected ops into connected islands.
   auto islands = GroupPartitions(selected_ops);
   if (islands.empty()) {
@@ -402,7 +402,9 @@ Expected<PartitionResult> PartitionModel(CompilerPlugin& compiler_plugin,
 }
 
 Expected<PartitionResult> PartitionModelDirect(
-    std::vector<LiteRtOp> selected_ops, LiteRtModelT& model) {
+    std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>
+        selected_ops,
+    LiteRtModelT& model) {
   if (model.Subgraphs().size() != 1) {
     // Only single subgraphs supported for direct partitioning.
     return Unexpected(kLiteRtStatusErrorRuntimeFailure);

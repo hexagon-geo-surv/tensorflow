@@ -71,7 +71,7 @@ TEST(TestQnnPlugin, PartitionAdd) {
   ASSERT_EQ(LiteRtCompilerPluginPartition(
                 plugin.get(), model.Subgraph(0)->Get(), &selected_op_list),
             kLiteRtStatusOk);
-  const auto selected_ops = selected_op_list.Vec();
+  const auto selected_ops = selected_op_list.Values().first;
 
   ASSERT_EQ(selected_ops.size(), 1);
   EXPECT_EQ(selected_ops[0]->OpCode(), kLiteRtOpCodeTflAdd);

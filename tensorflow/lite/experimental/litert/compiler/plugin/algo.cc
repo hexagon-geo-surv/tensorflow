@@ -18,8 +18,10 @@
 #include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/absl_check.h"
+#include "tensorflow/lite/experimental/litert/c/litert_common.h"
 #include "tensorflow/lite/experimental/litert/c/litert_model.h"
 #include "tensorflow/lite/experimental/litert/c/litert_op_code.h"
 #include "tensorflow/lite/experimental/litert/core/insert_order_map.h"
@@ -44,7 +46,8 @@ void MakeDispatchOp(LiteRtOpT& op) {
 class DisjointSets {
  public:
   static std::vector<std::vector<LiteRtOp>> GetPartitionsFromFlatList(
-      const std::vector<LiteRtOp>& flat_op_list);
+      const std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>&
+          flat_op_list);
 
  private:
   void Insert(LiteRtOp op, LiteRtOp parent);
@@ -54,24 +57,49 @@ class DisjointSets {
 };
 
 std::vector<std::vector<LiteRtOp>> DisjointSets::GetPartitionsFromFlatList(
-    const std::vector<LiteRtOp>& flat_op_list) {
-  DisjointSets disjoint_sets;
-  for (auto* op : flat_op_list) {
-    disjoint_sets.map_.InsertOrAssign(op, op);
+    const std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>&
+        flat_op_list) {
+  // Find all unique partition indices.
+  absl::flat_hash_map<LiteRtPartitionIndex, std::vector<LiteRtOp>>
+      partition_map;
+  absl::flat_hash_set<LiteRtPartitionIndex> partition_indices;
+  for (int i = 0; i < flat_op_list.second.size(); ++i) {
+    partition_map[flat_op_list.second[i]].push_back(flat_op_list.first[i]);
+    partition_indices.insert(flat_op_list.second[i]);
   }
 
-  for (auto* op : flat_op_list) {
-    for (auto* output : op->Outputs()) {
-      for (auto* user : output->Users()) {
-        if (!disjoint_sets.map_.Contains(user)) {
-          continue;
+  // Find all disjoint sets
+  std::vector<DisjointSets> partitions;
+  // get flat partition indices
+  std::vector<LiteRtPartitionIndex> flat_partition_indices;
+  flat_partition_indices.assign(partition_indices.begin(),
+                                partition_indices.end());
+  partitions.resize(partition_map.size());
+  std::vector<std::vector<LiteRtOp>> all_buckets;
+
+  for (int i = 0; i < partition_map.size(); ++i) {
+    // Run union find on each partition.
+    for (auto* op : partition_map[flat_partition_indices[i]]) {
+      partitions[i].map_.InsertOrAssign(op, op);
+    }
+
+    for (auto* op : partition_map[flat_partition_indices[i]]) {
+      for (auto* output : op->Outputs()) {
+        for (auto* user : output->Users()) {
+          if (!partitions[i].map_.Contains(user)) {
+            continue;
+          }
+          partitions[i].Insert(op, user);
         }
-        disjoint_sets.Insert(op, user);
       }
     }
+    // Aggregate all disjoint sets.
+    for (auto& bucket : partitions[i].GetBuckets()) {
+      all_buckets.push_back(std::move(bucket));
+      // all_buckets.push_back(bucket);
+    }
   }
-
-  return disjoint_sets.GetBuckets();
+  return all_buckets;
 }
 
 void DisjointSets::Insert(LiteRtOp op, LiteRtOp parent) {
@@ -178,7 +206,7 @@ LiteRtOp GraphSlicer::SlicePartitionFromGraph(
   }
 
   // Reuse the storage from the last op in partition to maintain
-  // toplogical order.
+  // topological order.
   slicer.dispatch_op_ = partition.back();
 
   MakeDispatchOp(*slicer.dispatch_op_);
@@ -248,7 +276,8 @@ void GraphSlicer::CloneInto(const LiteRtOpT& old_op) {
 }  // namespace
 
 std::vector<std::vector<LiteRtOp>> GroupPartitions(
-    const std::vector<LiteRtOp>& ops) {
+    const std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>&
+        ops) {
   return DisjointSets::GetPartitionsFromFlatList(ops);
 }
 

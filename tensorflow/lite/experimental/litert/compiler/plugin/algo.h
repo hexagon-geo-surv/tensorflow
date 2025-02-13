@@ -15,8 +15,10 @@
 #ifndef TENSORFLOW_LITE_EXPERIMENTAL_LITERT_COMPILER_PLUGIN_ALGO_H_
 #define TENSORFLOW_LITE_EXPERIMENTAL_LITERT_COMPILER_PLUGIN_ALGO_H_
 
+#include <utility>
 #include <vector>
 
+#include "tensorflow/lite/experimental/litert/c/litert_common.h"
 #include "tensorflow/lite/experimental/litert/c/litert_model.h"
 #include "tensorflow/lite/experimental/litert/core/model/model.h"
 
@@ -26,7 +28,8 @@ namespace litert::internal {
 // all "ops" belong to the same Subgraph. The ops in the input
 // and output will always be the same.
 std::vector<std::vector<LiteRtOp>> GroupPartitions(
-    const std::vector<LiteRtOp>& ops);
+    const std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>&
+        ops);
 
 // Outlines "partition" from "root" into the empty subgraph "slice". Assumes
 // the partition is a valid sub-DAG, and replaces it with a single

@@ -56,7 +56,7 @@ TEST(ExamplePluginWithConvertTypesTest, PartitionSimpleMultiAdd) {
   LiteRtOpListT selected_op_list;
   LITERT_ASSERT_OK(LiteRtCompilerPluginPartition(
       plugin.get(), model.Get()->MainSubgraph(), &selected_op_list));
-  const auto selected_ops = selected_op_list.Vec();
+  const auto selected_ops = selected_op_list.Values().first;
 
   ASSERT_EQ(selected_ops.size(), 2);
   ASSERT_EQ(selected_ops[0]->OpCode(), kLiteRtOpCodeTflMul);

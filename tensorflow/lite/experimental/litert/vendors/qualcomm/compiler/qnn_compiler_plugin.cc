@@ -55,6 +55,7 @@ using WeightSharingMap =
 namespace {
 
 constexpr char kPluginManufacturer[] = "Qualcomm";
+constexpr LiteRtPartitionIndex kDefaultPartitionIndex = 0;
 
 // clang-format off
 constexpr std::pair<const char*, QnnHtpDevice_Arch_t> kPluginSocModels[] = {
@@ -63,6 +64,12 @@ constexpr std::pair<const char*, QnnHtpDevice_Arch_t> kPluginSocModels[] = {
     {"V73", QNN_HTP_DEVICE_ARCH_V73},
     {"V75", QNN_HTP_DEVICE_ARCH_V75},
     {"V79", QNN_HTP_DEVICE_ARCH_V79},
+};
+
+constexpr const char* kSocModelsSupportsWeightSharing[] = {
+  "V73",
+  "V75",
+  "V79",
 };
 
 constexpr LiteRtOpCode kSupportedOps[] = {
@@ -111,6 +118,12 @@ std::optional<QnnHtpDevice_Arch_t> FindSocModel(
     }
   }
   return soc_model;
+}
+
+bool IsWeightSharingSupported(absl::string_view soc_model_name) {
+  return std::find(std::begin(kSocModelsSupportsWeightSharing),
+                   std::end(kSocModelsSupportsWeightSharing),
+                   soc_model_name) != std::end(kSocModelsSupportsWeightSharing);
 }
 
 }  // namespace
@@ -278,7 +291,10 @@ LiteRtStatus LiteRtCompilerPluginPartition(LiteRtCompilerPlugin compiler_plugin,
               return kLiteRtStatusOk ==
                      (*qnn_manager)->ValidateOp(op_wrapper.GetOpConfig());
             })) {
-      LITERT_RETURN_IF_ERROR(LiteRtPushOp(selected_ops, op.Get()));
+      LITERT_RETURN_IF_ERROR(
+          // Use default partition index if vendor doesn't support multiple
+          // partitions.
+          LiteRtPushOp(selected_ops, op.Get(), kDefaultPartitionIndex));
     }
   }
 
@@ -358,6 +374,9 @@ LiteRtStatus LiteRtCompilerPluginCompile(
       // support legacy SoC.
       // TODO: use option to control weight sharing.
       auto context_configs = QnnManager::WeightSharingContextConfigs();
+      if (!IsWeightSharingSupported(soc_model)) {
+        context_configs = QnnManager::DefaultContextConfigs();
+      }
       auto context_handle =
           (*qnn_manager)->CreateContextHandle(context_configs);
       if (!context_handle) {

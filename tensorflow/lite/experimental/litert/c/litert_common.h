@@ -101,7 +101,7 @@ typedef enum {
   // Tool related errors.
   kLiteRtStatusErrorInvalidToolConfig = 1500,
 
-  // Lealization related errors.
+  // Legalization related errors.
   kLiteRtStatusLegalizeNoMatch = 2000,
   kLiteRtStatusErrorInvalidLegalization = 2001,
 } LiteRtStatus;
@@ -121,6 +121,9 @@ typedef int LiteRtHwAcceleratorSet;
 
 // For indexing into LiteRT collections or counting LiteRT things.
 typedef size_t LiteRtParamIndex;
+
+// Partition Index.
+typedef size_t LiteRtPartitionIndex;
 
 #ifdef __cplusplus
 }
