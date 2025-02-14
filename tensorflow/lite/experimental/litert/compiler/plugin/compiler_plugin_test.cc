@@ -112,7 +112,7 @@ TEST(CompilerPluginTest, Partition) {
   auto ops = plugins->front().Partition(*subgraph);
   ASSERT_TRUE(ops);
 
-  EXPECT_EQ(ops->size(), 2);
+  EXPECT_EQ(ops->first.size(), 2);
 }
 
 TEST(CompilerPluginTest, Compile) {
@@ -178,8 +178,11 @@ TEST(PartitionModelTest, PartitionDirect) {
       model.MainSubgraph()->Ops().front(),
       model.MainSubgraph()->Ops().back(),
   };
+  std::vector<LiteRtPartitionIndex> partition_indices = {0, 0};
+  std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>
+      partitions = std::make_pair(selected_ops, partition_indices);
 
-  auto partition_result = PartitionModelDirect(std::move(selected_ops), model);
+  auto partition_result = PartitionModelDirect(std::move(partitions), model);
   ASSERT_TRUE(partition_result);
   ASSERT_EQ(model.NumSubgraphs(), 1);
 
@@ -224,7 +227,10 @@ TEST(PartitionModelTest, CstMultiSubgraph) {
       model.MainSubgraph()->Ops().front(),
       model.MainSubgraph()->Ops().back(),
   };
-  auto partition_result = PartitionModelDirect(std::move(selected_ops), model);
+  std::vector<LiteRtPartitionIndex> partition_indices = {0, 0};
+  std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>
+      partitions = std::make_pair(selected_ops, partition_indices);
+  auto partition_result = PartitionModelDirect(std::move(partitions), model);
   ASSERT_TRUE(partition_result);
 
   const auto& [ops, subgraphs] = *partition_result;

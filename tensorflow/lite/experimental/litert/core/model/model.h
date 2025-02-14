@@ -22,6 +22,7 @@
 #include <iterator>
 #include <list>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -874,21 +875,30 @@ std::optional<std::string> GetCustomOpCode(const LiteRtModelT& model,
 // Utils
 //
 
-// Used for communicating selections of ops.
+// Used for communicating selections of ops in when partitioning.
 class LiteRtOpListT {
  public:
-  void Push(LiteRtOp op) { ops_.push_back(op); }
+  void Push(LiteRtOp op, LiteRtPartitionIndex partition_index = 0) {
+    ops_.push_back(op);
+    indices_.push_back(partition_index);
+  }
 
-  std::vector<LiteRtOp> Vec() const {
-    std::vector<LiteRtOp> res;
-    res.reserve(ops_.size());
-    res.assign(ops_.begin(), ops_.end());
-    return res;
+  std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>> Values()
+      const {
+    std::vector<LiteRtOp> ops;
+    ops.reserve(ops_.size());
+    ops.assign(ops_.begin(), ops_.end());
+
+    std::vector<LiteRtPartitionIndex> indices;
+    indices.reserve(indices_.size());
+    indices.assign(indices_.begin(), indices_.end());
+    return std::make_pair(ops, indices);
   }
 
  private:
   // Investigate if this is possible with vector (hit some issues).
   std::list<LiteRtOp> ops_;
+  std::list<LiteRtPartitionIndex> indices_;
 };
 
 namespace detail {

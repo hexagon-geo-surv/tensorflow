@@ -381,8 +381,8 @@ TEST(LiteRtOpListTest, PushOps) {
   LiteRtOpListT op_list;
   LiteRtOpT op;
 
-  LITERT_ASSERT_OK(LiteRtPushOp(&op_list, &op));
-  auto vec = op_list.Vec();
+  LITERT_ASSERT_OK(LiteRtPushOp(&op_list, &op, 0));
+  auto vec = op_list.Values().first;
   ASSERT_EQ(vec.size(), 1);
   EXPECT_EQ(vec.front(), &op);
 }

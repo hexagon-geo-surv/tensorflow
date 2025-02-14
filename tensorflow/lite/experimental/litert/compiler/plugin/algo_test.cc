@@ -14,9 +14,12 @@
 
 #include "tensorflow/lite/experimental/litert/compiler/plugin/algo.h"
 
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
+#include "absl/container/flat_hash_set.h"
+#include "tensorflow/lite/experimental/litert/c/litert_common.h"
 #include "tensorflow/lite/experimental/litert/c/litert_model.h"
 #include "tensorflow/lite/experimental/litert/c/litert_op_code.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_model.h"
@@ -43,22 +46,28 @@ TEST(TestPartitionsFromFlatList, SimpleMultiOp) {
   //   return 3
 
   {
-    std::vector<LiteRtOp> partition;
-    partition.push_back(ops.at(1).Get());
-    partition.push_back(ops.at(2).Get());
+    std::vector<LiteRtOp> selected_ops;
+    selected_ops.push_back(ops.at(1).Get());
+    selected_ops.push_back(ops.at(2).Get());
+    std::vector<LiteRtPartitionIndex> partition_indices = {0, 0};
+    std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>
+        partition = std::make_pair(selected_ops, partition_indices);
 
     auto partitions = GroupPartitions(partition);
     ASSERT_EQ(partitions.size(), 1);
     ASSERT_EQ(partitions.front().size(), 2);
 
-    EXPECT_EQ(partitions.front().at(0), partition.at(0));
-    EXPECT_EQ(partitions.front().at(1), partition.at(1));
+    EXPECT_EQ(partitions.front().at(0), selected_ops.at(0));
+    EXPECT_EQ(partitions.front().at(1), selected_ops.at(1));
   }
 
   {
-    std::vector<LiteRtOp> partition;
-    partition.push_back(ops.at(1).Get());
-    partition.push_back(ops.at(3).Get());
+    std::vector<LiteRtOp> selected_ops;
+    selected_ops.push_back(ops.at(1).Get());
+    selected_ops.push_back(ops.at(3).Get());
+    std::vector<LiteRtPartitionIndex> partition_indices = {0, 0};
+    std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>
+        partition = std::make_pair(selected_ops, partition_indices);
 
     auto partitions = GroupPartitions(partition);
     ASSERT_EQ(partitions.size(), 2);
@@ -75,27 +84,33 @@ TEST(TestPartitionsFromFlatList, SimpleMultiOp) {
   }
 
   {
-    std::vector<LiteRtOp> partition;
+    std::vector<LiteRtOp> selected_ops;
+    std::vector<LiteRtPartitionIndex> partition_indices;
+    std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>
+        partition = std::make_pair(selected_ops, partition_indices);
 
     auto partitions = GroupPartitions(partition);
     ASSERT_EQ(partitions.size(), 0);
   }
 
   {
-    std::vector<LiteRtOp> partition;
-    partition.push_back(ops.at(0).Get());
-    partition.push_back(ops.at(1).Get());
-    partition.push_back(ops.at(2).Get());
-    partition.push_back(ops.at(3).Get());
+    std::vector<LiteRtOp> selected_ops;
+    selected_ops.push_back(ops.at(0).Get());
+    selected_ops.push_back(ops.at(1).Get());
+    selected_ops.push_back(ops.at(2).Get());
+    selected_ops.push_back(ops.at(3).Get());
+    std::vector<LiteRtPartitionIndex> partition_indices = {0, 0, 0, 0};
+    std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>
+        partition = std::make_pair(selected_ops, partition_indices);
 
     auto partitions = GroupPartitions(partition);
     ASSERT_EQ(partitions.size(), 1);
     ASSERT_EQ(partitions.front().size(), 4);
 
-    EXPECT_EQ(partitions.front().at(0), partition.at(0));
-    EXPECT_EQ(partitions.front().at(1), partition.at(1));
-    EXPECT_EQ(partitions.front().at(2), partition.at(2));
-    EXPECT_EQ(partitions.front().at(3), partition.at(3));
+    EXPECT_EQ(partitions.front().at(0), selected_ops.at(0));
+    EXPECT_EQ(partitions.front().at(1), selected_ops.at(1));
+    EXPECT_EQ(partitions.front().at(2), selected_ops.at(2));
+    EXPECT_EQ(partitions.front().at(3), selected_ops.at(3));
   }
 }
 
@@ -239,6 +254,69 @@ TEST(TestSliceSubgraphSimpleMultiOp, TwoPartitions) {
     ASSERT_EQ(sliced_ops.size(), 2);
     ASSERT_EQ(sliced_ops.at(0).Code(), kLiteRtOpCodeTflMul);
     ASSERT_EQ(sliced_ops.at(1).Code(), kLiteRtOpCodeTflAdd);
+  }
+}
+
+TEST(TestSliceSubgraphSimpleMultiOp, PartitionWithIndex) {
+  auto model = litert::testing::LoadTestFileModel("simple_multi_op.tflite");
+  auto subgraph = model.MainSubgraph();
+  EXPECT_TRUE(subgraph);
+
+  auto ops = subgraph->Ops();
+
+  // func.func @main(arg0)
+  //   0 = tfl.add arg0, arg0
+  //   1 = tfl.mul 0, 0
+  //   2 = tfl.mul 1, 1
+  //   3 = tfl.add 2, 2
+  //   return 3
+
+  {
+    std::vector<LiteRtOp> selected_ops;
+    selected_ops.push_back(ops.at(1).Get());
+    selected_ops.push_back(ops.at(2).Get());
+    std::vector<LiteRtPartitionIndex> partition_indices = {0, 1};
+    std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>
+        partition = std::make_pair(selected_ops, partition_indices);
+
+    auto partitions = GroupPartitions(partition);
+    ASSERT_EQ(partitions.size(), 2);
+    ASSERT_EQ(partitions.front().size(), 1);
+    ASSERT_EQ(partitions.back().size(), 1);
+
+    absl::flat_hash_set<LiteRtOp> ops_in_partition;
+    for (int i = 0; i < partitions.size(); ++i) {
+      for (const auto& op : partitions.at(i)) {
+        ops_in_partition.insert(op);
+      }
+    }
+    for (int i = 0; i < partitions.size(); ++i) {
+      EXPECT_TRUE(ops_in_partition.contains(selected_ops.at(i)));
+    }
+  }
+
+  {
+    std::vector<LiteRtOp> selected_ops;
+    selected_ops.push_back(ops.at(0).Get());
+    selected_ops.push_back(ops.at(1).Get());
+    selected_ops.push_back(ops.at(2).Get());
+    selected_ops.push_back(ops.at(3).Get());
+    std::vector<LiteRtPartitionIndex> partition_indices = {1, 2, 3, 4};
+    std::pair<std::vector<LiteRtOp>, std::vector<LiteRtPartitionIndex>>
+        partition = std::make_pair(selected_ops, partition_indices);
+
+    auto partitions = GroupPartitions(partition);
+    ASSERT_EQ(partitions.size(), 4);
+
+    absl::flat_hash_set<LiteRtOp> ops_in_partition;
+    for (int i = 0; i < partitions.size(); ++i) {
+      for (const auto& op : partitions.at(i)) {
+        ops_in_partition.insert(op);
+      }
+    }
+    for (int i = 0; i < partitions.size(); ++i) {
+      EXPECT_TRUE(ops_in_partition.contains(selected_ops.at(i)));
+    }
   }
 }
 
