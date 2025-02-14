@@ -556,7 +556,13 @@ tf_gen_op_strict_wrapper_private_py(
 
 tf_gen_op_strict_wrapper_private_py(
     name = "list_ops_gen",
-    visibility = visibility + ["//tensorflow/dtensor:dtensor-internal"],
+    # copybara:uncomment_begin(google-only)
+    # visibility = visibility + ["//tensorflow/dtensor:dtensor-internal"],
+    # copybara:uncomment_end_and_comment_begin
+    visibility = [
+        "//visibility:public",
+    ],
+    # copybara:comment_end
 )
 
 tf_gen_op_strict_wrapper_private_py(
@@ -817,6 +823,7 @@ py_strict_library(
 py_strict_library(
     name = "array_ops_stack",
     srcs = ["array_ops_stack.py"],
+    visibility = ["//visibility:public"],
     deps = [
         ":array_ops_gen",
         "//tensorflow/python/framework:ops",
@@ -1132,6 +1139,7 @@ py_strict_library(
 py_strict_library(
     name = "control_flow_ops",
     srcs = ["control_flow_ops.py"],
+    visibility = ["//visibility:public"],
     deps = [
         ":array_ops",
         ":array_ops_gen",
@@ -1837,6 +1845,7 @@ py_strict_library(
 py_strict_library(
     name = "linalg_ops",
     srcs = ["linalg_ops.py"],
+    visibility = ["//visibility:public"],
     deps = [
         ":array_ops",
         ":array_ops_gen",
@@ -2002,6 +2011,7 @@ py_strict_library(
         "math_ops.py",
         "tensor_math_operator_overrides.py",
     ],
+    visibility = ["//visibility:public"],
     deps = [
         ":array_ops",
         ":array_ops_gen",
@@ -2075,6 +2085,7 @@ py_strict_library(
 py_strict_library(
     name = "list_ops",
     srcs = ["list_ops.py"],
+    visibility = ["//visibility:public"],
     deps = [
         ":array_ops",
         ":handle_data_util",
@@ -2368,6 +2379,7 @@ py_strict_library(
 py_strict_library(
     name = "rnn",
     srcs = ["rnn.py"],
+    visibility = ["//visibility:public"],
     deps = [
         ":array_ops",
         ":array_ops_stack",
@@ -2834,6 +2846,7 @@ py_strict_library(
 py_strict_library(
     name = "string_ops",
     srcs = ["string_ops.py"],
+    visibility = ["//visibility:public"],
     deps = [
         ":array_ops",
         ":math_ops",
