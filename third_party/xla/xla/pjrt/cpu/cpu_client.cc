@@ -1677,6 +1677,14 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtCpuExecutable::ExecuteHelper(
       // last enqueue event.
       client_->SetLastEnqueueEvent(execute_event.CopyRef());
     }
+    // Register an async execution. `scoped_async_execution.reset()` must be
+    // called before setting the execution event. Otherwise, a race condition or
+    // memory leak of a poison error status may occur if the user requests
+    // execution poisoning.
+    auto scoped_async_execution =
+        device->async_execution_tracker()->NewAsyncExecution(
+            run_id.ToInt(), execute_event.CopyRef());
+
     std::vector<tsl::RCReference<tsl::AsyncValue>> input_deps_avs_copy =
         CopyAsyncValues(input_deps);
     EnqueueWorkWhenReady(
@@ -1693,6 +1701,7 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtCpuExecutable::ExecuteHelper(
          tuplized_arg = std::move(tuplized_arg),
          donation_transactions = std::move(donation_transactions),
          execute_event = std::move(ready_on_exit).Release(),
+         scoped_async_execution = std::move(scoped_async_execution),
          input_deps_avs = std::move(input_deps_avs_copy),
          eigen_device = client()->eigen_intraop_device()]() mutable {
           // Because `input_deps` contains the definition events of all inputs,
@@ -1704,8 +1713,11 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtCpuExecutable::ExecuteHelper(
 
           for (const auto& av : input_deps_avs) {
             if (auto* error = av->GetErrorIfPresent()) {
-              execute_event.SetError(Internal(
-                  "Error dispatching computation: %s", error->message()));
+              scoped_async_execution.reset();
+              if (execute_event.IsUnavailable()) {
+                execute_event.SetError(Internal(
+                    "Error dispatching computation: %s", error->message()));
+              }
               return;
             }
           }
@@ -1721,9 +1733,12 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtCpuExecutable::ExecuteHelper(
           for (const auto& buffer_info : buffer_table) {
             CHECK(buffer_info.buffer.IsAvailable());
             if (buffer_info.buffer.IsError()) {
-              execute_event.SetError(
-                  Internal("Error preparing computation: %s",
-                           buffer_info.buffer.GetError().message()));
+              scoped_async_execution.reset();
+              if (execute_event.IsUnavailable()) {
+                execute_event.SetError(
+                    Internal("Error preparing computation: %s",
+                             buffer_info.buffer.GetError().message()));
+              }
               return;
             }
             buffer_pointers.push_back(buffer_info.buffer->data());
@@ -1799,14 +1814,16 @@ absl::StatusOr<PjRtLoadedExecutable::Result> TfrtCpuExecutable::ExecuteHelper(
             std::move(donation_transaction).Commit();
           }
 
-          if (!status.ok()) {
-            // CPU computation fails with an error.
-            execute_event.SetError(std::move(status));
-            return;
+          scoped_async_execution.reset();
+          if (execute_event.IsUnavailable()) {
+            if (status.ok()) {
+              // CPU computation completes.
+              execute_event.SetStateConcrete();
+            } else {
+              // CPU computation fails with an error.
+              execute_event.SetError(std::move(status));
+            }
           }
-
-          // CPU computation completes.
-          execute_event.SetStateConcrete();
         });
   }
 
