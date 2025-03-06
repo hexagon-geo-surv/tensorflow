@@ -308,7 +308,7 @@ cc_library(
         "//tensorflow/lite/c:c_api_types",
         "//tensorflow/lite/c:common",
         "//tensorflow/lite/delegates/utils:simple_opaque_delegate",
-        "//tensorflow/lite/experimental/litert/c:litert_environment",
+        "//tensorflow/lite/experimental/litert/core:environment",
         "//tensorflow/lite/experimental/litert/runtime/dispatch:dispatch_delegate",
     ],
 )
@@ -523,9 +523,10 @@ cc_library(
     srcs = ["litert_shared_library.cc"],
     hdrs = ["litert_shared_library.h"],
     deps = [
+        ":litert_expected",
+        ":litert_macros",
         "//tensorflow/lite/experimental/litert/c:litert_common",
-        "//tensorflow/lite/experimental/litert/cc:litert_expected",
-        "//tensorflow/lite/experimental/litert/cc:litert_macros",
+        "//tensorflow/lite/experimental/litert/c:litert_logging",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
     ],
