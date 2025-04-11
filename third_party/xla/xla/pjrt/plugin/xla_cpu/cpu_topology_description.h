@@ -19,6 +19,7 @@ limitations under the License.
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -36,11 +37,23 @@ namespace xla {
 
 class CpuTopologyDescription : public PjRtTopologyDescription {
  public:
+  // Requires DeviceT to be a subclass of PjRtDevice.
+  template <typename DeviceT,
+            typename = std::enable_if_t<std::is_base_of_v<PjRtDevice, DeviceT>>>
   static CpuTopologyDescription Create(
       PjRtPlatformId platform_id, absl::string_view platform_name,
       absl::string_view platform_version,
-      absl::Span<const std::unique_ptr<PjRtDevice>> devices,
-      absl::Span<const std::string> machine_attributes);
+      absl::Span<const std::unique_ptr<DeviceT>> devices,
+      absl::Span<const std::string> machine_attributes) {
+    std::vector<CpuTopology::CpuDevice> cpu_devices;
+    cpu_devices.reserve(devices.size());
+    for (const auto& device : devices) {
+      cpu_devices.push_back(CpuTopology::CpuDevice{
+          device->process_index(), device->local_hardware_id().value()});
+    }
+    return CpuTopologyDescription(platform_id, platform_name, platform_version,
+                                  cpu_devices, machine_attributes);
+  }
 
   // `cpu_device_ids` is the list of logical device ids for the CPU devices and
   // will be used to initialize the CPU topology.
