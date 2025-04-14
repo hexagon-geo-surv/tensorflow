@@ -900,10 +900,18 @@ GemmFusionAutotunerImpl::GenerateTritonConfigs(const HloDotInstruction& dot) {
             << search_space.ToString();
     // We don't need to consider small_dot here. The new search space will
     // already generate a unique config for small problems.
-    return search_space.GenerateConfigs(
+    std::vector<TritonGemmConfig> configs = search_space.GenerateConfigs(
         /*force_contracting_split=*/autotune_contracting_split
             ? std::nullopt
             : std::make_optional(1));
+
+    if (!debug_options_.xla_gpu_exhaustive_tiling_search()) {
+      VLOG(1) << "Restricting configs to the default set.";
+      configs = search_space.OptimizeConfigsForCompilationPerformance(
+          configs, /*hints=*/GetDefaultTritonConfigs());
+    }
+
+    return configs;
   }
 
   // Retrieve the minimum bit-width participating in the dot. This is needed
