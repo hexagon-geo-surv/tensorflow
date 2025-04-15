@@ -107,6 +107,7 @@ cc_library(
         "//tensorflow/compiler/tf2xla/kernels:xla_ops",
         "//tensorflow/compiler/tf2xla/kernels:xla_dummy_ops",
         "@local_xla//xla/service:gpu_plugin",
+        "@local_xla//xla/backends/gpu/runtime:thunk_runtime_dependencies",  # buildcleaner: keep
         "//tensorflow/core/tfrt/common:pjrt_gpu_client_registration",
     ]) + if_cuda([
         "@local_xla//xla/stream_executor/cuda:all_runtime",  # buildcleaner: keep
@@ -181,6 +182,7 @@ cc_library(
     ] + if_libtpu(
         if_false = [
             "@local_xla//xla/service:gpu_plugin",  # buildcleaner: keep
+            "@local_xla//xla/backends/gpu/runtime:thunk_runtime_dependencies",  # buildcleaner: keep
         ],
         if_true = [],
     ),

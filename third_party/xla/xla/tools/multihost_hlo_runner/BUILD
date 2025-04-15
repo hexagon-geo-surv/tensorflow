@@ -62,6 +62,7 @@ cc_library(
         "@local_tsl//tsl/platform:statusor",
     ] + if_cuda_or_rocm([
         "//xla/service:gpu_plugin",
+        "//xla/backends/gpu/runtime:thunk_runtime_dependencies",
         "//xla/backends/profiler/gpu:cupti_tracer",
         "//xla/backends/profiler/gpu:device_tracer",
     ]) + if_cuda([
