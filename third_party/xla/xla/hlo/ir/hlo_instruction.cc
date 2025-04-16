@@ -5254,7 +5254,8 @@ std::string ConvolutionDimensionNumbersToString(
 absl::StatusOr<RandomAlgorithm> StringToRandomAlgorithm(
     const std::string& name) {
   static absl::flat_hash_map<std::string, RandomAlgorithm>* map = [] {
-    static auto* map = new absl::flat_hash_map<std::string, RandomAlgorithm>;
+    static auto* const map =
+        new absl::flat_hash_map<std::string, RandomAlgorithm>;
     for (int i = 0; i < RandomAlgorithm_ARRAYSIZE; i++) {
       if (RandomAlgorithm_IsValid(i)) {
         auto value = static_cast<RandomAlgorithm>(i);
@@ -5273,7 +5274,8 @@ absl::StatusOr<RandomAlgorithm> StringToRandomAlgorithm(
 absl::StatusOr<RandomDistribution> StringToRandomDistribution(
     const std::string& name) {
   static absl::flat_hash_map<std::string, RandomDistribution>* map = [] {
-    static auto* map = new absl::flat_hash_map<std::string, RandomDistribution>;
+    static auto* const map =
+        new absl::flat_hash_map<std::string, RandomDistribution>;
     for (int i = 0; i < RandomDistribution_ARRAYSIZE; i++) {
       if (RandomDistribution_IsValid(i)) {
         auto value = static_cast<RandomDistribution>(i);
@@ -5293,7 +5295,7 @@ absl::StatusOr<PrecisionConfig::Precision> StringToPrecision(
     const std::string& name) {
   static absl::flat_hash_map<std::string, PrecisionConfig::Precision>* map =
       [] {
-        static auto* map =
+        static auto* const map =
             new absl::flat_hash_map<std::string, PrecisionConfig::Precision>;
         for (int i = 0; i < PrecisionConfig::Precision_ARRAYSIZE; i++) {
           if (PrecisionConfig::Precision_IsValid(i)) {
@@ -5334,7 +5336,7 @@ absl::StatusOr<PrecisionConfig::Algorithm> StringToAlgorithm(
     const std::string& name) {
   static absl::flat_hash_map<std::string, PrecisionConfig::Algorithm>* map =
       [] {
-        static auto* map =
+        static auto* const map =
             new absl::flat_hash_map<std::string, PrecisionConfig::Algorithm>;
         for (int i = 0; i < PrecisionConfig::Algorithm_ARRAYSIZE; i++) {
           if (PrecisionConfig::Algorithm_IsValid(i)) {
@@ -5354,7 +5356,8 @@ absl::StatusOr<PrecisionConfig::Algorithm> StringToAlgorithm(
 absl::StatusOr<CustomCallSchedule> StringToCustomCallSchedule(
     absl::string_view name) {
   static const absl::flat_hash_map<std::string, CustomCallSchedule>* map = [] {
-    static auto* map = new absl::flat_hash_map<std::string, CustomCallSchedule>;
+    static auto* const map =
+        new absl::flat_hash_map<std::string, CustomCallSchedule>;
     for (int i = 0; i < CustomCallSchedule_ARRAYSIZE; i++) {
       if (CustomCallSchedule_IsValid(i)) {
         auto value = static_cast<CustomCallSchedule>(i);
@@ -5374,7 +5377,7 @@ absl::StatusOr<CustomCallApiVersion> StringToCustomCallApiVersion(
     absl::string_view name) {
   static const absl::flat_hash_map<std::string, CustomCallApiVersion>* map =
       [] {
-        static auto* map =
+        static auto* const map =
             new absl::flat_hash_map<std::string, CustomCallApiVersion>;
         for (int i = 0; i < CustomCallApiVersion_ARRAYSIZE; i++) {
           if (CustomCallApiVersion_IsValid(i)) {
