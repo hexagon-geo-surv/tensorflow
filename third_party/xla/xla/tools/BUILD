@@ -1026,11 +1026,12 @@ xla_test(
 xla_test(
     name = "hlo_decomposer_test",
     srcs = ["hlo_decomposer_test.cc"],
+    tags = ["test_migrated_to_hlo_runner_pjrt"],
     deps = [
         ":hlo_decomposer_lib",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/testlib:filecheck",
-        "//xla/tests:hlo_test_base",
+        "//xla/tests:hlo_pjrt_test_base",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",

@@ -25,7 +25,8 @@ limitations under the License.
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/tests/client_library_test_runner_mixin.h"
-#include "xla/tests/hlo_test_base.h"
+#include "xla/tests/hlo_pjrt_interpreter_reference_mixin.h"
+#include "xla/tests/hlo_pjrt_test_base.h"
 #include "xla/tests/test_macros.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/test.h"
@@ -34,7 +35,8 @@ limitations under the License.
 namespace xla {
 namespace {
 
-class CallOpTest : public ClientLibraryTestRunnerMixin<HloTestBase> {
+class CallOpTest : public ClientLibraryTestRunnerMixin<
+                       HloPjRtInterpreterReferenceMixin<HloPjRtTestBase>> {
  protected:
   XlaComputation CreateR0F32IdentityComputation() {
     XlaBuilder builder("Identity");

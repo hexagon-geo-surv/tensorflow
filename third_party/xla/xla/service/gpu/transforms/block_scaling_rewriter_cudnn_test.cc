@@ -16,14 +16,14 @@ limitations under the License.
 #include <gtest/gtest.h>
 #include "absl/strings/string_view.h"
 #include "xla/service/gpu/transforms/block_scaling_rewriter.h"
-#include "xla/tests/hlo_test_base.h"
+#include "xla/tests/hlo_pjrt_test_base.h"
 #include "tsl/platform/status_matchers.h"
 
 namespace xla::gpu {
 namespace {
 
 using ::tsl::testing::IsOkAndHolds;
-using BlockScalingRewriterCudnnTest = HloTestBase;
+using BlockScalingRewriterCudnnTest = HloPjRtTestBase;
 
 TEST_F(BlockScalingRewriterCudnnTest, Mxfp8) {
   constexpr absl::string_view hlo_string = R"(

@@ -28,7 +28,7 @@ limitations under the License.
 #include "xla/stream_executor/platform_manager.h"
 #include "xla/stream_executor/stream.h"
 #include "xla/stream_executor/stream_executor_memory_allocator.h"
-#include "xla/tests/hlo_test_base.h"
+#include "xla/tests/hlo_pjrt_test_base.h"
 #include "tsl/platform/status_matchers.h"
 #include "tsl/platform/statusor.h"
 #include "tsl/platform/test.h"
@@ -65,7 +65,7 @@ class IterationLoggerThunk : public Thunk {
 
 // Non-known trip count while thunks are difficult to unit test, so we only have
 // a unit test for the known trip count case.
-class KnownTripCountWhileThunkTest : public HloTestBase {
+class KnownTripCountWhileThunkTest : public HloPjRtTestBase {
  protected:
   absl::StatusOr<const HloInstruction*> CreateFakeWhileInstruction() {
     constexpr absl::string_view kDummyModule = R"(

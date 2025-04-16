@@ -27,7 +27,7 @@ limitations under the License.
 #include "xla/literal.h"
 #include "xla/literal_util.h"
 #include "xla/shape.h"
-#include "xla/tests/hlo_test_base.h"
+#include "xla/tests/hlo_pjrt_test_base.h"
 #include "xla/tests/literal_test_util.h"
 #include "tsl/platform/status.h"
 #include "tsl/platform/statusor.h"
@@ -36,7 +36,7 @@ limitations under the License.
 namespace xla {
 namespace {
 
-using ConcatenateTest = HloTestBase;
+using ConcatenateTest = HloPjRtTestBase;
 
 TEST_F(ConcatenateTest, TwoR3Axis1) {
   const std::string hlo_text_module = R"(

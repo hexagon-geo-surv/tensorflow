@@ -359,6 +359,7 @@ xla_test(
         "gpu_b200",
         "gpu_amd_any",
     ],
+    tags = ["test_migrated_to_hlo_runner_pjrt"],
     deps = [
         ":command_buffer_cmd",
         ":command_buffer_thunk",
@@ -395,6 +396,8 @@ xla_test(
         "//xla/stream_executor/gpu:gpu_test_kernels",
         "//xla/stream_executor/gpu:gpu_test_kernels_fatbin",
         "//xla/stream_executor/gpu:gpu_types_header",
+        "//xla/tests:hlo_pjrt_interpreter_reference_mixin",
+        "//xla/tests:hlo_pjrt_test_base",
         "//xla/tests:hlo_test_base",
         "//xla/tsl/lib/core:status_test_util",
         "//xla/tsl/platform:statusor",
@@ -1283,6 +1286,7 @@ xla_test(
     name = "while_thunk_test",
     srcs = ["while_thunk_test.cc"],
     backends = ["gpu"],
+    tags = ["test_migrated_to_hlo_runner_pjrt"],
     deps = [
         ":thunk",
         ":while_thunk",
@@ -1293,7 +1297,7 @@ xla_test(
         "//xla/stream_executor:platform_manager",
         "//xla/stream_executor:stream",
         "//xla/stream_executor:stream_executor_memory_allocator",
-        "//xla/tests:hlo_test_base",
+        "//xla/tests:hlo_pjrt_test_base",
         "@com_google_absl//absl/status:statusor",
         "@com_google_googletest//:gtest_main",
         "@local_tsl//tsl/platform:status_matchers",

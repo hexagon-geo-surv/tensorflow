@@ -25,7 +25,7 @@ limitations under the License.
 #include "xla/primitive_util.h"
 #include "xla/stream_executor/device_memory.h"
 #include "xla/stream_executor/stream.h"
-#include "xla/tests/hlo_test_base.h"
+#include "xla/tests/hlo_pjrt_test_base.h"
 #include "tsl/platform/test.h"
 
 namespace xla {
@@ -38,7 +38,7 @@ static constexpr char kPlatform[] = "CUDA";
 static constexpr char kPlatform[] = "ROCM";
 #endif
 
-class DynamicSliceFusionTest : public HloTestBase {};
+class DynamicSliceFusionTest : public HloPjRtTestBase {};
 
 TEST_F(DynamicSliceFusionTest, GemmSlice) {
   const char* hlo_reference = R"(

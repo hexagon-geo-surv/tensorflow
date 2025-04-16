@@ -31,7 +31,7 @@ limitations under the License.
 #include "xla/service/gpu/autotuning/autotuner_util.h"
 #include "xla/service/platform_util.h"
 #include "xla/stream_executor/platform.h"
-#include "xla/tests/hlo_test_base.h"
+#include "xla/tests/hlo_pjrt_test_base.h"
 #include "xla/tsl/lib/core/status_test_util.h"
 #include "xla/xla.pb.h"
 #include "xla/xla_data.pb.h"
@@ -41,11 +41,11 @@ namespace xla::gpu {
 namespace {
 
 class TritonFusionNumericsVerifierTest
-    : public HloTestBase,
+    : public HloPjRtTestBase,
       public ::testing::WithParamInterface<PrimitiveType> {
  public:
   DebugOptions GetDebugOptionsForTest() const override {
-    auto options = HloTestBase::GetDebugOptionsForTest();
+    auto options = HloPjRtTestBase::GetDebugOptionsForTest();
     options.set_xla_gpu_verify_triton_fusion_numerics(true);
     return options;
   }
