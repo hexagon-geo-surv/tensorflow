@@ -1113,12 +1113,12 @@ std::pair<double, std::vector<NodeStrategyIdx>> _OptimizeOverPath(
       }
     }
   }
-  return std::make_pair(best_cost, best_strategy);
+  return {best_cost, best_strategy};
 }
 
 // A wrapper function for `_OptimizeOverPath`, which is a recursive
 // function to find the best sharding strategies for the path.
-std::vector<NodeStrategyIdx> OptimizeOverPath(
+std::pair<double, std::vector<NodeStrategyIdx>> OptimizeOverPath(
     const AutoShardingSolverRequest& request, const std::vector<NodeIdx>& path,
     std::vector<NodeStrategyIdx>& node_strategies,
     const std::pair<EdgeAdjacency, EdgeAdjacency>& adjacency) {
@@ -1129,7 +1129,9 @@ std::vector<NodeStrategyIdx> OptimizeOverPath(
   std::vector<EdgeIdx> edges_within_path =
       GetEdgesWithinPath(request, path, /*outward_edges=*/adjacency.first);
 
-  auto [_, best_path_strategies] =
+  double original_path_cost = CostOverPath(request, adjacency, path,
+                                           edges_within_path, node_strategies);
+  auto [new_path_cost, best_path_strategies] =
       _OptimizeOverPath(request, path, edges_within_path, node_strategies,
                         adjacency, path.size());
 
@@ -1138,7 +1140,7 @@ std::vector<NodeStrategyIdx> OptimizeOverPath(
   for (int i = 0; i < path.size(); ++i) {
     node_strategies[path[i]] = old_strategies[i];
   }
-  return best_path_strategies;
+  return {new_path_cost - original_path_cost, best_path_strategies};
 }
 
 // Check if a path's new configuration satisfies the memory constraints.
@@ -1295,9 +1297,12 @@ AutoShardingSolverOutput SolveGreedy(const AutoShardingSolverRequest& request,
 // It has two `memory_mode` options for how it handles peak-memory constraints:
 // - "inactive": ignores peak-memory constraints
 // - "active": treats the peak-memory usage as a hard constraint
+// `minimum_progress` in [0, 1] is a threshold for the relative cost decrease
+// (out of the previous cost) to continue iterations.
 AutoShardingSolverOutput SolveRandomPathGreedy(
     const AutoShardingSolverRequest& request, const int path_length,
-    const int num_trials, const std::string& memory_mode) {
+    const int num_trials, const double minimum_progress,
+    const std::string& memory_mode) {
   std::mt19937_64 rng(0);
   if (memory_mode != "inactive" && memory_mode != "active") {
     CHECK(false) << absl::Substitute("Memory mode $0 is not implemented.",
@@ -1316,13 +1321,17 @@ AutoShardingSolverOutput SolveRandomPathGreedy(
     memory_slack = TrackMemorySlack(request, node_strategies);
   }
 
+  bool infinite_initial_cost = true;
+  double reference_cost, current_cost;
+  int timestamp_for_initialization;
+  int progress_check_period = static_cast<int>(std::floor(num_trials * 0.05));
   for (int trial = 0; trial < num_trials; ++trial) {
     std::vector<NodeIdx> path =
         SamplePath(request, adjacency.first, path_length, rng);
     if (path.size() != path_length + 1) {
       continue;
     }
-    const std::vector<NodeStrategyIdx> new_path_strategies =
+    const auto [cost_progress, new_path_strategies] =
         OptimizeOverPath(request, path, node_strategies, adjacency);
 
     if (memory_mode == "inactive") {
@@ -1330,36 +1339,52 @@ AutoShardingSolverOutput SolveRandomPathGreedy(
         node_strategies[path[i]] = new_path_strategies[i];
       }
     } else if (memory_mode == "active") {
+      // Check: early stopping.
+      if (!infinite_initial_cost &&
+          trial % progress_check_period == timestamp_for_initialization) {
+        if (1.0 - current_cost / reference_cost <= minimum_progress) {
+          break;
+        }
+        reference_cost = current_cost;
+      }
       // Check: the new strategy over the path is different from the old one.
-      bool better_sharding = false;
-      for (int i = 0; i < path.size(); ++i) {
-        if (node_strategies[path[i]] != new_path_strategies[i]) {
-          better_sharding = true;
+      if (cost_progress >= 0.0) {
+        continue;
+      }
+
+      // Check: the new strategy satisfies the memory constraints.
+      const auto new_memory_slack_at_times =
+          GetNewMemorySlack(request, path, new_path_strategies, node_strategies,
+                            node_to_active_times, memory_slack);
+      bool memory_feasible = true;
+      for (const auto& [time_step, new_slack] : new_memory_slack_at_times) {
+        if (new_slack < 0.0) {
+          memory_feasible = false;
           break;
         }
       }
-
-      if (better_sharding) {
-        // Check: the new strategy satisfies the memory constraints.
-        const auto new_memory_slack_at_times = GetNewMemorySlack(
-            request, path, new_path_strategies, node_strategies,
-            node_to_active_times, memory_slack);
-        bool memory_feasible = true;
+      // If feasible, update the sharding strategies and memory slack.
+      if (memory_feasible) {
         for (const auto& [time_step, new_slack] : new_memory_slack_at_times) {
-          if (new_slack < 0.0) {
-            memory_feasible = false;
-            break;
-          }
+          memory_slack[time_step] = new_slack;
         }
-        // If feasible, update the sharding strategies and memory slack.
-        if (memory_feasible) {
-          for (const auto& [time_step, new_slack] : new_memory_slack_at_times) {
-            memory_slack[time_step] = new_slack;
-          }
-          for (int i = 0; i < path.size(); ++i) {
-            node_strategies[path[i]] = new_path_strategies[i];
-          }
+        for (int i = 0; i < path.size(); ++i) {
+          node_strategies[path[i]] = new_path_strategies[i];
         }
+      }
+
+      // Update the current cost.
+      if (!infinite_initial_cost) {
+        current_cost += cost_progress;
+      }
+    }
+
+    if (infinite_initial_cost) {
+      reference_cost = ComputeShardingStrategyCost(request, node_strategies);
+      if (reference_cost >= 0.0) {
+        current_cost = reference_cost;
+        timestamp_for_initialization = trial;
+        infinite_initial_cost = false;
       }
     }
   }
@@ -1385,9 +1410,11 @@ absl::StatusOr<AutoShardingSolverOutput> RunHeuristicSolver(
   } else if (algorithm == "greedy-node-memory") {
     output = SolveGreedy(request, "node-memory");
   } else if (algorithm == "random-path-greedy") {
-    output =
-        SolveRandomPathGreedy(request, /*path_length=*/2,
-                              /*num_trials=*/100000, /*memory_mode=*/"active");
+    output = SolveRandomPathGreedy(
+        request, /*path_length=*/1,
+        /*num_trials=*/2 * request.edges_size() * log(request.edges_size()),
+        /*relative_progress_threshold=*/0.00,
+        /*memory_mode=*/"active");
   } else if (algorithm == "brkga") {
     output = SolveBrkga(request);
   } else {
