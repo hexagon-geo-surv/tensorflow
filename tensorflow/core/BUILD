@@ -360,6 +360,9 @@ cc_library(
 tf_cuda_library(
     name = "framework",
     hdrs = [
+        "@local_xla//xla/tsl/framework:allocator_hdrs",
+        "@local_xla//xla/tsl/framework:cancellation_hdrs",
+        "@local_xla//xla/tsl/framework:device_type.h",
         "//tensorflow/core/example:feature_util.h",
         "//tensorflow/core/framework:allocator.h",
         "//tensorflow/core/framework:allocator_registry.h",
@@ -434,10 +437,7 @@ tf_cuda_library(
         "//tensorflow/core/util:framework_srcs",
         "//tensorflow/core/util:memmapped_file_system_hdrs",
         "//tensorflow/core/util/sparse:framework_group",
-        "//tensorflow/lite/kernels/shim:tf_headers",
-        "@local_xla//xla/tsl/framework:allocator_hdrs",
-        "@local_xla//xla/tsl/framework:cancellation_hdrs",
-        "@local_xla//xla/tsl/framework:device_type.h",
+        # "//tensorflow/lite/kernels/shim:tf_headers",
     ] + if_mkl([
         "//tensorflow/core/util:mkl_util_hdrs",
     ]),
@@ -1498,9 +1498,9 @@ cc_library(
         "@local_xla//xla/service/gpu/model:hlo_op_profile_proto_cc_impl",
         "@local_xla//xla/stream_executor:device_description_proto_cc_impl",
         "@local_xla//xla/stream_executor/cuda:cuda_compute_capability_proto_cc_impl",
-        "//tensorflow/lite/toco:toco_flags_proto_cc_impl",
-        "//tensorflow/lite/toco:model_flags_proto_cc_impl",
-        "//tensorflow/lite/toco:types_proto_cc_impl",
+        # "//tensorflow/lite/toco:toco_flags_proto_cc_impl",
+        # "//tensorflow/lite/toco:model_flags_proto_cc_impl",
+        # "//tensorflow/lite/toco:types_proto_cc_impl",
     ] + tf_protos_grappler_impl() + tf_monitoring_framework_deps(),
     # Alwayslink causes a cc_binary to "always link" in the
     # srcs for a given cc_library, even if they are unreferenced, see:
