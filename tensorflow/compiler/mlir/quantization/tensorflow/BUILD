@@ -416,6 +416,7 @@ cc_library(
         "passes/tf_add_quantization_unit_loc.cc",
         "passes/tf_convert_fake_quant_to_qdq.cc",
         "passes/tf_prepare_lifting.cc",
+        "passes/tf_preprocess_op.cc",
     ],
     hdrs = [
         "passes/tf_passes.h",
@@ -423,10 +424,12 @@ cc_library(
     compatible_with = get_compatible_with_portable(),
     deps = [
         ":prepare_lifting_inc_gen",
+        ":preprocess_op_gen",
         ":quantization_options_proto_cc",
         ":remove_identity_op_pattern",
         "//tensorflow/compiler/mlir/quantization/common:attrs_and_constraints",
         "//tensorflow/compiler/mlir/quantization/common/ir:QuantOps",
+        "//tensorflow/compiler/mlir/quantization/common/quantization_lib",
         "//tensorflow/compiler/mlir/quantization/common/tf_quantization_lib:tf_quantization_config",
         "//tensorflow/compiler/mlir/quantization/stablehlo:quantization_config_proto_cc",
         "//tensorflow/compiler/mlir/quantization/tensorflow/cc:constant_fold",
@@ -443,6 +446,7 @@ cc_library(
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Pass",
         "@llvm-project//mlir:QuantOps",
+        "@llvm-project//mlir:Rewrite",
         "@llvm-project//mlir:Support",
         "@llvm-project//mlir:TransformUtils",
     ],

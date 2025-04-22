@@ -31,6 +31,10 @@ limitations under the License.
 namespace mlir {
 namespace quant {
 
+// Creates a pass that add QuantizationUnitLoc to quantizable layers.
+std::unique_ptr<OperationPass<func::FuncOp>>
+CreateTFAddQuantizationUnitLocPass();
+
 // Converts FakeQuant ops to quant.qcast and quant.dcast (QDQ) pairs.
 std::unique_ptr<OperationPass<func::FuncOp>>
 CreateTFConvertFakeQuantToQdqPass();
@@ -40,9 +44,13 @@ CreateTFConvertFakeQuantToQdqPass();
 std::unique_ptr<OperationPass<func::FuncOp>> CreateTFPrepareLiftingPass(
     tensorflow::quantization::OpSet target_opset);
 
-// Creates a pass that add QuantizationUnitLoc to quantizable layers.
-std::unique_ptr<OperationPass<func::FuncOp>>
-CreateTFAddQuantizationUnitLocPass();
+// Creates an instance of the PreprocessOp pass, which will perform op
+// preprocessing to allow multi-axis quantization, prior to quantization.
+std::unique_ptr<OperationPass<ModuleOp>> CreateTFPreprocessOpPass(
+    tensorflow::quantization::OpSet op_set,
+    tensorflow::quantization::QuantizationMethod::PresetMethod
+        quantization_method,
+    bool enable_per_channel_quantization);
 
 }  // namespace quant
 }  // namespace mlir
