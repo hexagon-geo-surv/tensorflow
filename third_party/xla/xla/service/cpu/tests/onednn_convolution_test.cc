@@ -17,6 +17,7 @@ limitations under the License.
 
 #include "absl/strings/str_replace.h"
 #include "xla/hlo/testlib/filecheck.h"
+#include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
 #include "xla/hlo/testlib/test.h"
 #include "xla/hlo/testlib/test_helpers.h"
 #include "xla/hlo/utils/hlo_matchers.h"
@@ -24,7 +25,6 @@ limitations under the License.
 #include "xla/service/cpu/onednn_contraction_rewriter.h"
 #include "xla/service/cpu/onednn_util.h"
 #include "xla/shape_util.h"
-#include "xla/tests/hlo_test_base.h"
 #include "xla/tests/test_macros.h"
 #include "tsl/platform/cpu_info.h"
 
@@ -33,11 +33,12 @@ namespace cpu {
 
 #if defined(INTEL_MKL)
 
-class ConvolutionTest : public HloTestBase,
+class ConvolutionTest : public HloHardwareIndependentTestBase,
                         public ::testing::WithParamInterface<PrimitiveType> {
  protected:
   DebugOptions GetDebugOptionsForTest() const override {
-    DebugOptions debug_options = HloTestBase::GetDebugOptionsForTest();
+    DebugOptions debug_options =
+        HloHardwareIndependentTestBase::GetDebugOptionsForTest();
     debug_options.set_xla_cpu_use_thunk_runtime(false);
     return debug_options;
   }

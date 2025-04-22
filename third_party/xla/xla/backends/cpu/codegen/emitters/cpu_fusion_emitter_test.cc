@@ -37,9 +37,11 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/testlib/filecheck.h"
+#include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
 #include "xla/service/buffer_assignment.h"
+#include "xla/service/buffer_value.h"
+#include "xla/service/cpu/cpu_executable.h"
 #include "xla/service/logical_buffer.h"
-#include "xla/tests/hlo_test_base.h"
 #include "xla/tsl/platform/statusor.h"
 
 namespace xla {
@@ -60,7 +62,7 @@ std::string MlirModuleToString(const mlir::ModuleOp& module) {
   return mlir_dump;
 }
 
-class CpuFusionEmitterTest : public HloTestBase {
+class CpuFusionEmitterTest : public HloHardwareIndependentTestBase {
  protected:
   CpuFusionEmitterTest() : mlir_context_(FusionCompiler::CreateContext()) {}
 
@@ -68,7 +70,9 @@ class CpuFusionEmitterTest : public HloTestBase {
       const HloModule& hlo) {
     return BufferAssigner::Run(
         &hlo, std::make_unique<DependencyHloOrdering>(&hlo),
-        backend().compiler()->BufferSizeBytesFunction(),
+        [](const BufferValue& buffer) {
+          return CpuExecutable::ShapeSizeBytes(buffer.shape());
+        },
         [](LogicalBuffer::Color) { return /*alignment=*/1; });
   }
 

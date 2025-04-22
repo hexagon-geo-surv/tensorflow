@@ -17,6 +17,7 @@ limitations under the License.
 
 #include "absl/strings/str_replace.h"
 #include "absl/strings/substitute.h"
+#include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
 #include "xla/hlo/testlib/pattern_matcher_gmock.h"
 #include "xla/hlo/testlib/test.h"
 #include "xla/hlo/testlib/test_helpers.h"
@@ -27,7 +28,6 @@ limitations under the License.
 #include "xla/service/cpu/onednn_util.h"
 #include "xla/service/pattern_matcher.h"
 #include "xla/shape_util.h"
-#include "xla/tests/hlo_test_base.h"
 #include "xla/tests/test_macros.h"
 
 namespace xla {
@@ -45,11 +45,12 @@ std::string TestParamsToString(
 }
 
 class OneDnnSoftmaxTest
-    : public HloTestBase,
+    : public HloHardwareIndependentTestBase,
       public ::testing::WithParamInterface<std::tuple<PrimitiveType, int>> {
  protected:
   DebugOptions GetDebugOptionsForTest() const override {
-    DebugOptions debug_options = HloTestBase::GetDebugOptionsForTest();
+    DebugOptions debug_options =
+        HloHardwareIndependentTestBase::GetDebugOptionsForTest();
     debug_options.set_xla_cpu_use_thunk_runtime(false);
     return debug_options;
   }

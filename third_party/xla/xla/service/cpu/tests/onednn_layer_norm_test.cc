@@ -13,19 +13,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
 #include "xla/hlo/testlib/test.h"
 #include "xla/service/cpu/onednn_util.h"
-#include "xla/tests/hlo_test_base.h"
 
 namespace xla {
 namespace {
 
 #if defined(INTEL_MKL)
 
-class LayerNormTest : public HloTestBase {
+class LayerNormTest : public HloHardwareIndependentTestBase {
  protected:
   DebugOptions GetDebugOptionsForTest() const override {
-    DebugOptions debug_options = HloTestBase::GetDebugOptionsForTest();
+    DebugOptions debug_options =
+        HloHardwareIndependentTestBase::GetDebugOptionsForTest();
     debug_options.set_xla_cpu_use_thunk_runtime(false);
     return debug_options;
   }
