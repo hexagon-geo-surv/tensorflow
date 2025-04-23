@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xla/service/hlo_runner_pjrt.h"
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -29,12 +30,15 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/escaping.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
 #include "xla/hlo/builder/xla_computation.h"
 #include "xla/hlo/ir/hlo_module.h"
+#include "xla/hlo/ir/hlo_print_options.h"
 #include "xla/layout.h"
 #include "xla/literal.h"
 #include "xla/literal_util.h"
@@ -55,6 +59,8 @@ limitations under the License.
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/threadpool.h"
 #include "xla/util.h"
+#include "tsl/platform/fingerprint.h"
+#include "tsl/platform/path.h"
 
 namespace xla {
 
@@ -816,6 +822,75 @@ bool HloRunnerPjRt::ExecutablesAreEquivalent(
     return false;
   }
   return *lhs_fingerprint == *rhs_fingerprint;
+}
+
+// Split-phase HloRunnerPjRt implementations:
+
+namespace {
+// HloModule has an implementation that takes an Fprint128 value and
+// reinterprets it as a char array. This might not be accurate because there's
+// no guarantee that the compiler doesn't add padding to the struct. This is
+// safer.
+std::array<char, 16> ToArray(const tsl::Fprint128& fprint) {
+  std::array<char, 16> result;
+  for (int i = 0; i < 8; ++i) {
+    result[i] = static_cast<char>((fprint.low64 >> (i * 8)) & 0xFF);
+    result[i + 8] = static_cast<char>((fprint.high64 >> (i * 8)) & 0xFF);
+  }
+  return result;
+}
+
+std::string MakeFilename(const HloModule& module, const bool run_hlo_passes) {
+  const tsl::Fprint128 module_fingerprint =
+      tsl::Fingerprint128(module.ToString(HloPrintOptions::Fingerprint()));
+  const tsl::Fprint128 run_hlo_passes_fingerprint =
+      tsl::Fingerprint128(run_hlo_passes ? "true" : "false");
+  const tsl::Fprint128 fingerprint =
+      tsl::FingerprintCat128(module_fingerprint, run_hlo_passes_fingerprint);
+  const std::array<char, 16> fingerprint_bytes = ToArray(fingerprint);
+  const absl::string_view fingerprint_bytes_view(fingerprint_bytes.data(),
+                                                 fingerprint_bytes.size());
+  return absl::StrCat(absl::BytesToHexString(fingerprint_bytes_view), ".bin");
+}
+}  // namespace
+
+absl::StatusOr<std::unique_ptr<OpaqueExecutable>>
+CompilePhaseHloRunnerPjRt::CreateExecutable(std::unique_ptr<HloModule> module,
+                                            const bool run_hlo_passes) {
+  const std::string filename =
+      tsl::io::JoinPath(artifact_dir_, MakeFilename(*module, run_hlo_passes));
+  TF_ASSIGN_OR_RETURN(
+      std::unique_ptr<OpaqueExecutable> wrapped_executable,
+      HloRunnerPjRt::CreateExecutable(std::move(module), run_hlo_passes));
+  TF_ASSIGN_OR_RETURN(
+      HloRunnerPjRtExecutable* const executable,
+      HloRunnerPjRtExecutable::TryUnwrap(*this, wrapped_executable.get()));
+
+  TF_ASSIGN_OR_RETURN(
+      const std::string serialized_executable,
+      executable->pjrt_loaded_executable()->SerializeExecutable());
+  TF_RETURN_IF_ERROR(tsl::WriteStringToFile(tsl::Env::Default(), filename,
+                                            serialized_executable));
+  return wrapped_executable;
+}
+
+absl::StatusOr<std::unique_ptr<OpaqueExecutable>>
+ExecutePhaseHloRunnerPjRt::CreateExecutable(std::unique_ptr<HloModule> module,
+                                            const bool run_hlo_passes) {
+  const std::string filename =
+      tsl::io::JoinPath(artifact_dir_, MakeFilename(*module, run_hlo_passes));
+  std::string serialized_executable;
+  if (const absl::Status status = tsl::ReadFileToString(
+          tsl::Env::Default(), filename, &serialized_executable);
+      !status.ok()) {
+    if (!compile_if_not_found_) {
+      return absl::NotFoundError(
+          absl::StrCat("Failed to read serialized executable. ", status));
+    }
+    LOG(INFO) << "Failed to read serialized executable. " << status;
+    return HloRunnerPjRt::CreateExecutable(std::move(module), run_hlo_passes);
+  }
+  return DeserializeExecutable(serialized_executable);
 }
 
 }  // namespace xla
