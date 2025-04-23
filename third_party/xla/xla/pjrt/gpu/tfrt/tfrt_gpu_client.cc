@@ -2195,6 +2195,73 @@ PjRtFuture<> TfrtGpuBuffer::GetReadyFuture() {
       });
 }
 
+absl::StatusOr<std::unique_ptr<PjRtBuffer>>
+TfrtGpuBuffer::DonateWithControlDependency(PjRtFuture<> dependency) {
+  // Acquire donation hold.
+  TF_ASSIGN_OR_RETURN(auto donation_transaction, AcquireDonation());
+  TrackedTfrtGpuDeviceBuffer* original_tracked_buffer =
+      donation_transaction.device_buffer();
+
+  // Check if the original buffer is valid.
+  if (original_tracked_buffer == nullptr) {
+    // Donation hold is released on destruction, return error.
+    return InvalidArgument(
+        "DonateWithControlDependency was called on a deleted or donated "
+        "buffer.");
+  }
+
+  // Get definition event and buffer data Async Values.
+  tsl::AsyncValueRef<MaybeOwningGpuMemory> buffer_data_av =
+      original_tracked_buffer->buffer();
+  tsl::AsyncValueRef<GpuEvent> original_def_event =
+      original_tracked_buffer->definition_event();
+
+  // This event becomes ready only when both original_def_event and dependency
+  // are ready.
+  auto combined_event = tsl::MakeConstructedAsyncValueRef<GpuEvent>();
+
+  // We would like to extract async values from the dependency future, but not
+  // sure if that is possible. For now, we first RunWhenReady on the
+  // original_def_event, checking on errors and inside this callback, we call
+  // OnReady on de dependency future to check it for errors.
+  tsl::RunWhenReady(
+      std::array{original_def_event.GetAsyncValue()},
+      [combined_event, original_def_event, dependency]() mutable {
+        // Check for error in original def event.
+        if (original_def_event.IsError()) {
+          combined_event.SetError(original_def_event.GetError());
+          return;
+        }
+        // Check for error in dependency. For this we do another callback.
+        dependency.OnReady([combined_event](absl::Status status) mutable {
+          if (!status.ok()) {
+            combined_event.SetError(status);
+            return;
+          }
+          // Dependency is ready, (and so is the original def event) so we can
+          // set the combined event ready.
+          combined_event.SetStateConcrete();
+        });
+      });
+
+  // Create new buffer with the combined event and underlying data from the
+  // original buffer.
+  auto new_tracked_buffer = std::make_unique<TrackedTfrtGpuDeviceBuffer>(
+      std::move(buffer_data_av), std::move(combined_event));
+
+  // Create the new PjRtBuffer wrapper.
+  auto new_pjrt_buffer = std::make_unique<TfrtGpuBuffer>(
+      on_device_shape(),  // Reuse the shape
+      std::move(new_tracked_buffer),
+      client_,  // Reuse client, device, memory space
+      device_, memory_space_);
+
+  // Commit the donation transaction.
+  std::move(donation_transaction).Commit();
+
+  return new_pjrt_buffer;
+}
+
 bool TfrtGpuBuffer::IsOnCpu() const {
   return memory_space() != nullptr &&
          memory_space()->kind() == PinnedHostMemorySpace::kKind;
