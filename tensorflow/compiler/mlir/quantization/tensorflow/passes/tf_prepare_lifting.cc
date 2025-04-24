@@ -38,19 +38,20 @@ limitations under the License.
 #include "mlir/Support/TypeID.h"  // from @llvm-project
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"  // from @llvm-project
 #include "tensorflow/compiler/mlir/quantization/common/ir/QuantOps.h"
-#include "tensorflow/compiler/mlir/quantization/common/attrs_and_constraints.h"
-#include "tensorflow/compiler/mlir/quantization/tensorflow/cc/constant_fold.h"
+#include "tensorflow/compiler/mlir/quantization/common/tf_attrs_and_constraints.h"
+#include "tensorflow/compiler/mlir/quantization/tensorflow/cc/tf_constant_fold.h"
 #include "tensorflow/compiler/mlir/quantization/tensorflow/passes/remove_identity_op_pattern.h"
+#include "tensorflow/compiler/mlir/quantization/tensorflow/passes/tf_passes.h"
 #include "tensorflow/compiler/mlir/quantization/tensorflow/quantization_options.pb.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_dialect.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_ops.h"
 #include "tensorflow/compiler/mlir/tensorflow/transforms/einsum.h"
-#include "tensorflow/compiler/mlir/quantization/tensorflow/passes/tf_passes.h"
 
 namespace mlir {
-namespace quant {
+namespace tf_quant {
 namespace {
 
+using ::mlir::quant::UniformQuantizedPerAxisType;
 using ::tensorflow::quantization::OpSet;
 
 class TFPrepareLiftingPass
@@ -311,7 +312,7 @@ Value MultiplyFakeQuantValue(OpBuilder& builder, Location loc, Value value,
   return dequantize.getResult();
 }
 
-#include "tensorflow/compiler/mlir/quantization/tensorflow/passes/prepare_lifting.inc"
+#include "tensorflow/compiler/mlir/quantization/tensorflow/passes/tf_prepare_lifting.inc"
 
 void TFPrepareLiftingPass::runOnOperation() {
   MLIRContext* ctx = &getContext();
@@ -321,7 +322,7 @@ void TFPrepareLiftingPass::runOnOperation() {
   // with a constant operand to a preceding affine operation.
   RewritePatternSet patterns(ctx);
   populateWithGenerated(patterns);
-  patterns.add<RemoveIdentity, ConstantFoldQuantizableOperands>(ctx);
+  patterns.add<quant::RemoveIdentity, ConstantFoldQuantizableOperands>(ctx);
   if (op_set_ != OpSet::XLA) {
     // Convert Einsum into BatchMatMul for non-XLA opsets.
     // For the uniform opset, it is requested to maintain the BatchMatmul logic.
@@ -345,5 +346,5 @@ std::unique_ptr<OperationPass<func::FuncOp>> CreateTFPrepareLiftingPass(
 
 static PassRegistration<TFPrepareLiftingPass> pass;
 
-}  // namespace quant
+}  // namespace tf_quant
 }  // namespace mlir

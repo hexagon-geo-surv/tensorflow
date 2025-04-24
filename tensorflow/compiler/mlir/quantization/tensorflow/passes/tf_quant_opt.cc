@@ -22,7 +22,6 @@ limitations under the License.
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"  // from @llvm-project
 #include "stablehlo/dialect/StablehloOps.h"  // from @stablehlo
 #include "tensorflow/compiler/mlir/init_mlir.h"
-#include "tensorflow/compiler/mlir/lite/quantization/ir/QuantOps.h"
 #include "tensorflow/compiler/mlir/quantization/common/ir/QuantOps.h"
 #include "tensorflow/compiler/mlir/tensorflow/dialect_registration.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_executor.h"
@@ -40,8 +39,7 @@ int main(int argc, char **argv) {
                   mlir::tf_saved_model::TensorFlowSavedModelDialect,
                   mlir::func::FuncDialect, mlir::shape::ShapeDialect,
                   mlir::arith::ArithDialect, mlir::tf_type::TFTypeDialect,
-                  mlir::quant::QuantDialect,
-                  mlir::quantfork::QuantizationForkDialect,
+                  mlir::quant::QuantDialect, mlir::quant::ir::TFQuantDialect,
                   mlir::quant::ir::TFQuantDialect,
                   mlir::tf_executor::TensorFlowExecutorDialect,
                   mlir::stablehlo::StablehloDialect>();
