@@ -101,6 +101,26 @@ cc_library(
 )
 
 cc_library(
+    name = "common_pjrt_client",
+    srcs = [
+        "common_pjrt_client.cc",
+        "host_to_device_transfer_manager.cc",
+    ],
+    hdrs = [
+        "common_pjrt_client.h",
+        "host_to_device_transfer_manager.h",
+    ],
+    deps = [
+        ":async_work_runner",
+        ":device_event",
+        ":pjrt_client",
+        ":raw_buffer",
+        "@local_tsl//tsl/profiler/lib:connected_traceme",
+        "@local_tsl//tsl/profiler/lib:scoped_memory_debug_annotation",
+    ],
+)
+
+cc_library(
     name = "tracked_device_buffer",
     srcs = ["tracked_device_buffer.cc"],
     hdrs = ["tracked_device_buffer.h"],
