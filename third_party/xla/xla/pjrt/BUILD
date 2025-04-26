@@ -105,10 +105,13 @@ cc_library(
     srcs = ["common_pjrt_client.cc"],
     hdrs = ["common_pjrt_client.h"],
     deps = [
+        ":async_work_runner",
         ":device_event",
         ":pjrt_client",
         ":raw_buffer",
+        "//xla:shape_util",
         "//xla/tsl/concurrency:async_value",
+        "@local_tsl//tsl/profiler/lib:connected_traceme",
     ],
 )
 
