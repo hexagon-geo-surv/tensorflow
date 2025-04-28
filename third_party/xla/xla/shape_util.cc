@@ -1037,6 +1037,13 @@ absl::Status ValidateNonLayoutProperties(const Shape& shape) {
     return absl::OkStatus();
   }
 
+  if (shape.element_type() == BUFFER) {
+    if (!shape.if_buffer_state()) {
+      return ShapeError(shape, "This type must have a buffer state.");
+    }
+    return ValidateNonLayoutProperties(shape.buffer_shape());
+  }
+
   // Validate token shapes.
   if (shape.element_type() == TOKEN) {
     if (!shape.if_token_state()) {
