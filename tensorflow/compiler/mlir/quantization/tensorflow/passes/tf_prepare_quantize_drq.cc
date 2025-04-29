@@ -41,12 +41,10 @@ limitations under the License.
 #include "mlir/Support/LLVM.h"  // from @llvm-project
 #include "mlir/Support/TypeID.h"  // from @llvm-project
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"  // from @llvm-project
-#include "tensorflow/compiler/mlir/quantization/common/tf_attrs_and_constraints.h"  // IWYU pragma: keep
 #include "tensorflow/compiler/mlir/quantization/common/ir/QuantOps.h"
+#include "tensorflow/compiler/mlir/quantization/common/tf_attrs_and_constraints.h"
 #include "tensorflow/compiler/mlir/quantization/common/tf_quantization_lib/tf_quantization_config.h"
-#include "tensorflow/compiler/mlir/quantization/common/tf_quantization_lib/tf_quantization_traits.h"
-#include "tensorflow/compiler/mlir/quantization/common/tf_quantization_lib/tf_quantization_utils.h"
-#include "tensorflow/compiler/mlir/quantization/tensorflow/ops/temp_tf_op_quant_spec.h"
+#include "tensorflow/compiler/mlir/quantization/tensorflow/ops/tf_tf_op_quant_spec.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_dialect.h"
 
 //===----------------------------------------------------------------------===//
@@ -123,9 +121,10 @@ class TFPrepareQuantizeDRQPass
 // and Dequantize ops with per-tensor scale.
 class PrepareDRQQuantizableOp : public OpRewritePattern<arith::ConstantOp> {
  public:
-  explicit PrepareDRQQuantizableOp(
-      MLIRContext* context, const tf_quant::QuantizationSpecs& quant_specs,
-      OpSet op_set, bool enable_per_channel_quantization)
+  explicit PrepareDRQQuantizableOp(MLIRContext* context,
+                                   const QuantizationSpecs& quant_specs,
+                                   OpSet op_set,
+                                   bool enable_per_channel_quantization)
       : OpRewritePattern<arith::ConstantOp>(context),
         quant_specs_(quant_specs),
         op_set_(op_set),
@@ -204,13 +203,13 @@ class PrepareDRQQuantizableOp : public OpRewritePattern<arith::ConstantOp> {
 
     if (is_per_channel_quantization) {
       quant_type = mlir::dyn_cast<quant::QuantizedType>(
-          GetUniformQuantizedPerAxisTypeForWeight(
-              attr, quant_dim,
-              /*symmetric=*/true, bit_width, is_signed, is_narrow_range,
-              is_legacy_float));
+          GetUniformQuantizedPerAxisTypeForWeight(attr, quant_dim,
+                                                  /*symmetric=*/true, bit_width,
+                                                  is_signed, is_narrow_range,
+                                                  is_legacy_float));
     } else {
-      quant_type = mlir::dyn_cast<quant::QuantizedType>(
-          GetUniformQuantizedTypeForWeight(
+      quant_type =
+          mlir::dyn_cast<quant::QuantizedType>(GetUniformQuantizedTypeForWeight(
               attr, is_narrow_range && is_signed, bit_width, is_signed,
               is_narrow_range, is_legacy_float));
     }
@@ -268,7 +267,7 @@ class PrepareDRQQuantizableOp : public OpRewritePattern<arith::ConstantOp> {
   bool enable_per_channel_quantization_;
 };
 
-// Remove all the stats ops which are redundant for dynamic range quantization.
+// Remove all the stats ops which are redundant for dynamic range quantizaiton.
 void TFPrepareQuantizeDRQPass::removeAllStatsOp(func::FuncOp func) {
   func.walk([&](mlir::quant::ir::StatisticsOp stats_op) {
     stats_op.replaceAllUsesWith(stats_op.getArg());
