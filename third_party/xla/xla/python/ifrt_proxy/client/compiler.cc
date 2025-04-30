@@ -54,9 +54,9 @@ Compiler::Compiler(xla::ifrt::Client* client,
                    std::shared_ptr<RpcHelper> rpc_helper)
     : client_(client), rpc_helper_(std::move(rpc_helper)) {}
 
-absl::StatusOr<std::unique_ptr<xla::ifrt::LoadedExecutable>> Compiler::Compile(
-    std::unique_ptr<Program> program,
-    std::unique_ptr<xla::ifrt::CompileOptions> options) {
+absl::StatusOr<std::unique_ptr<xla::ifrt::LoadedExecutable>>
+Compiler::CompileAndLoad(std::unique_ptr<Program> program,
+                         std::unique_ptr<xla::ifrt::CompileOptions> options) {
   auto request = std::make_unique<CompileRequest>();
   {
     tsl::profiler::TraceMe traceme("IfrtProxyProgramSerialize");

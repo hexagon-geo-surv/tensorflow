@@ -43,7 +43,7 @@ class PjRtCompiler final : public llvm::RTTIExtends<PjRtCompiler, Compiler> {
 
   ~PjRtCompiler() override = default;
 
-  absl::StatusOr<std::unique_ptr<LoadedExecutable>> Compile(
+  absl::StatusOr<std::unique_ptr<LoadedExecutable>> CompileAndLoad(
       std::unique_ptr<Program> program,
       std::unique_ptr<CompileOptions> options) override;
 

@@ -202,10 +202,13 @@ class MockCompiler : public llvm::RTTIExtends<MockCompiler, Compiler> {
  public:
   MOCK_METHOD(absl::StatusOr<std::unique_ptr<LoadedExecutable>>, Compile,
               (std::unique_ptr<Program> program,
-               std::unique_ptr<CompileOptions> options),
-              (final));
+               std::unique_ptr<CompileOptions> options));
   MOCK_METHOD(absl::StatusOr<std::unique_ptr<Executable>>, Compile,
               (std::unique_ptr<Program> program, const Topology& topology,
+               std::unique_ptr<CompileOptions> options),
+              (final));
+  MOCK_METHOD(absl::StatusOr<std::unique_ptr<LoadedExecutable>>, CompileAndLoad,
+              (std::unique_ptr<Program> program,
                std::unique_ptr<CompileOptions> options),
               (final));
   MOCK_METHOD(absl::StatusOr<std::unique_ptr<LoadedExecutable>>,
