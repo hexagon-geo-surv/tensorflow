@@ -126,7 +126,7 @@ absl::StatusOr<xla::ShapeTree<xla::MaybeOwningDeviceMemory>> BuildInputBuffers(
         return errors::InvalidArgument(
             "Run-time shape mismatch for TPUExecute argument[", i, "] (",
             context->op_kernel().requested_input(i), "). Expected ",
-            expected.DebugString(),
+            expected.ToProto().DebugString(),
             "; got empty tensor. If you are running "
             "with TF2 TPU, make sure you set `drop_remainder=False` when "
             "calling `dataset.batch` on the `tf.data.Dataset` so dynamic batch "
@@ -138,7 +138,8 @@ absl::StatusOr<xla::ShapeTree<xla::MaybeOwningDeviceMemory>> BuildInputBuffers(
         return errors::InvalidArgument(
             "Run-time shape mismatch for TPUReshardVariables argument[", i,
             "] (", context->op_kernel().requested_input(i), "). Expected ",
-            expected.DebugString(), "; got ", xla_shape.DebugString());
+            expected.ToProto().DebugString(), "; got ",
+            xla_shape.ToProto().DebugString());
       }
     }
 

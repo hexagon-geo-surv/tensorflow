@@ -1287,7 +1287,8 @@ absl::StatusOr<std::unique_ptr<StrategyGroup>> CreateAllStrategiesGroup(
     AddReplicatedStrategy(ins, shape, cluster_env, strategy_map,
                           replicated_penalty, {}, *strategy_group);
   } else {
-    LOG(FATAL) << "Unsupported instruction shape: " << shape.DebugString();
+    LOG(FATAL) << "Unsupported instruction shape: "
+               << shape.ToProto().DebugString();
   }
   return strategy_group;
 }
@@ -1685,7 +1686,8 @@ std::unique_ptr<StrategyGroup> HandleManuallyShardedInstruction(
                           std::move(memory_resharding_costs)}),
         std::move(input_shardings));
   } else {
-    LOG(FATAL) << "Unsupported instruction shape: " << shape.DebugString();
+    LOG(FATAL) << "Unsupported instruction shape: "
+               << shape.ToProto().DebugString();
   }
   return strategy_group;
 }

@@ -242,7 +242,7 @@ absl::StatusOr<std::unique_ptr<InputBuffers>> BuildComputationInputs(
         return absl::InvalidArgumentError(absl::StrCat(
             "Run-time shape mismatch for TPUExecute argument[", i, "] (",
             context->op_kernel().requested_input(i), "). Expected ",
-            expected.DebugString(),
+            expected.ToProto().DebugString(),
             "; got empty tensor. If you are running "
             "with TF2 TPU, make sure you set `drop_remainder=False` when "
             "calling `dataset.batch` on the `tf.data.Dataset` so dynamic batch "
@@ -252,10 +252,11 @@ absl::StatusOr<std::unique_ptr<InputBuffers>> BuildComputationInputs(
       // Compare host shapes, easier than getting the expected device shape.
       const xla::Shape& xla_shape = xla_tensor->shaped_buffer().on_host_shape();
       if (!xla::ShapeUtil::Compatible(expected, xla_shape)) {
-        return absl::InvalidArgumentError(absl::StrCat(
-            "Run-time shape mismatch for TPUExecute argument[", i, "] (",
-            context->op_kernel().requested_input(i), "). Expected ",
-            expected.DebugString(), "; got ", xla_shape.DebugString()));
+        return absl::InvalidArgumentError(
+            absl::StrCat("Run-time shape mismatch for TPUExecute argument[", i,
+                         "] (", context->op_kernel().requested_input(i),
+                         "). Expected ", expected.ToProto().DebugString(),
+                         "; got ", xla_shape.ToProto().DebugString()));
       }
     }
 
