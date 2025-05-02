@@ -1177,12 +1177,13 @@ absl::flat_hash_map<LivenessIdx, double> GetNewMemorySlack(
 
 // Update `node_strategies` for the nodes in `path` if `new_path_strategies` is
 // a feasible set of improving changes.
-void UpdateNodeStrategies(
+bool UpdateNodeStrategies(
     const AutoShardingSolverRequest& request, const std::vector<NodeIdx>& path,
     const std::vector<NodeStrategyIdx>& new_path_strategies,
     std::vector<NodeStrategyIdx>& node_strategies,
     const std::string& memory_mode, std::vector<double>& memory_slack,
     const std::vector<std::vector<LivenessIdx>>& node_to_active_times) {
+  bool update_is_accepted = true;
   if (memory_mode == "inactive") {
     for (int i = 0; i < path.size(); ++i) {
       node_strategies[path[i]] = new_path_strategies[i];
@@ -1192,15 +1193,14 @@ void UpdateNodeStrategies(
     const auto new_memory_slack_at_times =
         GetNewMemorySlack(request, path, new_path_strategies, node_strategies,
                           node_to_active_times, memory_slack);
-    bool memory_usage_is_feasible = true;
     for (const auto& [time_step, new_slack] : new_memory_slack_at_times) {
       if (new_slack < 0.0) {
-        memory_usage_is_feasible = false;
+        update_is_accepted = false;
         break;
       }
     }
     // If feasible, update the sharding strategies and memory slack.
-    if (memory_usage_is_feasible) {
+    if (update_is_accepted) {
       for (const auto& [time_step, new_slack] : new_memory_slack_at_times) {
         memory_slack[time_step] = new_slack;
       }
@@ -1209,6 +1209,7 @@ void UpdateNodeStrategies(
       }
     }
   }
+  return update_is_accepted;
 }
 
 std::tuple<double, std::vector<NodeIdx>, std::vector<NodeStrategyIdx>>
@@ -1267,6 +1268,22 @@ std::optional<AutoShardingViolationCode> ShardingStrategyHasViolation(
     }
   }
   return std::nullopt;
+}
+
+double ComputeRawShardingCost(
+    const AutoShardingSolverRequest& request,
+    const std::vector<NodeStrategyIdx>& node_strategies) {
+  double cost = 0.0;
+  for (NodeIdx v = 0; v < request.num_nodes(); ++v) {
+    NodeStrategyIdx strategy = node_strategies[v];
+    cost += request.computation_costs(v).costs(strategy) +
+            request.communication_costs(v).costs(strategy);
+  }
+  for (EdgeIdx e = 0; e < request.edges_size(); ++e) {
+    EdgeStrategyIdx strategy = GetEdgeStrategy(request, node_strategies, e);
+    cost += request.resharding_costs(e).costs(strategy);
+  }
+  return cost;
 }
 
 // Assigns all nodes to their first sharding configuration. If the assignment is
@@ -1389,51 +1406,44 @@ AutoShardingSolverOutput SolveRandomPathGreedy(
       GetAdjacencyMatrix(request);
   std::vector<std::vector<LivenessIdx>> node_to_active_times;
   std::vector<double> memory_slack;
-  double current_cost = kInfinityCost;
+  double current_cost = ComputeRawShardingCost(request, node_strategies);
   if (memory_mode == "active") {
     node_to_active_times = GetNodeToActiveTimes(request);
     memory_slack = TrackMemorySlack(request, node_strategies);
   }
-
-  // Phase 1: Find a feasible solution (i.e., finite cost).
-  int trial = 0;
-  for (; trial < num_trials; ++trial) {
-    current_cost = ComputeShardingStrategyCost(request, node_strategies);
-    if (current_cost >= 0.0 && current_cost < kInfinityCost) {
-      break;
-    }
-    auto [cost_delta, path, new_path_strategies] = SampleAndOptimizePath(
-        request, node_strategies, adjacency, path_length, rng);
-    if (cost_delta < 0.0) {
-      UpdateNodeStrategies(request, path, new_path_strategies, node_strategies,
-                           memory_mode, memory_slack, node_to_active_times);
-    }
+  std::optional<AutoShardingViolationCode> violation_code =
+      ShardingStrategyHasViolation(request, node_strategies);
+  if (violation_code.has_value() && *violation_code == kMemoryViolationCode) {
+    AutoShardingSolverOutput output(node_strategies, current_cost);
+    return output;
   }
-  // Phase 2: Store the sharding costs of the last `window_size` trials.
+
+  // Phase 1: Store the sharding costs of the last `window_size` trials.
   CHECK_GE(num_trials, 20);
   int window_size = std::min(static_cast<int>(0.05 * num_trials), 100000);
   std::vector<double> cost_window(window_size, -1.0);
   cost_window[0] = current_cost;
-  trial += window_size;
   for (int window_idx = 1; window_idx < window_size; ++window_idx) {
     auto [cost_delta, path, new_path_strategies] = SampleAndOptimizePath(
         request, node_strategies, adjacency, path_length, rng);
-    if (cost_delta < 0.0) {
-      UpdateNodeStrategies(request, path, new_path_strategies, node_strategies,
-                           memory_mode, memory_slack, node_to_active_times);
+    if (cost_delta < 0.0 &&
+        UpdateNodeStrategies(request, path, new_path_strategies,
+                             node_strategies, memory_mode, memory_slack,
+                             node_to_active_times)) {
+      current_cost += cost_delta;
     }
-    current_cost += cost_delta;
     cost_window[window_idx] = current_cost;
   }
-  // Phase 3: Optimize the sharding cost with an early-stopping feature.
-  for (; trial < num_trials; ++trial) {
+  // Phase 2: Optimize the sharding cost with an early-stopping feature.
+  for (int trial = window_size; trial < num_trials; ++trial) {
     auto [cost_delta, path, new_path_strategies] = SampleAndOptimizePath(
         request, node_strategies, adjacency, path_length, rng);
-    if (cost_delta < 0.0) {
-      UpdateNodeStrategies(request, path, new_path_strategies, node_strategies,
-                           memory_mode, memory_slack, node_to_active_times);
+    if (cost_delta < 0.0 &&
+        UpdateNodeStrategies(request, path, new_path_strategies,
+                             node_strategies, memory_mode, memory_slack,
+                             node_to_active_times)) {
+      current_cost += cost_delta;
     }
-    current_cost += cost_delta;
     if (1.0 - current_cost / cost_window[trial % window_size] < tolerance) {
       break;
     }
@@ -1464,7 +1474,7 @@ absl::StatusOr<AutoShardingSolverOutput> RunHeuristicSolver(
     const int num_trials =
         2 * request.edges_size() * std::log(request.edges_size());
     output = SolveRandomPathGreedy(request, /*path_length=*/1, num_trials,
-                                   /*tolerance=*/0.01,
+                                   /*tolerance=*/0.001,
                                    /*memory_mode=*/"active");
   } else if (algorithm == "brkga") {
     output = SolveBrkga(request);
@@ -1624,16 +1634,7 @@ AutoShardingEvaluation Evaluate(const AutoShardingSolverRequest& request,
 double ComputeShardingStrategyCost(
     const AutoShardingSolverRequest& request,
     const std::vector<NodeStrategyIdx>& node_strategies) {
-  double cost = 0.0;
-  for (NodeIdx v = 0; v < request.num_nodes(); ++v) {
-    NodeStrategyIdx strategy = node_strategies[v];
-    cost += request.computation_costs(v).costs(strategy) +
-            request.communication_costs(v).costs(strategy);
-  }
-  for (EdgeIdx e = 0; e < request.edges_size(); ++e) {
-    EdgeStrategyIdx strategy = GetEdgeStrategy(request, node_strategies, e);
-    cost += request.resharding_costs(e).costs(strategy);
-  }
+  double cost = ComputeRawShardingCost(request, node_strategies);
   std::optional<AutoShardingViolationCode> violation_code =
       ShardingStrategyHasViolation(request, node_strategies);
   if (violation_code.has_value()) {
