@@ -249,9 +249,11 @@ cc_library(
     local_defines = if_windows(["_ENABLE_EXTENDED_ALIGNED_STORAGE"]),
     deps = [
         ":thunk",
+        "//xla:debug_options_flags",
         "//xla/runtime:buffer_use",
         "//xla/runtime:execution_graph",
         "//xla/runtime:resource_use",
+        "//xla/service:execution_graph_renderer",
         "//xla/tsl/concurrency:async_value",
         "//xla/tsl/platform:env",
         "//xla/tsl/platform:logging",
@@ -271,7 +273,7 @@ cc_library(
         "@local_tsl//tsl/profiler/lib:connected_traceme",
         "@local_tsl//tsl/profiler/lib:context_types_hdrs",
         "@local_tsl//tsl/profiler/lib:traceme",
-    ],
+    ] + if_google(["//platforms/xla/service:execution_graph_visualizer_google"]),
 )
 
 xla_cc_test(

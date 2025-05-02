@@ -38,9 +38,11 @@ limitations under the License.
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
 #include "xla/backends/cpu/runtime/thunk.h"
+#include "xla/debug_options_flags.h"
 #include "xla/runtime/buffer_use.h"
 #include "xla/runtime/execution_graph.h"
 #include "xla/runtime/resource_use.h"
+#include "xla/service/execution_graph_renderer.h"
 #include "xla/tsl/concurrency/async_value_ref.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/logging.h"
@@ -128,6 +130,16 @@ ThunkExecutor::ThunkExecutor(ThunkSequence thunk_sequence,
       execution_graph_.sink().size(), is_sequential_, small_buffers);
 
   VLOG(6) << "ThunkExecutor execution graph:\n" << ToString();
+
+  if (GetDebugOptionsFromFlags().xla_cpu_dump_execution_graph_to_graphviz()) {
+    absl::StatusOr<std::string> url =
+        RenderExecutionGraph(execution_graph_, thunk_sequence_);
+    if (url.ok()) {
+      VLOG(6) << "Execution graph visualization URL: " << *url;
+    } else {
+      VLOG(6) << url.status();
+    }
+  }
 }
 
 absl::StatusOr<ThunkExecutor> ThunkExecutor::Create(

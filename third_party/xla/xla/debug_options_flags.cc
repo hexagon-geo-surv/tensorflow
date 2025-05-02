@@ -105,6 +105,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
       DebugOptions::XNN_GRAPH_FUSION_MODE_DISABLED);
   opts.set_xla_cpu_parallel_codegen_split_count(32);
   opts.set_xla_cpu_copy_insertion_use_region_analysis(false);
+  opts.set_xla_cpu_dump_execution_graph_to_graphviz(false);
   opts.set_xla_cpu_enable_concurrency_optimized_scheduler(true);
   opts.set_xla_cpu_prefer_vector_width(256);
   opts.set_xla_cpu_max_isa(DefaultMaxIsa());
@@ -1014,6 +1015,13 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
           &DebugOptions::set_xla_cpu_copy_insertion_use_region_analysis),
       debug_options->xla_cpu_copy_insertion_use_region_analysis(),
       "Use region based analysis in copy insertion pass."));
+  flag_list->push_back(tsl::Flag(
+      "xla_cpu_dump_execution_graph_to_graphviz",
+      bool_setter_for(
+          &DebugOptions::set_xla_cpu_dump_execution_graph_to_graphviz),
+      debug_options->xla_cpu_dump_execution_graph_to_graphviz(),
+      "If enabled, XLA:CPU will attempt to dump the execution graph to "
+      "graphviz when initializing the ThunkExecutor."));
   flag_list->push_back(tsl::Flag(
       "xla_cpu_enable_concurrency_optimized_scheduler",
       bool_setter_for(
