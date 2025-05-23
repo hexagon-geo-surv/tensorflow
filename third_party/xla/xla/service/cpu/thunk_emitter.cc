@@ -598,8 +598,17 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitConcatenateKernelThunk(
   auto& llvm_ir_kernel_source =
       tsl::down_cast<LlvmIrKernelSource&>(*kernel_source);
 
+  TF_ASSIGN_OR_RETURN(auto backend_config,
+                      instruction->backend_config<BackendConfig>());
+
+  std::optional<LLVMCompilationOptions> llvm_compilation_options = std::nullopt;
+  if (backend_config.has_llvm_kernel_options()) {
+    llvm_compilation_options = backend_config.llvm_kernel_options();
+  }
+
   kernels_.push_back({kernel_spec.name(),
-                      std::move(llvm_ir_kernel_source).thread_safe_module()});
+                      std::move(llvm_ir_kernel_source).thread_safe_module(),
+                      llvm_compilation_options});
 
   return MakeKernelThunkSequence(
       instruction, std::move(kernel_spec),
@@ -738,8 +747,18 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitFusionKernelThunk(
     TF_ASSIGN_OR_RETURN(LlvmIrKernelSource llvm_ir_kernel_source,
                         compiler.Compile(std::move(*mlir_kernel_source)));
 
+    TF_ASSIGN_OR_RETURN(auto backend_config,
+                        instruction->backend_config<BackendConfig>());
+
+    std::optional<LLVMCompilationOptions> llvm_compilation_options =
+        std::nullopt;
+    if (backend_config.has_llvm_kernel_options()) {
+      llvm_compilation_options = backend_config.llvm_kernel_options();
+    }
+
     kernels_.push_back({kernel_spec.name(),
-                        std::move(llvm_ir_kernel_source).thread_safe_module()});
+                        std::move(llvm_ir_kernel_source).thread_safe_module(),
+                        llvm_compilation_options});
 
     return MakeKernelThunkSequence(
         instruction, std::move(kernel_spec),
@@ -947,10 +966,11 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitDotThunk(
 
       if (use_xnn) {
         XnnDotThunk::Options options = {XnnShouldUseThreadPool(instruction)};
+        bool capture_rhs = HloPredicateIsOp<HloOpcode::kParameter>(rhs);
         return ThunkSequence::Of<XnnDotThunk>(
             std::move(options), ThunkInfo(instruction), dnums, lhs_slice,
             lhs->shape(), rhs_slice, rhs->shape(), out_slice,
-            instruction->shape());
+            instruction->shape(), capture_rhs);
       } else {
         return ThunkSequence::Of<DotThunk>(
             ThunkInfo(instruction), dnums, lhs_slice, lhs->shape(), rhs_slice,
