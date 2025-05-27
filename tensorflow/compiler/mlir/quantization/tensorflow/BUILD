@@ -679,7 +679,7 @@ cc_library(
     deps = [
         ":tf_passes",
         "//tensorflow/compiler/mlir/quantization/stablehlo:bridge_passes",
-        "//tensorflow/compiler/mlir/quantization/stablehlo/cc:tf_pass_pipeline",
+        "//tensorflow/compiler/mlir/quantization/stablehlo/cc:pass_pipeline",
         "//tensorflow/compiler/mlir/quantization/tensorflow/cc:run_passes",
         "//tensorflow/compiler/mlir/stablehlo:fold_broadcast_pass",
         "//tensorflow/compiler/mlir/stablehlo:legalize_tf_xla_call_module_to_stablehlo_pass",
@@ -749,28 +749,6 @@ cc_library(
     name = "quantize_passes",
     srcs = ["quantize_passes.cc"],
     hdrs = ["quantize_passes.h"],
-    compatible_with = get_compatible_with_portable(),
-    deps = [
-        ":passes",
-        ":quantization_options_proto_cc",
-        "//tensorflow/compiler/mlir/quantization/stablehlo:passes",
-        "//tensorflow/compiler/mlir/quantization/stablehlo/cc:pass_pipeline",
-        "//tensorflow/compiler/mlir/tensorflow/transforms:tensorflow_passes",
-        "//tensorflow/compiler/mlir/tensorflow/transforms:tf_dialect_passes",
-        "//tensorflow/core/platform:path",
-        "@com_google_absl//absl/strings",
-        "@llvm-project//mlir:FuncDialect",
-        "@llvm-project//mlir:Pass",
-        "@llvm-project//mlir:ReconcileUnrealizedCasts",
-        "@llvm-project//mlir:Transforms",
-        "@local_xla//xla/mlir_hlo:mhlo_passes",
-    ],
-)
-
-cc_library(
-    name = "tf_quantize_passes",
-    srcs = ["tf_quantize_passes.cc"],
-    hdrs = ["tf_quantize_passes.h"],
     compatible_with = get_compatible_with_portable(),
     deps = [
         ":quantization_options_proto_cc",
