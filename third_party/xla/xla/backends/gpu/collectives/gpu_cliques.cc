@@ -57,6 +57,7 @@ limitations under the License.
 #include "xla/tsl/platform/logging.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
+#include "tsl/platform/casts.h"
 #include "tsl/platform/hash.h"
 #include "tsl/profiler/lib/traceme.h"
 
@@ -200,7 +201,7 @@ static absl::StatusOr<bool> EnablePeerAccess(
   std::vector<se::StreamExecutor*> devices;
   devices.reserve(ranks.size());
   for (int64_t i = 0; i < ranks.size(); ++i) {
-    TF_ASSIGN_OR_RETURN(auto device, GpuCollectives::TryCast(ranks[i].device));
+    auto* device = tsl::down_cast<GpuCollectives::Device*>(ranks[i].device);
     devices.push_back(device->stream_executor());
   }
 
