@@ -3464,7 +3464,8 @@ absl::Status CheckBufferHasUniqueWriters(const HloInstruction* inst) {
       });
 }
 
-absl::Status VerifyPin(const HloCustomCallInstruction* inst) {
+absl::Status VerifyPin(const HloCustomCallInstruction* inst,
+                       bool layout_sentitive) {
   if (inst->operand_count() != 1 || !inst->operand(0)->shape().IsArray() ||
       inst->operand(0)->shape().IsBuffer()) {
     return InvalidArgument(
@@ -3475,8 +3476,8 @@ absl::Status VerifyPin(const HloCustomCallInstruction* inst) {
     return InvalidArgument("custom-call to Pin must have one buffer result");
   }
 
-  if (!xla::Shape::Equal()(inst->operand(0)->shape(),
-                           inst->shape().buffer_shape())) {
+  if (!xla::Shape::Equal().IgnoreLayout(!layout_sentitive)(
+          inst->operand(0)->shape(), inst->shape().buffer_shape())) {
     return InvalidArgument(
         "custom-call to Pin must have the same shape as the operand");
   }
@@ -3502,7 +3503,8 @@ absl::Status VerifyCreateBuffer(const HloInstruction* inst) {
   return CheckBufferHasUniqueWriter(inst, {});
 }
 
-absl::Status VerifyUnpin(const HloCustomCallInstruction* inst) {
+absl::Status VerifyUnpin(const HloCustomCallInstruction* inst,
+                         bool layout_sentitive) {
   if (inst->operand_count() != 1 || !inst->operand(0)->shape().IsBuffer()) {
     return InvalidArgument("custom-call to Unpin must have one buffer operand");
   }
@@ -3512,8 +3514,8 @@ absl::Status VerifyUnpin(const HloCustomCallInstruction* inst) {
         "custom-call to Unpin must have one array non-buffer result");
   }
 
-  if (!xla::Shape::Equal()(inst->operand(0)->shape().buffer_shape(),
-                           inst->shape())) {
+  if (!xla::Shape::Equal().IgnoreLayout(!layout_sentitive)(
+          inst->operand(0)->shape().buffer_shape(), inst->shape())) {
     return InvalidArgument(
         "custom-call to Unpin must have the same shape as the operand");
   }
@@ -3636,15 +3638,16 @@ absl::Status VerifyBuffersInResults(
 //   output-to-operand-aliasing.
 // - An HLO buffer result can only be updated at most once.
 //
-absl::Status VerifyCustomCall(const HloCustomCallInstruction* inst) {
+absl::Status VerifyCustomCall(const HloCustomCallInstruction* inst,
+                              bool layout_sentitive) {
   if (inst->IsCustomCall(kPinCustomCallTarget)) {
-    return VerifyPin(Cast<HloCustomCallInstruction>(inst));
+    return VerifyPin(Cast<HloCustomCallInstruction>(inst), layout_sentitive);
   }
   if (inst->IsCustomCall(kCreateBufferCustomCallTarget)) {
     return VerifyCreateBuffer(inst);
   }
   if (inst->IsCustomCall(kUnpinCustomCallTarget)) {
-    return VerifyUnpin(Cast<HloCustomCallInstruction>(inst));
+    return VerifyUnpin(Cast<HloCustomCallInstruction>(inst), layout_sentitive);
   }
 
   TF_RETURN_IF_ERROR(VerifyBuffersInOperands(inst));
@@ -3668,12 +3671,12 @@ absl::Status VerifyNoBuffersInContext(const HloInstruction* inst) {
   return absl::OkStatus();
 }
 
-absl::Status VerifyBuffers(const HloModule& module) {
+absl::Status VerifyBuffers(const HloModule& module, bool layout_sentitive) {
   for (auto* comp : module.computations()) {
     for (auto* inst : comp->instructions()) {
       if (inst->opcode() == HloOpcode::kCustomCall) {
-        TF_RETURN_IF_ERROR(
-            VerifyCustomCall(Cast<HloCustomCallInstruction>(inst)));
+        TF_RETURN_IF_ERROR(VerifyCustomCall(
+            Cast<HloCustomCallInstruction>(inst), layout_sentitive));
       } else if (inst->opcode() == HloOpcode::kWhile) {
         TF_RETURN_IF_ERROR(CheckBufferHasUniqueWriters(inst));
       } else if (inst->opcode() == HloOpcode::kParameter) {
@@ -3732,7 +3735,8 @@ absl::StatusOr<bool> HloVerifier::Run(
       }
     }
 
-    TF_RETURN_IF_ERROR(VerifyBuffers(*module));
+    TF_RETURN_IF_ERROR(VerifyBuffers(
+        *module, target_metadata_->GetVerifierOpts().IsLayoutSensitive()));
 
     TF_RETURN_IF_ERROR(shape_verifier->VerifyEntryComputationLayout(*module));
 
