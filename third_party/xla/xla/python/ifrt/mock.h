@@ -24,6 +24,7 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "absl/base/no_destructor.h"
 #include "absl/hash/hash.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -286,6 +287,13 @@ class MockExecutable : public llvm::RTTIExtends<MockExecutable, Executable> {
 class MockLoadedExecutable
     : public llvm::RTTIExtends<MockLoadedExecutable, LoadedExecutable> {
  public:
+  MockLoadedExecutable() {
+    static absl::NoDestructor<DeviceListRef> kEmptyDeviceList(
+        BasicDeviceList::Create({}));
+    ON_CALL(*this, devices())
+        .WillByDefault(testing::ReturnRef(*kEmptyDeviceList));
+  }
+
   MOCK_METHOD(Client*, client, (), (const, final));
   MOCK_METHOD(absl::string_view, name, (), (const, final));
   MOCK_METHOD(absl::StatusOr<std::optional<std::string>>, Fingerprint, (),
@@ -321,6 +329,7 @@ class MockLoadedExecutable
               (final));
   MOCK_METHOD(absl::Span<Device* const>, addressable_devices, (),
               (const, final));
+  MOCK_METHOD(const DeviceListRef&, devices, (), (const, final));
 
   static char ID;  // NOLINT
 };
