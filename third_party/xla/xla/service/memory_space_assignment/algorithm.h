@@ -29,6 +29,8 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "xla/service/hlo_buffer.h"
+
 // TODO(b/210891274): Use btree_map after build issue in Windows is resolved.
 #if defined(__GNUC__) || defined(__clang__)
 #include "absl/container/btree_map.h"
@@ -333,6 +335,22 @@ class MsaAlgorithm : public GlobalDecreasingSizeBestFitHeap<HloValue> {
   bool RepackAllocationsIncludeConvertedSyncMemOp();
 
   absl::StatusOr<HeapSimulator::Result<HloValue>> Finish() override;
+
+  // Finalizes allocations for block-allocated weights.
+  void AllocateBlockAllocatedWeights();
+
+  // Returns the maximum amount of scoped memory that is reserved at any time in
+  // the program.
+  int64_t MaxReservedScopedMemory();
+
+  // Returns the earliest time that chunk can be reserved for a block-allocated
+  // weight where the start time is between [definition_time, use_time] and
+  // use_time and the end time is the use_time. The chunk should be below the
+  // block_allocated_weights_bytes_limit. If such a chunk does not exist,
+  // returns use_time + 1.
+  int64_t EarliestBlockAllocatedWeightStartTime(
+      int64_t definition_time, int64_t use_time, int64_t buffer_size,
+      int64_t block_allocated_weights_bytes_limit);
 
  protected:
   // Given a buffer interval, returns the colocated intervals. Unlike the
@@ -1091,8 +1109,14 @@ class MsaAlgorithm : public GlobalDecreasingSizeBestFitHeap<HloValue> {
   void MaybeSplitAllocationValues(
       absl::Span<AllocationValue> allocation_values);
 
-  // Processes the buffer uses that have been colored. Note: Defining position
-  // of a buffer is also considered as a use that can be colored.
+  bool PinnedToAlternateMemory(const HloBuffer& buffer) const;
+
+  // Processes the buffers that are pinned to alternate memory and finalizes
+  // their allocations.
+  absl::Status ProcessBuffersPinnedToAlternateMemory();
+
+  // Processes the buffer uses that have been colored. Note: Defining
+  // position of a buffer is also considered as a use that can be colored.
   absl::Status ProcessColoredBuffers();
 
   // Removes the reserved chunk from the interval_tree_ for the given
@@ -1239,6 +1263,15 @@ class MsaAlgorithm : public GlobalDecreasingSizeBestFitHeap<HloValue> {
   // default memory, to meet buffer coloring requirements.
   absl::flat_hash_map<HloPosition, std::vector<int64_t>>
       default_memory_coloring_requirements_;
+
+  // List of reserved allocations for pinned buffers.
+  std::vector<std::unique_ptr<ReservedAllocation>>
+      reserved_allocations_for_pinned_buffers_;
+
+  // Maps from a pinned buffer allocation to the value allocations that are
+  // assigned to it.
+  absl::flat_hash_map<Allocation*, std::vector<Allocation*>>
+      reserved_pinned_allocations_to_allocations_;
 };
 
 }  // namespace memory_space_assignment
