@@ -20,6 +20,7 @@ limitations under the License.
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "absl/status/status.h"
@@ -33,6 +34,8 @@ limitations under the License.
 #include "xla/service/gpu/backend_configs.pb.h"
 #include "xla/service/gpu/ir_emission_utils.h"
 #include "xla/shape.h"
+#include "xla/stream_executor/cuda/cuda_compute_capability.h"
+#include "xla/stream_executor/device_description.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/xla.pb.h"
@@ -216,6 +219,18 @@ std::vector<absl::Span<const int64_t>> FlatListOfShapes(
   return result;
 }
 
+void ExtendConfigsWithTma(
+    std::vector<std::unique_ptr<BackendConfig>>& configs) {
+  int64_t original_size = configs.size();
+  for (int64_t i = 0; i < original_size; ++i) {
+    const BlockLevelFusionConfig* original_config =
+        static_cast<const BlockLevelFusionConfig*>(configs[i].get());
+    BlockLevelFusionConfig new_config = *original_config;
+    new_config.set_is_tma_allowed(true);
+    configs.push_back(
+        std::make_unique<BlockLevelFusionConfig>(std::move(new_config)));
+  }
+}
 }  // namespace
 
 absl::StatusOr<std::vector<std::unique_ptr<BackendConfig>>>
@@ -272,14 +287,32 @@ BlockLevelEmitterBackend::GetSupportedConfigs(const HloInstruction& instr) {
     }
 
     // Set default kernel execution parameters.
-    config.set_num_warps(1);   // Number of warps per block.
-    config.set_num_ctas(1);    // Number of thread blocks (CTAs).
-    config.set_num_stages(1);  // Number of pipeline stages.
+    config.set_num_warps(1);           // Number of warps per block.
+    config.set_num_ctas(1);            // Number of thread blocks (CTAs).
+    config.set_num_stages(1);          // Number of pipeline stages.
+    config.set_is_tma_allowed(false);  // Can codegen attempt to use TMA?
 
     // Store the config (as a polymorphic BackendConfig).
     configs.push_back(
         std::make_unique<BlockLevelFusionConfig>(std::move(config)));
   }
+
+  // Allow TMA tuning for Hopper+ devices when TMA flag is passed.
+  auto is_tma_enabled_for_device =
+      [](const stream_executor::DeviceDescription& device_info) {
+        bool is_cuda =
+            std::holds_alternative<stream_executor::CudaComputeCapability>(
+                device_info.gpu_compute_capability());
+        return is_cuda &&
+               device_info.cuda_compute_capability().IsAtLeastHopper();
+      };
+  bool autotune_tma =
+      debug_options().xla_gpu_experimental_enable_triton_tma() &&
+      is_tma_enabled_for_device(target_config().device_description);
+  if (autotune_tma) {
+    ExtendConfigsWithTma(configs);
+  }
+
   return configs;
 }
 
@@ -321,9 +354,10 @@ BlockLevelEmitterBackend::GetDefaultConfig(const HloInstruction& instr) {
     }
   }
   // Set default kernel execution parameters.
-  config.set_num_warps(1);   // Number of warps per block.
-  config.set_num_ctas(1);    // Number of thread blocks (CTAs).
-  config.set_num_stages(1);  // Number of pipeline stages.
+  config.set_num_warps(1);           // Number of warps per block.
+  config.set_num_ctas(1);            // Number of thread blocks (CTAs).
+  config.set_num_stages(1);          // Number of pipeline stages.
+  config.set_is_tma_allowed(false);  // Can codegen attempt to use TMA?
   return std::make_unique<BlockLevelFusionConfig>(std::move(config));
 }
 

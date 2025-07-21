@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <memory>
 #include <optional>
+#include <variant>
 #include <vector>
 
 #include "absl/log/check.h"
@@ -42,6 +43,7 @@ limitations under the License.
 #include "xla/service/gpu/transforms/nest_gemm_fusion.h"
 #include "xla/service/gpu/transforms/priority_fusion.h"
 #include "xla/service/hlo_cost_analysis.h"
+#include "xla/stream_executor/cuda/cuda_compute_capability.h"
 #include "xla/stream_executor/device_description.h"
 #include "xla/stream_executor/stream_executor.h"
 #include "xla/tsl/platform/errors.h"
@@ -73,6 +75,19 @@ TritonBackend::GetSupportedConfigs(const HloInstruction& instr) {
       supports_contracting_split &&
       debug_options().xla_gpu_enable_split_k_autotuning();
 
+  // Allow TMA tuning for Hopper+ devices when TMA flag is passed.
+  auto is_tma_enabled_for_device =
+      [](const stream_executor::DeviceDescription& device_info) {
+        bool is_cuda =
+            std::holds_alternative<stream_executor::CudaComputeCapability>(
+                device_info.gpu_compute_capability());
+        return is_cuda &&
+               device_info.cuda_compute_capability().IsAtLeastHopper();
+      };
+  bool autotune_tma =
+      debug_options().xla_gpu_experimental_enable_triton_tma() &&
+      is_tma_enabled_for_device(target_config().device_description);
+
   std::vector<std::unique_ptr<BackendConfig>> configs;
   VLOG(1) << "Generating configs from search space: "
           << search_space.ToString();
@@ -81,7 +96,8 @@ TritonBackend::GetSupportedConfigs(const HloInstruction& instr) {
   std::vector<TritonGemmConfig> gemm_configs = search_space.GenerateConfigs(
       /*force_contracting_split=*/autotune_contracting_split
           ? std::nullopt
-          : std::make_optional(1));
+          : std::make_optional(1),
+      /*autotune_tma=*/autotune_tma);
   configs.reserve(gemm_configs.size());
   for (const auto& config : gemm_configs) {
     configs.push_back(std::make_unique<TritonBackendConfig>(config.ToProto()));
@@ -96,7 +112,7 @@ absl::StatusOr<std::unique_ptr<BackendConfig>> TritonBackend::GetDefaultConfig(
         "TritonBackend does not support this instruction.");
   }
   return std::make_unique<TritonBackendConfig>(
-      TritonGemmConfig(64, 64, 64, 1, 1, 2, 1).ToProto());
+      TritonGemmConfig(64, 64, 64, 1, 1, 2, 1, false).ToProto());
 }
 
 absl::Status TritonBackend::ApplyConfig(HloInstruction& instr,
