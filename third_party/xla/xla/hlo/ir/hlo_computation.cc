@@ -144,6 +144,8 @@ std::unique_ptr<HloComputation> HloComputation::Builder::Build(
   HloInstruction* root =
       root_instruction ? root_instruction : last_added_instruction();
   CHECK_NE(nullptr, root);
+  LOG(INFO) << "HloComputation::Builder::Build " << instructions_.size() << " "
+            << parameter_count;
   return absl::WrapUnique(
       new HloComputation(name_, parameter_count, &instructions_, root));
 }
@@ -178,6 +180,7 @@ HloComputation::HloComputation(
 }
 
 HloComputation::~HloComputation() {
+  LOG(INFO) << "~HloComputation: " << instructions_.size();
   if (FusionInstruction() != nullptr) {
     CHECK(FusionInstruction()->fused_instructions_computation() == this);
     FusionInstruction()->ClearCalledComputations();

@@ -523,6 +523,9 @@ class AnnotationTracker {
 // Represents an edge between two nodes in the schedule graph.
 class HloEdge {
  public:
+  // Constructor used for array resizing
+  HloEdge() : latency_(0), original_latency_(0), target_(nullptr) {}
+
   // Nullptr is not a valid value for 'target'.
   HloEdge(LatencyEstimator::TimeCost latency, HloGraphNode* target)
       : latency_(latency), original_latency_(latency), target_(target) {}
@@ -536,7 +539,7 @@ class HloEdge {
   }
   const HloGraphNode& Target() const { return *target_; }
   HloGraphNode& Target() { return *target_; }
-  HloGraphNode* TargetPtr() { return target_; }
+  HloGraphNode* TargetPtr() const { return target_; }
   std::string ToString() const;
   std::optional<std::vector<int64_t>>& GetMutableSharableResources() {
     return sharable_resources_;
@@ -561,9 +564,9 @@ class HloGraphNode {
  public:
   using TimeCost = LatencyEstimator::TimeCost;
 
-  // Nullptr is not a valid value for 'i'.
-  explicit HloGraphNode(const HloInstruction* i, int64_t original_position)
-      : instr_(i), original_position_(original_position) {}
+  // Constructor used temporarily for initializing the vector
+  HloGraphNode()
+      : instr_(nullptr), opcode_(HloOpcode::kAdd), original_position_(0) {}
 
   static void UpdateOrAddDependency(HloGraphNode* from, HloGraphNode* to,
                                     LatencyEstimator::TimeCost latency) {
@@ -579,11 +582,11 @@ class HloGraphNode {
           return false;
         };
     if (!update_latency_if_edge_exists(from->GetSuccessors(), to, latency)) {
-      from->successors_.push_back(HloEdge(latency, to));
+      from->AddSuccessor(HloEdge(latency, to));
       from->outdegree_++;
     }
     if (!update_latency_if_edge_exists(to->GetPredecessors(), from, latency)) {
-      to->predecessors_.push_back(HloEdge(latency, from));
+      to->AddPredecessor(HloEdge(latency, from));
       to->indegree_++;
     }
   }
@@ -596,9 +599,9 @@ class HloGraphNode {
 
   static void AddDependency(HloGraphNode* from, HloGraphNode* to,
                             LatencyEstimator::TimeCost latency) {
-    to->predecessors_.push_back(HloEdge(latency, from));
+    to->AddPredecessor(HloEdge(latency, from));
     to->indegree_++;
-    from->successors_.push_back(HloEdge(latency, to));
+    from->AddSuccessor(HloEdge(latency, to));
     from->outdegree_++;
   }
 
@@ -616,6 +619,7 @@ class HloGraphNode {
     }
   }
   const HloInstruction& GetInstr() const { return *instr_; }
+  const HloOpcode GetOpcode() const { return opcode_; }
   bool IsScheduled() const { return scheduled_; }
   int32_t GetIndegree() const { return indegree_; }
   int32_t GetOutdegree() const { return outdegree_; }
@@ -677,26 +681,29 @@ class HloGraphNode {
   }
   void SetPreference(double preference) { preference_ = preference; }
   double GetPreference() const { return preference_; }
-  ResourcesVector GetResources() const { return resources_; }
-  bool DoesOccupyAnyResource() { return does_occupy_any_resource_; }
-  bool DoesReleaseAnyResource() { return does_release_any_resource_; }
+  const ResourcesVector& GetResources() const { return rare_->resources_; }
+  bool DoesOccupyAnyResource() const { return does_occupy_any_resource_; }
+  bool DoesReleaseAnyResource() const { return does_release_any_resource_; }
   bool DoesOccupyShareableResource(int64_t resource) const {
-    return absl::c_linear_search(occupied_shareable_resources_, resource);
+    return absl::c_linear_search(rare_->occupied_shareable_resources_,
+                                 resource);
   }
   bool DoesReleaseResource(int64_t res) const {
-    return absl::c_any_of(resources_, [res](const ResourcePair& resource) {
-      return resource.second == ResourceUsageType::kResourceRelease &&
-             resource.first == res;
-    });
+    return absl::c_any_of(
+        rare_->resources_, [res](const ResourcePair& resource) {
+          return resource.second == ResourceUsageType::kResourceRelease &&
+                 resource.first == res;
+        });
   }
   bool DoesReleaseResource(ResourceType res) const {
     return DoesReleaseResource(ResourceTypeToIndex(res));
   }
   bool DoesOccupyResource(int64_t res) const {
-    return absl::c_any_of(resources_, [res](const ResourcePair& resource) {
-      return resource.second == ResourceUsageType::kResourceOccupy &&
-             resource.first == res;
-    });
+    return absl::c_any_of(
+        rare_->resources_, [res](const ResourcePair& resource) {
+          return resource.second == ResourceUsageType::kResourceOccupy &&
+                 resource.first == res;
+        });
   }
   bool DoesOccupyResource(ResourceType res) const {
     return DoesOccupyResource(ResourceTypeToIndex(res));
@@ -705,11 +712,11 @@ class HloGraphNode {
   // the net resources used by the instructions in the while body. Otherwise, it
   // returns the readily-available resources vector.
   ResourcesVector GetNetResources() const {
-    if (GetInstr().opcode() != HloOpcode::kWhile) {
-      return resources_;
+    if (GetOpcode() != HloOpcode::kWhile) {
+      return rare_->resources_;
     }
     ResourcesVector result;
-    for (const auto& [resource, usage] : resources_) {
+    for (const auto& [resource, usage] : rare_->resources_) {
       if (usage == ResourceUsageType::kResourceOccupy &&
           !DoesReleaseResource(resource)) {
         result.push_back(std::make_pair(resource, usage));
@@ -723,7 +730,7 @@ class HloGraphNode {
   }
   std::optional<ResourceUsageType> UsesResourceType(ResourceType res) const {
     int64_t res_type = ResourceTypeToIndex(res);
-    for (const auto& [resource_type, usage_type] : resources_) {
+    for (const auto& [resource_type, usage_type] : rare_->resources_) {
       if (resource_type == res_type) {
         return usage_type;
       }
@@ -731,7 +738,7 @@ class HloGraphNode {
     return std::nullopt;
   }
   std::optional<ResourceUsageType> UsesResourceType(int64_t res) const {
-    for (const auto& [resource_type, usage_type] : resources_) {
+    for (const auto& [resource_type, usage_type] : rare_->resources_) {
       if (resource_type == res) {
         return usage_type;
       }
@@ -746,7 +753,7 @@ class HloGraphNode {
       return *resources;
     }
     resources = std::vector<int64_t>();
-    absl::c_for_each(released_shareable_resources_,
+    absl::c_for_each(rare_->released_shareable_resources_,
                      [this, &to, &resources](const int64_t resource) {
                        if (to.DoesOccupyShareableResource(resource) &&
                            this->DoesReleaseResource(resource)) {
@@ -757,20 +764,42 @@ class HloGraphNode {
   }
   const absl::InlinedVector<int64_t, 1>& GetReleasedNonExtendableResources()
       const {
-    return released_non_extendable_resources_;
+    return rare_->released_non_extendable_resources_;
   }
+
+  static bool SpansAreEqual(const std::vector<HloEdge>& a,
+                            const absl::Span<HloEdge> b) {  // XXX remove
+    CHECK_EQ(a.size(), b.size());
+    for (int i = 0; i < a.size(); i++) {
+      CHECK_EQ(a[i].TargetPtr(), b[i].TargetPtr());
+    }
+    return true;
+  }
+
   absl::Span<HloEdge> GetPredecessors() {
-    return absl::MakeSpan(predecessors_);
+    return absl::MakeSpan(predecessors_, predecessors_size_);
   }
   absl::Span<const HloEdge> GetPredecessors() const {
-    return absl::MakeConstSpan(predecessors_);
+    return absl::MakeConstSpan(predecessors_, predecessors_size_);
   }
-  void AddPredecessor(const HloEdge& e) { predecessors_.push_back(e); }
-  absl::Span<HloEdge> GetSuccessors() { return absl::MakeSpan(successors_); }
+  void AddPredecessor(const HloEdge& e) {
+    CHECK_LT(predecessors_size_, predecessors_alloc_)
+        << "instr " << original_position_ << " " << GetInstr().name();
+    predecessors_[predecessors_size_] = e;
+    predecessors_size_++;
+  }
+  absl::Span<HloEdge> GetSuccessors() {
+    return absl::MakeSpan(successors_, successors_size_);
+  }
   absl::Span<const HloEdge> GetSuccessors() const {
-    return absl::MakeConstSpan(successors_);
+    return absl::MakeConstSpan(successors_, successors_size_);
   }
-  void AddSuccessor(const HloEdge& e) { successors_.push_back(e); }
+  void AddSuccessor(const HloEdge& e) {
+    CHECK_LT(successors_size_, successors_alloc_)
+        << "instr " << original_position_ << " " << GetInstr().name();
+    successors_[successors_size_] = e;
+    successors_size_++;
+  }
   int64_t GetOriginalPosition() const { return original_position_; }
   int64_t GetAnnotation() const { return annotation_; }
   absl::Status SetAnnotation(int64_t annotation) {
@@ -796,25 +825,33 @@ class HloGraphNode {
     absl::StrAppend(
         &result, "Force Delay After Target: ", force_delay_after_target_, "\n");
     absl::StrAppend(&result, "Predecessors:\n");
-    for (const HloEdge& e : predecessors_) {
+    for (const HloEdge& e : GetPredecessors()) {
       absl::StrAppend(&result, e.ToString());
     }
     absl::StrAppend(&result, "Successors:\n");
-    for (const HloEdge& e : successors_) {
+    for (const HloEdge& e : GetSuccessors()) {
       absl::StrAppend(&result, e.ToString());
     }
     if (async_tracker != nullptr) {
       absl::StrAppend(&result, "Resources:\n");
-      for (const auto& [resource, usage] : resources_) {
+      for (const auto& [resource, usage] : rare_->resources_) {
         absl::StrAppend(
             &result, "\tResource: ", async_tracker->GetResourceName(resource),
             " usage: ", async_tracker->GetResourceUsageName(usage), "\n");
       }
     }
+    absl::StrAppend(&result, "sizes: ", "pred: ", GetPredecessors().size(), " ",
+                    "succ: ", GetSuccessors().size(), " ",
+                    "rner: ", rare_->released_non_extendable_resources_.size(),
+                    " ", "rsr: ", rare_->released_shareable_resources_.size(),
+                    " ", "osr: ", rare_->occupied_shareable_resources_.size(),
+                    " ", "rr: ", rare_->recursive_resources_.size(), " ",
+                    "r: ", rare_->resources_.size(), "\n");
     return result;
   }
+  bool HasRecursiveResources() const { return has_recursive_resources_; }
   const absl::flat_hash_map<int64_t, int64_t>& GetRecursiveResources() const {
-    return recursive_resources_;
+    return rare_->recursive_resources_;
   }
   bool HasOperandThatIsSupportedAsyncDone() const {
     return has_operand_that_is_supported_async_done_;
@@ -822,28 +859,67 @@ class HloGraphNode {
 
  private:
   friend class HloScheduleGraph;
-  // List of predecessor edges.
-  std::vector<HloEdge> predecessors_;
-  // List of successor edges.
-  std::vector<HloEdge> successors_;
+
+  // Some of the fields in this are rarely non-empty.  For this, we
+  // store the state in a vector of Rare objects in the parent
+  struct Rare {
+    // Non-extendable resources released by this node.
+    absl::InlinedVector<int64_t, 1> released_non_extendable_resources_;
+    // Shareable resources released by this node.
+    absl::InlinedVector<int64_t, 1> released_shareable_resources_;
+    // Shareable resources occupied by this node.
+    absl::InlinedVector<int64_t, 1> occupied_shareable_resources_;
+    // Recursive resources used by the node.
+    absl::flat_hash_map<int64_t, int64_t> recursive_resources_;
+    // AsyncResources used by the node.
+    ResourcesVector resources_;
+  };
+
   // Instruction this Graph node represents
   const HloInstruction* instr_;
+  // Opcode of instr_, copied here for better cache behavior (so we can look at
+  // the opcode without having to touch another cache line).
+  HloOpcode opcode_;
+  // Does the node occupy any resource.
+  bool does_occupy_any_resource_ : 1 = false;
+  // Does the node release any resource.
+  bool does_release_any_resource_ : 1 = false;
+  // Is the node a supported async done.
+  bool is_supported_async_done_ : 1 = false;
+  // Is the node a supported async start.
+  bool is_supported_async_start_ : 1 = false;
+  // Whether the instruction has an operand which is a supported async done.
+  bool has_operand_that_is_supported_async_done_ : 1 = false;
+  // Force the scheduling of the nodes with attribute set as late as possible.
+  bool force_delay_ : 1 = false;
+  // Force the scheduling of the nodes with attribute set as early as possible.
+  bool force_early_ : 1 = false;
+  // Force the scheduling of the nodes with attribute as late as possible,
+  // but do it after evaluating the early target scheduling rule.
+  bool force_delay_after_target_ : 1 = false;
+  // Whether this node has been scheduled or not yet.
+  bool scheduled_ : 1 = false;
+  // Whether this node can be overlapped with (can cover the latency/cost of)
+  // edges occupying selective resources.
+  bool valuable_for_selective_overlap_ : 1 = true;
+  // Whether this node releases a selective resource.
+  bool releases_selective_resource_ : 1 = false;
+  // Whether this node occupies a selective resource.
+  bool occupies_selective_resource_ : 1 = false;
+  // If has_rare_ is false, then all the fields in rare can assumed to be
+  // empty/default values
+  bool has_rare_ : 1 = false;
+  // Whether recursive_resources_.size() > 0
+  bool has_recursive_resources_ : 1 = false;
   // The position of this node in the original order.
-  int64_t original_position_;
+  int32_t original_position_;
+  // Pointer to the HloGraphNode::Rare entry for this node in the parent object
+  // (Actual storage is managed by rare_storage_ in parent object)
+  Rare* rare_ = nullptr;
   // Estimated time at which this node is gonna be ready to be scheduled.
   // The node should be added to the ready to be scheduled set when ready_time_
   // is less or equal to the current time in the schedule.
   TimeCost ready_time_ = std::numeric_limits<TimeCost>::max();
-  // Non-extendable resources released by this node.
-  absl::InlinedVector<int64_t, 1> released_non_extendable_resources_;
-  // Shareable resources released by this node.
-  absl::InlinedVector<int64_t, 1> released_shareable_resources_;
-  // Shareable resources occupied by this node.
-  absl::InlinedVector<int64_t, 1> occupied_shareable_resources_;
-  // Recursive resources used by the node.
-  absl::flat_hash_map<int64_t, int64_t> recursive_resources_;
-  // AsyncResources used by the node.
-  ResourcesVector resources_;
   // Time cost of the execution of the operation of this nodes represent.
   TimeCost cost_ = 0.0;
   // Depth in latency terms of a node based on Async operation cost on the path.
@@ -852,49 +928,34 @@ class HloGraphNode {
   // entry node.
   TimeCost depth_ = 0.0;
   // Depth in latency terms of node based on distance to the entry node.
-  int64_t graph_depth_ = 0;
+  int32_t graph_depth_ = 0;
   // Nums hops to closest selective resource occupier.
-  int64_t num_hops_to_closest_selective_resource_occupier_ =
-      std::numeric_limits<int64_t>::max();
-  int64_t annotation_ = kInvalidAnnotation;
+  int32_t num_hops_to_closest_selective_resource_occupier_ =
+      std::numeric_limits<int32_t>::max();
+  int32_t annotation_ = kInvalidAnnotation;
   // Number of ready nodes if this node is scheduled.
-  size_t ready_nodes_if_scheduled_ = 0;
+  int32_t ready_nodes_if_scheduled_ = 0;
   // Preference value used for scheduling heuristics,
   // a graph node having a higher preference value means it's scheduled
   // earlier. See ReadySetLt::operator()
-  double preference_ = 0.0;
+  float preference_ = 0.0;
   // Number of predecessor nodes this nodes depends on that haven't been
   // scheduled yet.
   int32_t indegree_ = 0;
   // Number of successor nodes this nodes depends on that haven't been
   // scheduled yet.
   int32_t outdegree_ = 0;
-  // Does the node occupy any resource.
-  bool does_occupy_any_resource_ = false;
-  // Does the node release any resource.
-  bool does_release_any_resource_ = false;
-  // Is the node a supported async done.
-  bool is_supported_async_done_ = false;
-  // Is the node a supported async start.
-  bool is_supported_async_start_ = false;
-  // Whether the instruction has an operand which is a supported async done.
-  bool has_operand_that_is_supported_async_done_ = false;
-  // Force the scheduling of the nodes with attribute set as late as possible.
-  bool force_delay_ = false;
-  // Force the scheduling of the nodes with attribute set as early as possible.
-  bool force_early_ = false;
-  // Force the scheduling of the nodes with attribute as late as possible,
-  // but do it after evaluating the early target scheduling rule.
-  bool force_delay_after_target_ = false;
-  // Whether this node has been scheduled or not yet.
-  bool scheduled_ = false;
-  // Whether this node can be overlapped with (can cover the latency/cost of)
-  // edges occupying selective resources.
-  bool valuable_for_selective_overlap_ = true;
-  // Whether this node releases a selective resource.
-  bool releases_selective_resource_ = false;
-  // Whether this node occupies a selective resource.
-  bool occupies_selective_resource_ = false;
+  // List of predecessor edges (Points into range in predecessors_storage_)
+  HloEdge* predecessors_ = nullptr;
+  // List of successor edges (Points into range in successors_storage_)
+  HloEdge* successors_ = nullptr;
+  // Number of valid predecessors starting at predecessors_
+  int predecessors_size_ = 0;
+  // Number of valid successors starting at successors_
+  int successors_size_ = 0;
+
+  int predecessors_alloc_ = 0;  // XXX Could be removed: only for assertions
+  int successors_alloc_ = 0;    // XXX Could be removed: only for assertions
 };
 
 // Schedule graph that can be used to drive scheduling
@@ -911,6 +972,7 @@ class HloScheduleGraph {
   std::string ToString() const;
 
   HloGraphNode& GetNode(const HloInstruction* instr) const;
+  HloGraphNode* GetNodePtr(const HloInstruction* instr) const;
 
   std::vector<HloGraphNode*> FindBottomRoots() const;
 
@@ -936,7 +998,7 @@ class HloScheduleGraph {
     std::vector<double> preferences;
     preferences.reserve(original_order_.size());
     for (const HloInstruction* instr : original_order_) {
-      preferences.push_back(nodes_[instr]->GetPreference());
+      preferences.push_back(GetNodePtr(instr)->GetPreference());
     }
     return preferences;
   }
@@ -945,14 +1007,21 @@ class HloScheduleGraph {
   void SetPreferences(const std::vector<double>& preferences) {
     CHECK_EQ(preferences.size(), original_order_.size());
     for (int i = 0; i < original_order_.size(); ++i) {
-      nodes_[original_order_[i]]->SetPreference(preferences[i]);
+      GetNodePtr(original_order_[i])->SetPreference(preferences[i]);
     }
   }
 
  private:
-  // Map that allocates the nodes of the graph.
-  absl::flat_hash_map<const HloInstruction*, std::unique_ptr<HloGraphNode>>
-      nodes_;
+  // Backing store for the nodes in the graph
+  mutable std::vector<HloGraphNode> node_storage_;
+  std::vector<HloEdge> predecessors_storage_;
+  std::vector<HloEdge> successors_storage_;
+
+  // Rare storage for HloGraphNode objects
+  std::vector<std::unique_ptr<HloGraphNode::Rare>> rare_storage_;
+
+  // Map from instruction to the index in node_storage_ that holds the node
+  absl::flat_hash_map<const HloInstruction*, int> nodes_;
   // Map containing the ordinal value for each instruction.
   absl::flat_hash_map<const HloInstruction*, int64_t> instr_order_map_;
   // List containing the original order (before scheduling) of the
@@ -1251,10 +1320,37 @@ class DefaultSchedulerCore : public SchedulerCore {
   // process for this next candidate. The information shouldn't survive across
   // scheduling two different instructions.
   struct ScheduleCandidate {
+    // These are valid if the corresponding has_... field is true
+
+    // Like a std::pair<int64_t, int64_t>, but is_trivially_copyable
+    struct PressureChangeInfo {
+      int64_t first;
+      int64_t second;
+    };
+
+    void set_pressure_change(PressureChangeInfo v) {
+      pressure_change = v;
+      has_pressure_change = true;
+    }
+    void set_estimated_connected_send_ready_time(HloGraphNode::TimeCost v) {
+      estimated_connected_send_ready_time = v;
+      has_estimated_connected_send_ready_time = true;
+    }
+    void set_resource_constrained(bool v) {
+      resource_constrained = v;
+      has_resource_constrained = true;
+    }
+
     HloGraphNode* node = nullptr;
-    std::optional<std::pair<int64_t, int64_t>> pressure_change;
-    std::optional<HloGraphNode::TimeCost> estimated_connected_send_ready_time;
-    std::optional<bool> resource_constrained;
+
+    bool has_pressure_change = false;
+    bool has_estimated_connected_send_ready_time = false;
+    bool has_resource_constrained = false;
+    bool unused = false;
+
+    PressureChangeInfo pressure_change;
+    HloGraphNode::TimeCost estimated_connected_send_ready_time;
+    bool resource_constrained;
   };
 
   struct CandidateResult {
@@ -1264,6 +1360,8 @@ class DefaultSchedulerCore : public SchedulerCore {
 
   using TargetSchedulingRule = std::function<std::optional<CandidateResult>(
       ScheduleCandidate&, ScheduleCandidate&)>;
+  using TargetSchedulingRuleNew = std::function<std::optional<bool>(
+      ScheduleCandidate&, ScheduleCandidate&, const char** reason)>;
 
   // Returns nullopt if both conditions are equal, otherwise returns the
   // candidate corresponding to the true condition.
@@ -1278,11 +1376,25 @@ class DefaultSchedulerCore : public SchedulerCore {
                            reason};
   }
 
+  // Returns nullopt if both numeric values are equal.  Otherwise,
+  // returns first_candidate if first_val > second_val and second_candidate
+  // if second_val > first_val.
+  template <typename T>
+  static inline std::optional<CandidateResult> ChooseBestNumeric(
+      T first_val, const ScheduleCandidate& first_candidate, T second_val,
+      const ScheduleCandidate& second_candidate, const char* reason) {
+    if (first_val == second_val) return std::nullopt;
+    bool first_greater = first_val > second_val;
+    return CandidateResult{first_greater ? first_candidate : second_candidate,
+                           reason};
+  }
+
   absl::Status SetGraphProcessingHook(
       const SchedulerCore::GraphProcessingHook& hook) override {
     graph_processing_hook_ = hook;
     return absl::OkStatus();
   }
+
   // The scheduling state contains everything that is required for the
   // bookkeeping of the scheduling algorithm. Functions that perform operations
   // over the scheduling state can directly operate on the state contained into
@@ -1374,13 +1486,15 @@ class DefaultSchedulerCore : public SchedulerCore {
   DefaultSchedulerCore(
       std::shared_ptr<const SchedulingContext> scheduling_context,
       const SchedulerConfig& config,
-      TargetSchedulingRule target_scheduling_rule = nullptr,
-      TargetSchedulingRule early_target_scheduling_rule = nullptr,
+      TargetSchedulingRuleNew target_scheduling_rule_new = nullptr,
+      TargetSchedulingRuleNew early_target_scheduling_rule_new = nullptr,
       PostProcessingFn post_processing_fn = nullptr,
       OverlapLimitRule scheduling_instruction_crosses_overlap_limit = nullptr)
       : config_(config),
-        target_scheduling_rule_(target_scheduling_rule),
-        early_target_scheduling_rule_(early_target_scheduling_rule),
+        target_scheduling_rule_(nullptr),
+        early_target_scheduling_rule_(nullptr),
+        target_scheduling_rule_new_(target_scheduling_rule_new),
+        early_target_scheduling_rule_new_(early_target_scheduling_rule_new),
         post_processing_fn_(post_processing_fn),
         scheduling_instruction_crosses_overlap_limit_(
             scheduling_instruction_crosses_overlap_limit),
@@ -1460,8 +1574,11 @@ class DefaultSchedulerCore : public SchedulerCore {
   SchedulerConfig config_;
   TargetSchedulingRule target_scheduling_rule_ = nullptr;
   TargetSchedulingRule early_target_scheduling_rule_ = nullptr;
+  TargetSchedulingRuleNew target_scheduling_rule_new_ = nullptr;
+  TargetSchedulingRuleNew early_target_scheduling_rule_new_ = nullptr;
   PostProcessingFn post_processing_fn_ = nullptr;
   OverlapLimitRule scheduling_instruction_crosses_overlap_limit_ = nullptr;
+  bool is_default_scheduling_instruction_crosses_overlap_limit_ = false;
   std::unique_ptr<AnnotationTracker> annotation_tracker_;
   std::optional<ScheduleProto> schedule_proto_;
   const HloModule* module_ = nullptr;
