@@ -116,6 +116,7 @@ xla_cc_test(
         "//xla/hlo/testlib:hlo_hardware_independent_test_base",
         "//xla/hlo/testlib:verified_hlo_module",
         "//xla/hlo/utils:hlo_matchers",
+        "//xla/service:computation_layout",
         "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/log",
         "@com_google_googletest//:gtest_main",
