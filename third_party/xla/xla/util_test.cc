@@ -44,6 +44,24 @@ limitations under the License.
 namespace xla {
 namespace {
 
+TEST(UtilTest, Product) {
+  EXPECT_EQ(Product({}), 1);
+  EXPECT_EQ(Product({1}), 1);
+  EXPECT_EQ(Product({2, 3}), 2 * 3);
+  EXPECT_EQ(Product({2, 7, 9}), 2 * 7 * 9);
+}
+
+TEST(UtilTest, ToMixedRadix) {
+  EXPECT_EQ(ToMixedRadix<std::vector<int64_t>>(0, {2, 3, 4}),
+            (std::vector<int64_t>{0, 0, 0}));
+  EXPECT_EQ(ToMixedRadix<std::vector<int64_t>>(1, {2, 3, 4}),
+            (std::vector<int64_t>{0, 0, 1}));
+  EXPECT_EQ(ToMixedRadix<std::vector<int64_t>>(19, {2, 3, 4}),
+            (std::vector<int64_t>{19 / (3 * 4), 7 / 4, 3}));
+  EXPECT_EQ(ToMixedRadix<std::vector<int64_t>>(23, {3, 2, 4}),
+            (std::vector<int64_t>{23 / (2 * 4), 7 / 4, 3}));
+}
+
 // Verifies that, even with a different number of leading spaces, the
 // Reindent routine turns them into a uniform number of leading spaces.
 //

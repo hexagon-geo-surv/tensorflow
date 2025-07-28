@@ -61,6 +61,8 @@ limitations under the License.
 
 namespace xla {
 
+int64_t Product(absl::Span<const int64_t> xs);
+
 // Converts the unsigned integer n into a mixed-radix representation with the
 // given bounds (radices). More precisely, if there are K radices, then the
 // returned vector digits has K entries and satisfies
@@ -69,8 +71,28 @@ namespace xla {
 //
 // and FromMixedRadix(digits) == n. The mixed radix representation is unique
 // modulo the product of the entries of bounds.
-std::vector<int64_t> ToMixedRadix(int64_t n, absl::Span<const int64_t> bounds);
+template <typename T = std::vector<int64_t>>
+T ToMixedRadix(int64_t n, absl::Span<const int64_t> bounds) {
+  if (bounds.empty()) {
+    return {};
+  }
 
+  T digits;
+  digits.reserve(bounds.size());
+  int64_t divisor = Product(bounds);
+  CHECK_GT(divisor, 0);
+  int64_t remainder = n % divisor;
+  for (const int64_t radix : bounds) {
+    CHECK_GT(radix, 0);
+    divisor /= radix;
+    CHECK_GT(divisor, 0);
+
+    // The divisor is always 1 for the last iteration.
+    digits.push_back(remainder / divisor);
+    remainder = remainder % divisor;
+  }
+  return digits;
+}
 // Logs the provided status message with a backtrace.
 //
 // For use by absl::Status-factories, logs a backtrace at the point where the
@@ -754,8 +776,6 @@ template <typename Derived, typename Base>
 std::unique_ptr<Derived> unique_ptr_down_cast(std::unique_ptr<Base> ptr) {
   return absl::WrapUnique(tensorflow::down_cast<Derived*>(ptr.release()));
 }
-
-int64_t Product(absl::Span<const int64_t> xs);
 
 // Returns an array of results after performing elementwise product of a and b.
 std::vector<int64_t> ElemwiseProduct(absl::Span<const int64_t> a,
