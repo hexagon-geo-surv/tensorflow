@@ -330,7 +330,7 @@ absl::StatusOr<std::vector<xla::ifrt::ArrayRef>> Client::CopyArrays(
   }
   if (memory_kind.has_value()) {
     // Use an empty string to indicate the default memory kind.
-    req->set_memory_kind(std::string(memory_kind->memory_kind().value_or("")));
+    req->set_memory_kind(memory_kind->memory_kind().value_or(""));
   }
   req->set_copy_semantics(ToArrayCopySemanticsProto(semantics));
 
@@ -437,7 +437,7 @@ absl::StatusOr<DeviceAssignment> Client::GetDefaultDeviceAssignment(
   return *std::move(assignment_to_return);
 }
 
-xla::ifrt::DeviceListRef Client::MakeDeviceList(
+absl::StatusOr<xla::ifrt::DeviceListRef> Client::MakeDeviceList(
     absl::Span<xla::ifrt::Device* const> devices) const {
   return xla::ifrt::BasicDeviceList::Create(devices);
 }
@@ -470,7 +470,7 @@ Client::GetDefaultPjRtLayout(xla::ifrt::DType dtype,
     req->add_dims(dim);
   }
   req->set_device_id(device->Id().value());
-  req->set_memory_kind(std::string(memory_kind.memory_kind().value_or("")));
+  req->set_memory_kind(memory_kind.memory_kind().value_or(""));
 
   auto future = rpc_helper_->GetDefaultLayout(std::move(req));
   TF_ASSIGN_OR_RETURN(auto response, future.Await());
