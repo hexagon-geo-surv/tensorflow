@@ -140,21 +140,7 @@ BuildKernelPrototypeFromUniqueName(
     const std::string& unique_kernel_name,
     absl::Span<const emitters::KernelArgument> arguments,
     const LaunchDimensions& launch_dimensions, llvm::IRBuilderBase* builder) {
-  // If some arguments have the same buffer, we will pass them only once.
-  llvm::SmallVector<int> to_llvm_arg_no(arguments.size());
-  llvm::SmallVector<int> to_arg_no;
-  to_arg_no.reserve(arguments.size());
-  for (const auto& [arg_no, argument] : llvm::enumerate(arguments)) {
-    if (argument.first_with_same_slice().has_value()) {
-      to_llvm_arg_no[arg_no] =
-          to_llvm_arg_no[argument.first_with_same_slice().value()];
-      continue;
-    }
-
-    to_llvm_arg_no[arg_no] = to_arg_no.size();
-    to_arg_no.push_back(arg_no);
-  }
-  const int kNumLlvmArgs = to_arg_no.size();
+  const int kNumLlvmArgs = arguments.size();
 
   // Create the kernel and add it to the module.
   auto* llvm_module = ir_emitter_context.llvm_module();
@@ -186,8 +172,7 @@ BuildKernelPrototypeFromUniqueName(
 
   for (size_t llvm_arg_no = 0; llvm_arg_no < kernel->arg_size();
        ++llvm_arg_no) {
-    const emitters::KernelArgument& kernel_argument =
-        arguments[to_arg_no[llvm_arg_no]];
+    const emitters::KernelArgument& kernel_argument = arguments[llvm_arg_no];
     // Get the original argument to extract attributes from if they exist.
     llvm::Argument* impl_arg =
         impl_func ? impl_func->getArg(llvm_arg_no) : nullptr;
@@ -223,7 +208,7 @@ BuildKernelPrototypeFromUniqueName(
   ir_arrays.reserve(arguments.size());
   for (size_t arg_no = 0; arg_no < arguments.size(); ++arg_no) {
     const emitters::KernelArgument& kernel_argument = arguments[arg_no];
-    llvm::Argument& llvm_arg = *kernel->getArg(to_llvm_arg_no[arg_no]);
+    llvm::Argument& llvm_arg = *kernel->getArg(arg_no);
 
     llvm::Type* ir_type =
         llvm_ir::ShapeToIrType(kernel_argument.shape(), context);

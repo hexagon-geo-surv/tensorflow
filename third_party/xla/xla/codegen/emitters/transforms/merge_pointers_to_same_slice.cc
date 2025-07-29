@@ -35,6 +35,8 @@ namespace emitters {
 
 namespace {
 
+static constexpr absl::string_view kXlaEntryAttr = "xla.entry";
+
 class MergePointersToSameSlicePass
     : public impl::MergePointersToSameSlicePassBase<
           MergePointersToSameSlicePass> {
@@ -80,9 +82,12 @@ struct PackedArgs {
       }
     }
 
-    auto res = op.eraseArguments(args_to_erase);
-    (void)res;
-    assert(llvm::succeeded(res));
+    if (!op->hasAttr(kXlaEntryAttr)) {
+      auto res = op.eraseArguments(args_to_erase);
+      (void)res;
+      assert(llvm::succeeded(res));
+    }
+
     for (int i = 0; i < op.getNumArguments(); ++i) {
       if (op.getArgAttr(i, "xla.slice_index")) {
         op.removeArgAttr(i, "xla.slice_index");
@@ -96,8 +101,6 @@ struct PackedArgs {
 };
 
 void MergePointersToSameSlicePass::runOnOperation() {
-  mlir::func::FuncOp entry;
-
   absl::flat_hash_map<std::string, PackedArgs> args_to_pack;
   getOperation()->walk([&](mlir::func::FuncOp func) {
     args_to_pack[func.getName()] = PackedArgs(func);
