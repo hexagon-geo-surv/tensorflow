@@ -1047,7 +1047,7 @@ struct FoldConstantDimensions : public mlir::OpRewritePattern<LoopOp> {
             dim_replacements, {}, used_dim_vars.size(),
             loop_indexing_map.GetSymbolCount());
 
-    llvm::DenseMap<mlir::AffineExpr, Interval> new_constraints;
+    llvm::MapVector<mlir::AffineExpr, Interval> new_constraints;
     for (auto [expr, interval] : loop_indexing_map.GetConstraints()) {
       new_constraints[expr.replaceDims(dim_replacements)] = interval;
     }
