@@ -1,3 +1,4 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("//xla/tests:build_defs.bzl", "xla_test")
 
 package(
@@ -22,7 +23,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
-        "@local_tsl//tsl/platform:protobuf",
+        "@com_google_protobuf//:any_cc_proto",
     ],
 )
 
