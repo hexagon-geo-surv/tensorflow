@@ -582,6 +582,7 @@ cuda_library(
         "config-cuda-only",
         "cuda-only",
     ],
+    deps = ["@local_config_cuda//cuda:cuda_headers"],
 )
 
 xla_test(
@@ -603,6 +604,8 @@ xla_test(
         ":cupti_utils",
         ":cupti_wrapper",
         ":profile_with_cuda_kernels",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],
