@@ -61,15 +61,53 @@ PjRtFuture<> PjRtStreamExecutorDeviceEvent::GetReadyFuture() {
 absl::StatusOr<tsl::RCReference<PjRtDeviceEvent>>
 PjRtStreamExecutorRawBuffer::CopyRawHostToDeviceAndReturnEvent(
     const void* src, int64_t offset, int64_t transfer_size) {
-  return client_->CopyRawHostToDevice(local_device_, device_buffer_, src,
-                                      offset, transfer_size);
+  se::Stream* stream = local_device_->host_to_device_stream();
+  auto device_event = BufferSequencingEvent::Create(client_->thread_pool());
+  client_->thread_pool()->Schedule(
+      [client = client_, device_event, local_device = local_device_, stream,
+       buffer = device_buffer_, src, offset, transfer_size]() mutable {
+        se::DeviceMemoryBase sub_buffer = buffer->mem();
+        if (transfer_size < sub_buffer.size()) {
+          sub_buffer = sub_buffer.GetByteSlice(offset, transfer_size);
+        }
+        auto status = stream->Memcpy(&sub_buffer, src, transfer_size);
+        if (status.ok()) {
+          status = client->AllocateAndRecordEvent(device_event, local_device,
+                                                  stream);
+        }
+        if (!status.ok()) {
+          client->SetEventAsError(device_event, status);
+        }
+      });
+  return tsl::MakeRef<PjRtStreamExecutorDeviceEvent>(
+      std::move(device_event), "PjRtStreamExecutorRawBuffer",
+      "CopyRawHostToDevice");
 }
 
 absl::StatusOr<tsl::RCReference<PjRtDeviceEvent>>
 PjRtStreamExecutorRawBuffer::CopyRawDeviceToHostAndReturnEvent(
     void* dst, int64_t offset, int64_t transfer_size) {
-  return client_->CopyRawDeviceToHost(local_device_, device_buffer_, dst,
-                                      offset, transfer_size);
+  se::Stream* stream = local_device_->GetDeviceToHostStream();
+  auto device_event = BufferSequencingEvent::Create(client_->thread_pool());
+  client_->thread_pool()->Schedule(
+      [client = client_, device_event, local_device = local_device_, stream,
+       buffer = device_buffer_, dst, offset, transfer_size]() mutable {
+        se::DeviceMemoryBase sub_buffer = buffer->mem();
+        if (transfer_size < sub_buffer.size()) {
+          sub_buffer = sub_buffer.GetByteSlice(offset, transfer_size);
+        }
+        auto status = stream->Memcpy(dst, sub_buffer, transfer_size);
+        if (status.ok()) {
+          status = client->AllocateAndRecordEvent(device_event, local_device,
+                                                  stream);
+        }
+        if (!status.ok()) {
+          client->SetEventAsError(device_event, status);
+        }
+      });
+  return tsl::MakeRef<PjRtStreamExecutorDeviceEvent>(
+      std::move(device_event), "PjRtStreamExecutorRawBuffer",
+      "CopyRawDeviceToHost");
 }
 
 ShapedBuffer PjRtStreamExecutorRawBuffer::AsShapedBuffer(
@@ -114,6 +152,15 @@ void PjRtStreamExecutorRawBuffer::CopyToLiteralAsync(
 
 absl::StatusOr<tsl::RCReference<PjRtDeviceEvent>>
 PjRtStreamExecutorRawBuffer::MakeAllocationReadyEvent() {
+  if (local_device_->allocation_model() ==
+      LocalDeviceState::kComputeSynchronized) {
+    auto* client =
+        dynamic_cast<PjRtStreamExecutorClient*>(memory_space_->client());
+    auto result = BufferSequencingEvent::Create(client->thread_pool());
+    TF_RETURN_IF_ERROR(client->AllocateAndRecordEvent(
+        result, local_device_, local_device_->compute_stream()));
+    return tsl::MakeRef<PjRtStreamExecutorDeviceEvent>(std::move(result));
+  }
   return absl::UnimplementedError("Cannot make ready event");
 }
 
