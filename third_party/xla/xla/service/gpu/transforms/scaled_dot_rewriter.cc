@@ -159,7 +159,7 @@ absl::StatusOr<HloInstruction*> Dequantize(HloInstruction* dot,
 }
 }  // namespace
 
-absl::StatusOr<bool> ScaledDotRewriter::Run(
+absl::StatusOr<bool> ScaledDotRewriter::RunImpl(
     HloModule* module, const absl::flat_hash_set<absl::string_view>&) {
   bool changed = false;
   for (HloComputation* computation : module->MakeNonfusionComputations()) {

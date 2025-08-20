@@ -464,7 +464,7 @@ absl::Status LegalizeSchedulingAnnotations::Verify(HloModule* module) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<bool> LegalizeSchedulingAnnotations::Run(
+absl::StatusOr<bool> LegalizeSchedulingAnnotations::RunImpl(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
   absl::flat_hash_map<HloInstruction*, Annotation> instruction_to_annotation;
@@ -590,7 +590,7 @@ absl::StatusOr<bool> LegalizeSchedulingAnnotations::Run(
   return changed;
 }
 
-absl::StatusOr<bool> CheckNoDataDependencyInSchedulingAnnotations::Run(
+absl::StatusOr<bool> CheckNoDataDependencyInSchedulingAnnotations::RunImpl(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
   for (HloComputation* computation :
