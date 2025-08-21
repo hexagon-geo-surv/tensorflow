@@ -36,6 +36,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
 #include "xla/literal_util.h"
+#include "xla/service/compiler.h"
 #include "xla/service/executable.h"
 #include "xla/service/gpu/backend_configs.pb.h"
 #include "xla/service/shaped_buffer.h"
@@ -76,7 +77,8 @@ class MockCodegenBackend : public CodegenBackend {
   MOCK_METHOD(absl::StatusOr<std::unique_ptr<BackendConfig>>, GetDefaultConfig,
               (const HloInstruction& instr), (override));
   MOCK_METHOD(absl::StatusOr<std::unique_ptr<Executable>>, Compile,
-              (const HloInstruction& instr, const BackendConfig& config),
+              (const HloInstruction& instr, Compiler::CompileOptions& options,
+               const BackendConfig& config),
               (override));
   MOCK_METHOD(absl::Status, ApplyConfig,
               (HloInstruction & instr, const BackendConfig& config),
@@ -144,7 +146,7 @@ absl::StatusOr<std::unique_ptr<Autotuner>> SetupAutotunerWithExpectations(
   EXPECT_CALL(*backend,
               GetSupportedConfigs(InstructionMatcher(instr_to_autotune)))
       .WillOnce(Return(std::move(configs)));
-  EXPECT_CALL(*backend, Compile(_, _))
+  EXPECT_CALL(*backend, Compile(_, _, _))
       .WillOnce(Return(std::unique_ptr<Executable>()))
       .WillOnce(Return(std::unique_ptr<Executable>()));
   HloOpcode instr_to_apply_config = instr_to_apply_config_and_count.first;
@@ -230,7 +232,7 @@ TEST_F(AutotunerTest, AutotuneButNoCompiledConfigs) {
   auto backend = std::make_unique<MockCodegenBackend>();
   EXPECT_CALL(*backend, GetSupportedConfigs)
       .WillOnce(Return(std::move(configs)));
-  EXPECT_CALL(*backend, Compile(_, _))
+  EXPECT_CALL(*backend, Compile(_, _, _))
       .WillOnce(Return(absl::InternalError("test error")));
 
   auto profiler = std::make_unique<MockProfiler>();
@@ -261,7 +263,7 @@ TEST_F(AutotunerTest, AutotuneAppliesBestConfigAndSkipsNonCompilableConfig) {
   auto backend = std::make_unique<MockCodegenBackend>();
   EXPECT_CALL(*backend, GetSupportedConfigs)
       .WillOnce(Return(std::move(configs)));
-  EXPECT_CALL(*backend, Compile(_, _))
+  EXPECT_CALL(*backend, Compile(_, _, _))
       .WillOnce(Return(std::unique_ptr<Executable>()))
       .WillOnce(Return(absl::InternalError("test error")))
       .WillOnce(Return(std::unique_ptr<Executable>()));
@@ -298,7 +300,7 @@ TEST_F(AutotunerTest, AutotuneAppliesBestConfigUsingThreadPool) {
   auto backend = std::make_unique<MockCodegenBackend>();
   EXPECT_CALL(*backend, GetSupportedConfigs)
       .WillOnce(Return(std::move(configs)));
-  EXPECT_CALL(*backend, Compile(_, _))
+  EXPECT_CALL(*backend, Compile(_, _, _))
       .WillOnce(Return(std::unique_ptr<Executable>()))
       .WillOnce(Return(std::unique_ptr<Executable>()));
   EXPECT_CALL(*backend, ApplyConfig(_, ConfigMatcher("test_config_2")))
@@ -413,7 +415,7 @@ TEST_F(AutotunerTest, AutotuneWithBufferCheck) {
   auto backend_1 = std::make_unique<MockCodegenBackend>();
   EXPECT_CALL(*backend_1, GetSupportedConfigs)
       .WillOnce(Return(std::move(configs_1)));
-  EXPECT_CALL(*backend_1, Compile(_, _))
+  EXPECT_CALL(*backend_1, Compile(_, _, _))
       .WillOnce(Return(std::unique_ptr<Executable>()));
 
   std::vector<std::unique_ptr<BackendConfig>> configs_2;
@@ -421,7 +423,7 @@ TEST_F(AutotunerTest, AutotuneWithBufferCheck) {
   auto backend_2 = std::make_unique<MockCodegenBackendWithWrongResults>();
   EXPECT_CALL(*backend_2, GetSupportedConfigs)
       .WillOnce(Return(std::move(configs_2)));
-  EXPECT_CALL(*backend_2, Compile(_, _))
+  EXPECT_CALL(*backend_2, Compile(_, _, _))
       .WillOnce(Return(std::unique_ptr<Executable>()));
 
   EXPECT_CALL(*backend_1, ApplyConfig(_, ConfigMatcher("test_config_1")))
@@ -461,7 +463,7 @@ TEST_F(AutotunerTest, AutotuneWithScratchBytesOptimization) {
   auto backend_1 = std::make_unique<MockCodegenBackend>();
   EXPECT_CALL(*backend_1, GetSupportedConfigs)
       .WillOnce(Return(std::move(configs)));
-  EXPECT_CALL(*backend_1, Compile(_, _))
+  EXPECT_CALL(*backend_1, Compile(_, _, _))
       .WillOnce(Return(std::unique_ptr<Executable>()))
       .WillOnce(Return(std::unique_ptr<Executable>()));
 
@@ -495,6 +497,38 @@ TEST_F(AutotunerTest, AutotuneWithScratchBytesOptimization) {
       Autotuner::Create(std::move(backends), std::move(profiler), config,
                         std::make_unique<MockAutotunerCache>()));
   auto dummy_instr = HloInstruction::CreateConstant(LiteralUtil::CreateR0(1));
+  EXPECT_THAT(autotuner->Autotune(dummy_instr.get()), IsOk());
+}
+
+TEST_F(AutotunerTest, AutotunerSetsIsAutotuningCompilation) {
+  // Setup so that the autotuner will call Compile.
+  std::vector<std::unique_ptr<BackendConfig>> configs;
+  configs.push_back(GetTestConfig("test_config_1"));
+  auto backend = std::make_unique<MockCodegenBackend>();
+  EXPECT_CALL(*backend, GetSupportedConfigs)
+      .WillOnce(Return(std::move(configs)));
+  std::vector<std::unique_ptr<CodegenBackend>> backends;
+  auto profiler = std::make_unique<MockProfiler>();
+  EXPECT_CALL(*profiler, CreateInputBuffers(_))
+      .WillOnce(Return(std::make_unique<InputBuffers>()));
+  EXPECT_CALL(*profiler, Profile(_, _))
+      .WillOnce(Return(ProfileResult({absl::Seconds(2)})));
+  auto dummy_instr = HloInstruction::CreateConstant(LiteralUtil::CreateR0(1));
+
+  // Verify that the compile call has is_autotuning_compilation set to true.
+  EXPECT_CALL(
+      *backend,
+      Compile(_,
+              testing::Field(
+                  &Compiler::CompileOptions::is_autotuning_compilation, true),
+              _))
+      .WillOnce(Return(std::unique_ptr<Executable>()));
+  backends.push_back(std::move(backend));
+  TF_ASSERT_OK_AND_ASSIGN(
+      auto autotuner,
+      Autotuner::Create(std::move(backends), std::move(profiler),
+                        AutotuneConfig(),
+                        std::make_unique<MockAutotunerCache>()));
   EXPECT_THAT(autotuner->Autotune(dummy_instr.get()), IsOk());
 }
 

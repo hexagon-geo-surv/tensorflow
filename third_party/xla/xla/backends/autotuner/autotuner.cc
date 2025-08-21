@@ -32,6 +32,7 @@ limitations under the License.
 #include "xla/backends/autotuner/profiler.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_print_options.h"
+#include "xla/service/compiler.h"
 #include "xla/service/executable.h"
 #include "xla/service/shaped_buffer.h"
 #include "xla/tsl/platform/errors.h"
@@ -170,12 +171,14 @@ absl::StatusOr<std::vector<Autotuner::Config>> Autotuner::GetSupportedConfigs(
 
 std::vector<absl::StatusOr<std::unique_ptr<Executable>>> Autotuner::CompileAll(
     HloInstruction* instr, std::vector<Config>& configs) {
+  Compiler::CompileOptions options;
+  options.is_autotuning_compilation = true;
   if (thread_pool_ == nullptr) {
     std::vector<absl::StatusOr<std::unique_ptr<Executable>>> executables;
     executables.reserve(configs.size());
     for (auto& config : configs) {
-      executables.emplace_back(
-          config.codegen_backend->Compile(*instr, *config.backend_config));
+      executables.emplace_back(config.codegen_backend->Compile(
+          *instr, options, *config.backend_config));
     }
     return executables;
   }
@@ -186,7 +189,7 @@ std::vector<absl::StatusOr<std::unique_ptr<Executable>>> Autotuner::CompileAll(
   for (int i = 0; i < configs.size(); ++i) {
     auto compile_fn = [&, i]() {
       executables[i] = configs[i].codegen_backend->Compile(
-          *instr, *configs[i].backend_config);
+          *instr, options, *configs[i].backend_config);
       counter.DecrementCount();
     };
     thread_pool_->Schedule(compile_fn);

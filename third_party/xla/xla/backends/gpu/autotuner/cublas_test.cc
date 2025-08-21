@@ -20,18 +20,19 @@ limitations under the License.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
 #include "xla/autotuning.pb.h"
 #include "xla/backends/autotuner/codegen_backend.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/testlib/filecheck.h"
 #include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
+#include "xla/service/compiler.h"
 #include "xla/service/executable.h"
 #include "xla/service/gpu/nvptx_compiler.h"
 #include "xla/service/platform_util.h"
 #include "xla/stream_executor/blas.h"
 #include "xla/stream_executor/device_description.pb.h"
-#include "xla/stream_executor/stream_executor.h"
 #include "xla/tsl/lib/core/status_test_util.h"
 #include "xla/tsl/platform/status_matchers.h"
 #include "xla/tsl/platform/statusor.h"
@@ -44,8 +45,6 @@ namespace gpu {
 using CublasBackendConfig = AutotuneResult::GemmKey;
 
 using ::tsl::proto_testing::EqualsProto;
-using ::tsl::testing::IsOk;
-using ::tsl::testing::IsOkAndHolds;
 
 const char kCublasCustomCallHlo[] = R"(
   HloModule module, entry_computation_layout={(f32[100,100]{1,0}, f32[100,100]{1,0})->f32[100,100]{1,0}}
@@ -169,8 +168,9 @@ TEST_F(CublasBackendTest, Compile) {
       std::unique_ptr<BackendConfig> config,
       backend_.GetDefaultConfig(
           *(module->entry_computation()->root_instruction()->operand(0))));
+  Compiler::CompileOptions options;
   absl::StatusOr<std::unique_ptr<Executable>> executable = backend_.Compile(
-      *(module->entry_computation()->root_instruction()), *config);
+      *(module->entry_computation()->root_instruction()), options, *config);
   EXPECT_THAT(executable, absl_testing::IsOk());
 }
 

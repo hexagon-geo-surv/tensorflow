@@ -21,6 +21,7 @@ cc_library(
     hdrs = ["codegen_backend.h"],
     deps = [
         "//xla/hlo/ir:hlo",
+        "//xla/service:compiler",
         "//xla/service:executable",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -38,6 +39,7 @@ cc_library(
         ":codegen_backend",
         ":profiler",
         "//xla/hlo/ir:hlo",
+        "//xla/service:compiler",
         "//xla/service:executable",
         "//xla/service:shaped_buffer",
         "//xla/stream_executor:device_description",
@@ -69,6 +71,7 @@ xla_cc_test(
         "//xla:shape_util",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/testlib:hlo_hardware_independent_test_base",
+        "//xla/service:compiler",
         "//xla/service:executable",
         "//xla/service:shaped_buffer",
         "//xla/service/gpu:backend_configs_cc",
