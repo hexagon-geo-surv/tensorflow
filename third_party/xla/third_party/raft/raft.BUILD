@@ -18,27 +18,17 @@ BASE_COPTS = [
 
 cuda_library(
     name = "raft_matrix",
-    srcs = glob([
-        "cpp/include/raft/core/detail/*.hpp",
-        "cpp/include/raft/core/resource/detail/*.hpp",
-        "cpp/include/raft/linalg/detail/*.hpp",
-        "cpp/include/raft/matrix/detail/*.hpp",
-        "cpp/include/raft/util/detail/*.hpp",
-    ]),
-    hdrs = glob([
-        "cpp/include/raft/core/*.hpp",
-        "cpp/include/raft/core/resource/*.hpp",
-        "cpp/include/raft/linalg/*.hpp",
-        "cpp/include/raft/matrix/*.hpp",
-        "cpp/include/raft/util/*.hpp",
-    ]),
     copts = BASE_COPTS,
     includes = ["cpp/include"],
     textual_hdrs = glob([
         "cpp/include/raft/core/**/*.cuh",
+        "cpp/include/raft/core/**/*.hpp",
         "cpp/include/raft/linalg/**/*.cuh",
+        "cpp/include/raft/linalg/**/*.hpp",
         "cpp/include/raft/matrix/**/*.cuh",
+        "cpp/include/raft/matrix/**/*.hpp",
         "cpp/include/raft/util/**/*.cuh",
+        "cpp/include/raft/util/**/*.hpp",
     ]),
     visibility = ["//visibility:public"],
     deps = [
