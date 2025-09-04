@@ -418,6 +418,12 @@ bool ShouldAutotuneBetweenFusionEmitters(const HloInstruction& instruction) {
   if (fusion->fusion_kind() == HloInstruction::FusionKind::kCustom) {
     return false;
   }
+  // Scatter can't go through the block-level emitter and runs into comparator
+  // issues in the autotuner as different runs can produce different results.
+  if (absl::c_any_of(fusion->fused_instructions_computation()->instructions(),
+                     HloPredicateIsOp<HloOpcode::kScatter>)) {
+    return false;
+  }
   return absl::c_any_of(
       fusion->fused_instructions_computation()->instructions(),
       HloPredicateIsOp<HloOpcode::kReduce, HloOpcode::kTranspose>);
@@ -435,8 +441,7 @@ absl::Status NVPTXCompiler::AddFusionAutotuningPass(
   }
   const DebugOptions& debug_options = hlo_module->config().debug_options();
   if (debug_options.xla_gpu_autotune_level() == 0 ||
-      debug_options.xla_gpu_exclude_nondeterministic_ops() ||
-      !debug_options.xla_gpu_experimental_enable_fusion_autotuner()) {
+      debug_options.xla_gpu_exclude_nondeterministic_ops()) {
     return absl::OkStatus();
   }
 

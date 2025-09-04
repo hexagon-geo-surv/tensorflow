@@ -572,7 +572,7 @@ ENTRY e {
   MatchOptimizedHlo(kHloText, R"(
 ; CHECK: reduce
 ; CHECK: ENTRY
-; CHECK: ROOT {{.*}} fusion({{.*}}), kind=kLoop
+; CHECK: ROOT {{.*}} fusion({{.*}}), kind=kInput
 )");
 
   EXPECT_TRUE(RunAndCompare(kHloText, ErrorSpec{/*aabs=*/1e-2, /*arel=*/1e-3}));
@@ -602,7 +602,7 @@ ENTRY e {
 ; CHECK-SAME: "kind":"__triton_nested_gemm_fusion"
 ; CHECK-SAME: "sizes":["1","32","64"]
 ; CHECK: ENTRY
-; CHECK: ROOT {{.*}} f16[55,20]{1,0} fusion({{.*}}), kind=kLoop
+; CHECK: ROOT {{.*}} f16[55,20]{1,0} fusion({{.*}}), kind=kInput
 )");
 
   EXPECT_TRUE(RunAndCompare(kHloText, ErrorSpec{/*aabs=*/1e-3, /*arel=*/1e-3}));
