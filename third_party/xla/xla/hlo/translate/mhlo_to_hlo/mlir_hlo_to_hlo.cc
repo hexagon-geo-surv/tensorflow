@@ -5199,6 +5199,17 @@ LogicalResult ExportXlaOp(AcoshOp op, OpLoweringContext ctx) {
   return success();
 }
 
+LogicalResult ExportXlaOp(AtanhOp op, OpLoweringContext ctx) {
+  auto& value_map = *ctx.values;
+  xla::XlaOp operand;
+  if (failed(GetXlaOp(op.getOperand(), value_map, &operand, op))) {
+    return failure();
+  }
+  value_map[op] =
+      xla::Atanh(operand, /*result_accuracy=*/std::nullopt, /*expand=*/false);
+  return success();
+}
+
 LogicalResult ExportXlaOp(TopKOp op, OpLoweringContext ctx) {
   auto& value_map = *ctx.values;
   xla::XlaOp operand;
