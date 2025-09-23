@@ -438,7 +438,7 @@ class Executable {
 
   // Returns the allocations resulting from buffer assignment, or an empty span
   // if unimplemented.
-  virtual absl::Span<const BufferAllocation> GetAllocations() const {
+  virtual absl::Span<const BufferAllocation* const> GetAllocations() const {
     return {};
   }
 

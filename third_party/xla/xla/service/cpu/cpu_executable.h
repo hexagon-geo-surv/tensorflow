@@ -159,8 +159,8 @@ class CpuExecutable : public Executable {
 
   int64_t SizeOfGeneratedCodeInBytes() const override;
 
-  absl::Span<const BufferAllocation> GetAllocations() const override {
-    return assignment_->Allocations();
+  absl::Span<const BufferAllocation* const> GetAllocations() const override {
+    return alloc_ptrs_;
   }
 
   FunctionLibrary* function_library() const { return function_library_.get(); }
@@ -225,6 +225,7 @@ class CpuExecutable : public Executable {
 
   // Buffer assignment for the buffers we need to allocate.
   std::shared_ptr<BufferAssignment> assignment_;
+  std::vector<const BufferAllocation*> alloc_ptrs_;
 
   // The LLVM IR, in string format, of the unoptimized module generated for this
   // CpuExecutable. We save a string instead of an llvm::Module* because leaving
