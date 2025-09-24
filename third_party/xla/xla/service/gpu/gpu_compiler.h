@@ -208,15 +208,14 @@ class GpuCompiler : public LLVMCompiler {
   // Schedule and compile the module.
   absl::StatusOr<CompileResultWithMetadata> CompileToBackendResult(
       HloModule* module, llvm::LLVMContext* llvm_context,
-      se::StreamExecutor* executor, const CompileOptions& options,
+      const CompileOptions& options,
       const se::DeviceDescription& gpu_device_info);
 
   absl::StatusOr<BackendCompileResult> CompileAndLink(
       const HloModuleConfig& module_config,
       CompileModuleResults& compile_module_results,
       const stream_executor::DeviceDescription& device_description,
-      se::StreamExecutor* stream_exec, const CompileOptions& options,
-      const HloModule* debug_module);
+      const CompileOptions& options, const HloModule* debug_module);
 
   absl::StatusOr<BackendCompileResult> CompileSingleModule(
       const HloModuleConfig& module_config,
@@ -230,8 +229,7 @@ class GpuCompiler : public LLVMCompiler {
       const DebugOptions& debug_options);
 
   absl::Status RunPreSchedulingPasses(
-      HloModule* module, se::StreamExecutor* stream_exec,
-      const se::DeviceDescription& gpu_device_info,
+      HloModule* module, const se::DeviceDescription& gpu_device_info,
       const GpuAliasInfo* alias_info);
   absl::Status RunCollectiveScheduleLinearizerPasses(
       HloModule* hlo_module, se::StreamExecutor* stream_exec);
@@ -265,7 +263,6 @@ class GpuCompiler : public LLVMCompiler {
 
   virtual absl::StatusOr<std::vector<uint8_t>> LinkModules(
       const stream_executor::DeviceDescription& device_description,
-      se::StreamExecutor* stream_exec,
       std::vector<std::vector<uint8_t>> modules,
       const DebugOptions& debug_options) {
     return Unimplemented("LinkModules is not implemented.");
