@@ -61,7 +61,8 @@ void completion(const char* buf, linenoiseCompletions* lc) {
   int last_dash = buf_str.find_last_of(' ');
   if (last_dash != string::npos) {
     prefix = buf_str.substr(0, last_dash + 1);
-    buf_str = buf_str.substr(last_dash + 1, kint32max);
+    buf_str =
+        buf_str.substr(last_dash + 1, std::numeric_limits<int32_t>::max());
   }
   for (const char* opt : kOptions) {
     if (absl::StartsWith(opt, buf_str)) {

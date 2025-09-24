@@ -84,7 +84,8 @@ class RandomDatasetOp::Dataset : public DatasetBase {
     // These splits aren't actually used during iteration.
     // TODO(aaudibert): Avoid sending dummy splits over RPC when using tf.data
     // service with RandomDataset.
-    split_providers->push_back(std::make_unique<IndexSplitProvider>(kint64max));
+    split_providers->push_back(std::make_unique<IndexSplitProvider>(
+        std::numeric_limits<int64_t>::max()));
     return absl::OkStatus();
   }
 

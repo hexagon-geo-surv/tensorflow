@@ -52,7 +52,7 @@ class StringNGramsOp : public tensorflow::OpKernel {
 
   absl::StatusOr<int> get_num_ngrams(const int length,
                                      const int ngram_width) const {
-    int64 limit = kint32max;
+    int64 limit = std::numeric_limits<int32_t>::max();
     int pad_width = get_pad_width(ngram_width);
     if (pad_width > limit / 2 - length) {
       return errors::InvalidArgument(

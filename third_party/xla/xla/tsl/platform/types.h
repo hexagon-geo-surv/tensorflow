@@ -16,47 +16,68 @@ limitations under the License.
 #ifndef XLA_TSL_PLATFORM_TYPES_H_
 #define XLA_TSL_PLATFORM_TYPES_H_
 
+#include <cstdint>
+#include <limits>
 #include <string>
 
-#include "tsl/platform/bfloat16.h"
+#include "absl/base/attributes.h"
+#include "absl/base/macros.h"
+#include "tsl/platform/bfloat16.h"  // IWYU pragma: export
 #include "tsl/platform/ml_dtypes.h"  // IWYU pragma: export
-#include "tsl/platform/platform.h"
 #include "tsl/platform/tstring.h"
-
-// Include appropriate platform-dependent implementations
-#if defined(PLATFORM_GOOGLE) || defined(GOOGLE_INTEGRAL_TYPES)
-#include "xla/tsl/platform/google/integral_types.h"  // IWYU pragma: export
-#elif defined(PLATFORM_POSIX) || defined(PLATFORM_POSIX_ANDROID) ||    \
-    defined(PLATFORM_GOOGLE_ANDROID) || defined(PLATFORM_POSIX_IOS) || \
-    defined(PLATFORM_GOOGLE_IOS) || defined(PLATFORM_WINDOWS)
-#include "xla/tsl/platform/default/integral_types.h"  // IWYU pragma: export
-#else
-#error Define the appropriate PLATFORM_<foo> macro for this platform
-#endif
 
 namespace tsl {
 
 // Alias tsl::string to std::string.
-using std::string;
+using string ABSL_DEPRECATE_AND_INLINE() = std::string;
+using uint8 ABSL_DEPRECATE_AND_INLINE() = uint8_t;
+using uint16 ABSL_DEPRECATE_AND_INLINE() = uint16_t;
+using uint32 ABSL_DEPRECATE_AND_INLINE() = uint32_t;
+using uint64 ABSL_DEPRECATE_AND_INLINE() = uint64_t;
+using int8 ABSL_DEPRECATE_AND_INLINE() = int8_t;
+using int16 ABSL_DEPRECATE_AND_INLINE() = int16_t;
+using int32 ABSL_DEPRECATE_AND_INLINE() = int32_t;
+using int64 ABSL_DEPRECATE_AND_INLINE() = int64_t;
 
-static const uint4 kuint4max = static_cast<uint4>(0x0F);
-static const uint8 kuint8max = static_cast<uint8>(0xFF);
-static const uint16 kuint16max = static_cast<uint16>(0xFFFF);
-static const uint32 kuint32max = static_cast<uint32>(0xFFFFFFFF);
-static const uint64 kuint64max = static_cast<uint64>(0xFFFFFFFFFFFFFFFFull);
-static const int8_t kint8min = static_cast<int8>(~0x7F);
-static const int8_t kint8max = static_cast<int8>(0x7F);
-static const int4 kint4min = static_cast<int4>(0x08);
-static const int4 kint4max = static_cast<int4>(0x07);
-static const int16_t kint16min = static_cast<int16>(~0x7FFF);
-static const int16_t kint16max = static_cast<int16>(0x7FFF);
-static const int32_t kint32min = static_cast<int32>(~0x7FFFFFFF);
-static const int32_t kint32max = static_cast<int32>(0x7FFFFFFF);
-static const int64_t kint64min = static_cast<int64_t>(~0x7FFFFFFFFFFFFFFFll);
-static const int64_t kint64max = static_cast<int64_t>(0x7FFFFFFFFFFFFFFFll);
+inline const uint8_t kuint8max
+    ABSL_DEPRECATED("Use std::numeric_limits<uint8_t>::max() instead.") =
+        std::numeric_limits<uint8_t>::max();
+inline const uint16_t kuint16max
+    ABSL_DEPRECATED("Use std::numeric_limits<uint16_t>::max() instead.") =
+        std::numeric_limits<uint16_t>::max();
+inline const uint32_t kuint32max
+    ABSL_DEPRECATED("Use std::numeric_limits<uint32_t>::max() instead.") =
+        std::numeric_limits<uint32_t>::max();
+inline const uint64_t kuint64max
+    ABSL_DEPRECATED("Use std::numeric_limits<uint64_t>::max() instead.") =
+        std::numeric_limits<uint64_t>::max();
+inline const int8_t kint8min
+    ABSL_DEPRECATED("Use std::numeric_limits<int8_t>::min() instead.") =
+        std::numeric_limits<int8_t>::min();
+inline const int8_t kint8max
+    ABSL_DEPRECATED("Use std::numeric_limits<int8_t>::max() instead.") =
+        std::numeric_limits<int8_t>::max();
+inline const int16_t kint16min
+    ABSL_DEPRECATED("Use std::numeric_limits<int16_t>::min() instead.") =
+        std::numeric_limits<int16_t>::min();
+inline const int16_t kint16max
+    ABSL_DEPRECATED("Use std::numeric_limits<int16_t>::max() instead.") =
+        std::numeric_limits<int16_t>::max();
+inline const int32_t kint32min
+    ABSL_DEPRECATED("Use std::numeric_limits<int32_t>::min() instead.") =
+        std::numeric_limits<int32_t>::min();
+inline const int32_t kint32max
+    ABSL_DEPRECATED("Use std::numeric_limits<int32_t>::max() instead.") =
+        std::numeric_limits<int32_t>::max();
+inline const int64_t kint64min
+    ABSL_DEPRECATED("Use std::numeric_limits<int64_t>::min() instead.") =
+        std::numeric_limits<int64_t>::min();
+inline const int64_t kint64max
+    ABSL_DEPRECATED("Use std::numeric_limits<int64_t>::max() instead.") =
+        std::numeric_limits<int64_t>::max();
 
 // A typedef for a uint64 used as a short fingerprint.
-using Fprint = uint64;
+using Fprint = uint64_t;
 
 }  // namespace tsl
 

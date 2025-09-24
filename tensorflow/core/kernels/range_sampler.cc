@@ -89,7 +89,7 @@ void RangeSampler::SampleBatchGetExpectedCountAvoid(
     num_tries = 0;
     while (num_picked < batch_size) {
       num_tries++;
-      CHECK_LT(num_tries, kint32max);
+      CHECK_LT(num_tries, std::numeric_limits<int32_t>::max());
       int64_t value = Sample(rnd);
       if (gtl::InsertIfNotPresent(&used, value)) {
         batch[num_picked++] = value;
@@ -177,7 +177,7 @@ float LogUniformSampler::Probability(int64_t value) const {
 
 ThreadUnsafeUnigramSampler::ThreadUnsafeUnigramSampler(int64_t range)
     : RangeSampler(range), picker_(range) {
-  CHECK_LT(range, kint32max);
+  CHECK_LT(range, std::numeric_limits<int32_t>::max());
 }
 
 int64_t ThreadUnsafeUnigramSampler::Sample(random::SimplePhilox* rnd) const {
@@ -189,8 +189,9 @@ float ThreadUnsafeUnigramSampler::Probability(int64_t value) const {
 }
 
 void ThreadUnsafeUnigramSampler::Update(absl::Span<const int64_t> values) {
-  int num_updates = std::min(static_cast<int>(values.size()),
-                             kint32max - picker_.total_weight());
+  int num_updates =
+      std::min(static_cast<int>(values.size()),
+               std::numeric_limits<int32_t>::max() - picker_.total_weight());
   for (int i = 0; i < num_updates; i++) {
     const int64_t value = values[i];
     picker_.set_weight(value, picker_.get_weight(value) + 1);
@@ -200,7 +201,7 @@ void ThreadUnsafeUnigramSampler::Update(absl::Span<const int64_t> values) {
 // Thread-safe unigram sampler
 UnigramSampler::UnigramSampler(int64_t range)
     : RangeSampler(range), unsafe_sampler_(range) {
-  CHECK_LT(range, kint32max);
+  CHECK_LT(range, std::numeric_limits<int32_t>::max());
 }
 
 int64_t UnigramSampler::Sample(random::SimplePhilox* rnd) const {

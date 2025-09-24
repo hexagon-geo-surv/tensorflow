@@ -104,7 +104,7 @@ class TensorSizeHistogram {
   uint64 sum_elem_ = 0;
   // min_ and max_ are initialized to a very large value and zero, respectively,
   // so that any value added can replace the initial min_ and max_.
-  uint64 min_ = kuint64max;
+  uint64 min_ = std::numeric_limits<uint64_t>::max();
   uint64 max_ = 0;
   // Buckets are logarithmic:
   // 0B, 1B, 2-3B, 4-7B, 8-15B, ..., 2^N - 2^(N+1)-1B, ...

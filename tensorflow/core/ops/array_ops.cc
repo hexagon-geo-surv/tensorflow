@@ -2863,7 +2863,7 @@ REGISTER_OP("QuantizeAndDequantizeV2")
                                        axis);
       } else if (axis != -1) {
         ShapeHandle input;
-        if (axis >= kint32max) {
+        if (axis >= std::numeric_limits<int32_t>::max()) {
           return errors::InvalidArgument(
               "Axis cannot be >= kint32max value, got ", axis);
         }
@@ -2902,7 +2902,7 @@ REGISTER_OP("QuantizeAndDequantizeV4")
                                        axis);
       } else if (axis != -1) {
         ShapeHandle input;
-        if (axis >= kint32max) {
+        if (axis >= std::numeric_limits<int32_t>::max()) {
           return errors::InvalidArgument(
               "Axis cannot be >= kint32max value, got ", axis);
         }
@@ -2937,7 +2937,7 @@ REGISTER_OP("QuantizeAndDequantizeV4Grad")
                                        axis);
       } else if (axis != -1) {
         ShapeHandle input;
-        if (axis >= kint32max) {
+        if (axis >= std::numeric_limits<int32_t>::max()) {
           return errors::InvalidArgument(
               "Axis cannot be >= kint32max value, got ", axis);
         }
@@ -2977,7 +2977,7 @@ REGISTER_OP("QuantizeAndDequantizeV3")
                                        axis);
       } else if (axis != -1) {
         ShapeHandle input;
-        if (axis >= kint32max) {
+        if (axis >= std::numeric_limits<int32_t>::max()) {
           return errors::InvalidArgument(
               "Axis cannot be >= kint32max value, got ", axis);
         }
@@ -3042,7 +3042,7 @@ REGISTER_OP("Dequantize")
       TF_RETURN_IF_ERROR(c->WithRank(c->input(2), minmax_rank, &minmax));
       if (axis != -1) {
         ShapeHandle input;
-        if (axis >= kint32max) {
+        if (axis >= std::numeric_limits<int32_t>::max()) {
           // Check int32 max bound for a corner case to prevent integer flow
           // when input actually has kint32max rank and above bound check is not
           // triggered.

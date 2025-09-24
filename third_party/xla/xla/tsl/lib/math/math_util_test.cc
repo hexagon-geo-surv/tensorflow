@@ -185,18 +185,23 @@ void TestThatCeilOfRatioDenomMinusOneIsIncorrect() {
   // It does not work with negative values
   TestThatCeilOfRatioDenomMinusOneIsIncorrect(-1LL, -2LL, -1LL);
 
-  // This would also fail if given kint64max because of signed integer overflow.
+  // This would also fail if given std::numeric_limits<int64_t>::max() because
+  // of signed integer overflow.
 }
 
 TEST(MathUtil, CeilOfRatio) {
-  TestCeilOfRatioUnsigned<uint8>(kuint8max);
-  TestCeilOfRatioUnsigned<uint16>(kuint16max);
-  TestCeilOfRatioUnsigned<uint32>(kuint32max);
-  TestCeilOfRatioUnsigned<uint64>(kuint64max);
-  TestCeilOfRatioSigned<int8>(kint8min, kint8max);
-  TestCeilOfRatioSigned<int16>(kint16min, kint16max);
-  TestCeilOfRatioSigned<int32>(kint32min, kint32max);
-  TestCeilOfRatioSigned<int64_t>(kint64min, kint64max);
+  TestCeilOfRatioUnsigned<uint8>(std::numeric_limits<uint8_t>::max());
+  TestCeilOfRatioUnsigned<uint16>(std::numeric_limits<uint16_t>::max());
+  TestCeilOfRatioUnsigned<uint32>(std::numeric_limits<uint32_t>::max());
+  TestCeilOfRatioUnsigned<uint64>(std::numeric_limits<uint64_t>::max());
+  TestCeilOfRatioSigned<int8>(std::numeric_limits<int8_t>::min(),
+                              std::numeric_limits<int8_t>::max());
+  TestCeilOfRatioSigned<int16>(std::numeric_limits<int16_t>::min(),
+                               std::numeric_limits<int16_t>::max());
+  TestCeilOfRatioSigned<int32>(std::numeric_limits<int32_t>::min(),
+                               std::numeric_limits<int32_t>::max());
+  TestCeilOfRatioSigned<int64_t>(std::numeric_limits<int64_t>::min(),
+                                 std::numeric_limits<int64_t>::max());
 #if 0
   TestThatCeilOfRatioDenomMinusOneIsIncorrect();
 #endif

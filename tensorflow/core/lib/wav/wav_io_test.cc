@@ -45,8 +45,10 @@ TEST(WavIO, BadArguments) {
       error::INVALID_ARGUMENT,
       EncodeAudioAsS16LEWav(audio, 44100, 2, 3, (tstring*)nullptr).code());
 
-  const size_t kuint32max_plus_one = static_cast<size_t>(kuint32max) + 1;
-  const size_t kuint16max_plus_one = static_cast<size_t>(kuint16max) + 1;
+  const size_t kuint32max_plus_one =
+      static_cast<size_t>(std::numeric_limits<uint32_t>::max()) + 1;
+  const size_t kuint16max_plus_one =
+      static_cast<size_t>(std::numeric_limits<uint16_t>::max()) + 1;
 
   // Zero values are invalid.
   EXPECT_EQ(error::INVALID_ARGUMENT,

@@ -456,10 +456,11 @@ class NonMaxSuppressionOp : public XlaOpKernel {
                 errors::InvalidArgument(
                     "scores size ", std::to_string(scores_shape.dim_size(0)),
                     " must equal number of boxes ", std::to_string(num_boxes)));
-    OP_REQUIRES(context, num_boxes <= kint32max,
-                errors::InvalidArgument("XLA compilation requires number of "
-                                        "boxes to be <= kint32max, got ",
-                                        num_boxes));
+    OP_REQUIRES(context, num_boxes <= std::numeric_limits<int32_t>::max(),
+                errors::InvalidArgument(
+                    "XLA compilation requires number of "
+                    "boxes to be <= std::numeric_limits<int32_t>::max(), got ",
+                    num_boxes));
     xla::PrimitiveType boxes_xla_type = context->InputXlaType("boxes");
     xla::PrimitiveType scores_xla_type = context->InputXlaType("scores");
     const xla::XlaOp boxes_input = context->Input("boxes");
@@ -477,7 +478,7 @@ class NonMaxSuppressionOp : public XlaOpKernel {
     OP_REQUIRES(
         context, output_size >= 0,
         errors::InvalidArgument("Need output_size >= 0, got ", output_size));
-    OP_REQUIRES(context, output_size <= kint32max,
+    OP_REQUIRES(context, output_size <= std::numeric_limits<int32_t>::max(),
                 errors::InvalidArgument("Need output_size <= kint32Max, got ",
                                         output_size));
     const xla::XlaOp score_thresh = context->Input("score_threshold");

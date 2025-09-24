@@ -98,6 +98,7 @@ tf_cc_test(
     deps = [
         ":gen_proto_text_functions_lib",
         ":test_proto_cc",
+        ":test_proto_text",
         "//tensorflow/core:lib",
         "//tensorflow/core:lib_internal",
         "//tensorflow/core:test",

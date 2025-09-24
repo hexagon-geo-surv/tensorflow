@@ -17,34 +17,35 @@ limitations under the License.
 #define TENSORFLOW_CORE_PLATFORM_TYPES_H_
 
 #include <cstdint>
+#include <limits>
 #include <string>
 
+#include "absl/base/macros.h"
 #include "xla/tsl/platform/types.h"
 #include "tensorflow/core/platform/bfloat16.h"
 #include "tensorflow/core/platform/platform.h"
 #include "tensorflow/core/platform/tstring.h"
 #include "tsl/platform/bfloat16.h"
 #include "tsl/platform/tstring.h"
-#include "tsl/platform/types.h"
 
 namespace tensorflow {
 
 // Alias tensorflow::string to std::string.
-using tsl::string;
+using string ABSL_DEPRECATE_AND_INLINE() = std::string;
 
-using tsl::uint16;
 using tsl::uint2;
-using tsl::uint32;
 using tsl::uint4;
-using tsl::uint64;
-using tsl::uint8;
+using uint8 ABSL_DEPRECATE_AND_INLINE() = uint8_t;
+using uint16 ABSL_DEPRECATE_AND_INLINE() = uint16_t;
+using uint32 ABSL_DEPRECATE_AND_INLINE() = uint32_t;
+using uint64 ABSL_DEPRECATE_AND_INLINE() = uint64_t;
 
-using tsl::int16;
 using tsl::int2;
-using tsl::int32;
 using tsl::int4;
-using tsl::int64;
-using tsl::int8;
+using int8 ABSL_DEPRECATE_AND_INLINE() = int8_t;
+using int16 ABSL_DEPRECATE_AND_INLINE() = int16_t;
+using int32 ABSL_DEPRECATE_AND_INLINE() = int32_t;
+using int64 ABSL_DEPRECATE_AND_INLINE() = int64_t;
 
 using tsl::float8_e4m3b11fnuz;
 using tsl::float8_e4m3fn;
@@ -52,18 +53,30 @@ using tsl::float8_e4m3fnuz;
 using tsl::float8_e5m2;
 using tsl::float8_e5m2fnuz;
 
-static const uint8 kuint8max = tsl::kuint8max;
-static const uint16 kuint16max = tsl::kuint16max;
-static const uint32 kuint32max = tsl::kuint32max;
-static const uint64 kuint64max = tsl::kuint64max;
-static const int8_t kint8min = tsl::kint8min;
-static const int8_t kint8max = tsl::kint8max;
-static const int16_t kint16min = tsl::kint16min;
-static const int16_t kint16max = tsl::kint16max;
-static const int32_t kint32min = tsl::kint32min;
-static const int32_t kint32max = tsl::kint32max;
-static const int64_t kint64min = tsl::kint64min;
-static const int64_t kint64max = tsl::kint64max;
+inline const uint8_t kuint8max ABSL_DEPRECATE_AND_INLINE() =
+    std::numeric_limits<uint8_t>::max();
+inline const uint16_t kuint16max ABSL_DEPRECATE_AND_INLINE() =
+    std::numeric_limits<uint16_t>::max();
+inline const uint32_t kuint32max ABSL_DEPRECATE_AND_INLINE() =
+    std::numeric_limits<uint32_t>::max();
+inline const uint64_t kuint64max ABSL_DEPRECATE_AND_INLINE() =
+    std::numeric_limits<uint64_t>::max();
+inline const int8_t kint8min ABSL_DEPRECATE_AND_INLINE() =
+    std::numeric_limits<int8_t>::min();
+inline const int8_t kint8max ABSL_DEPRECATE_AND_INLINE() =
+    std::numeric_limits<int8_t>::max();
+inline const int16_t kint16min ABSL_DEPRECATE_AND_INLINE() =
+    std::numeric_limits<int16_t>::min();
+inline const int16_t kint16max ABSL_DEPRECATE_AND_INLINE() =
+    std::numeric_limits<int16_t>::max();
+inline const int32_t kint32min ABSL_DEPRECATE_AND_INLINE() =
+    std::numeric_limits<int32_t>::min();
+inline const int32_t kint32max ABSL_DEPRECATE_AND_INLINE() =
+    std::numeric_limits<int32_t>::max();
+inline const int64_t kint64min ABSL_DEPRECATE_AND_INLINE() =
+    std::numeric_limits<int64_t>::min();
+inline const int64_t kint64max ABSL_DEPRECATE_AND_INLINE() =
+    std::numeric_limits<int64_t>::max();
 
 // A typedef for a uint64 used as a short fingerprint.
 using tsl::bfloat16;

@@ -87,7 +87,7 @@ absl::Status RandomShuffle(
           context->allocate_output(output_idx, input.shape(), &output));
       const auto input_mat = input.flat_outer_dims<T>();
       auto output_mat = output->flat_outer_dims<T>();
-      if (size < kint32max) {
+      if (size < std::numeric_limits<int32_t>::max()) {
         IndexedShuffle<int32>(size, input_mat, output_mat, uniform);
       } else {
         IndexedShuffle<int64_t>(size, input_mat, output_mat, uniform);

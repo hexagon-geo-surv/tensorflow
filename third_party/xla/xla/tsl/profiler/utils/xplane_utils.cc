@@ -553,7 +553,7 @@ void AggregateXPlane(const XPlane& full_trace, XPlane& aggregated_trace) {
   aggregated_plane.SetName(plane.Name());
   aggregated_plane.SetId(plane.Id());
 
-  uint64_t first_op_start_ps = kint64max;
+  uint64_t first_op_start_ps = std::numeric_limits<int64_t>::max();
   uint64_t last_op_end_ps = 0;
 
   plane.ForEachLine([&](const XLineVisitor& line) {
@@ -580,8 +580,9 @@ void AggregateXPlane(const XPlane& full_trace, XPlane& aggregated_trace) {
                            ? last_op_end_ps
                            : timespan.end_ps();
       const auto& group_stat = event.GetStat(StatType::kGroupId);
-      int64_t group_id =
-          group_stat.has_value() ? group_stat->IntOrUintValue() : kint64max;
+      int64_t group_id = group_stat.has_value()
+                             ? group_stat->IntOrUintValue()
+                             : std::numeric_limits<int64_t>::max();
 
       StatByEvent& line_stats = stats[line.Id()][group_id];
       line_stats[event.Id()].stat.UpdateStat(timespan.duration_ps());
@@ -632,7 +633,7 @@ void AggregateXPlane(const XPlane& full_trace, XPlane& aggregated_trace) {
             aggregated_line.AddEvent(event_metadata);
         aggregated_event.SetNumOccurrences(event_stat.stat.count());
         aggregated_event.SetDurationPs(event_stat.stat.sum());
-        if (group_id != kint64max) {
+        if (group_id != std::numeric_limits<int64_t>::max()) {
           aggregated_event.AddStatValue(*kGroupId, group_id);
         }
         if (event_stat.stat.count() > 1) {

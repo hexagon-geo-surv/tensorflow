@@ -316,8 +316,9 @@ string InferenceContext::DebugString(
 
 absl::Status InferenceContext::WithRank(ShapeHandle shape, int64_t rank,
                                         ShapeHandle* out) {
-  if (rank > kint32max) {
-    return errors::InvalidArgument("Rank cannot exceed kint32max");
+  if (rank > std::numeric_limits<int32_t>::max()) {
+    return errors::InvalidArgument(
+        "Rank cannot exceed std::numeric_limits<int32_t>::max()");
   }
   const int32_t existing = Rank(shape);
   if (existing == rank) {
@@ -341,8 +342,9 @@ absl::Status InferenceContext::WithRank(ShapeHandle shape, int64_t rank,
 
 absl::Status InferenceContext::WithRankAtLeast(ShapeHandle shape, int64_t rank,
                                                ShapeHandle* out) {
-  if (rank > kint32max) {
-    return errors::InvalidArgument("Rank cannot exceed kint32max");
+  if (rank > std::numeric_limits<int32_t>::max()) {
+    return errors::InvalidArgument(
+        "Rank cannot exceed std::numeric_limits<int32_t>::max()");
   }
   const int32_t existing = Rank(shape);
   if (existing >= rank || existing == kUnknownRank) {
@@ -356,8 +358,9 @@ absl::Status InferenceContext::WithRankAtLeast(ShapeHandle shape, int64_t rank,
 
 absl::Status InferenceContext::WithRankAtMost(ShapeHandle shape, int64_t rank,
                                               ShapeHandle* out) {
-  if (rank > kint32max) {
-    return errors::InvalidArgument("Rank cannot exceed kint32max");
+  if (rank > std::numeric_limits<int32_t>::max()) {
+    return errors::InvalidArgument(
+        "Rank cannot exceed std::numeric_limits<int32_t>::max()");
   }
   const int32_t existing = Rank(shape);
   if (existing <= rank || existing == kUnknownRank) {
@@ -702,7 +705,8 @@ ShapeHandle InferenceContext::UnknownShape() {
 }
 
 ShapeHandle InferenceContext::UnknownShapeOfRank(int64_t rank) {
-  CHECK_LE(rank, kint32max) << "rank must be less than kint32max";
+  CHECK_LE(rank, std::numeric_limits<int32_t>::max())
+      << "rank must be less than std::numeric_limits<int32_t>::max()";
   if (rank == kUnknownRank) {
     return UnknownShape();
   }

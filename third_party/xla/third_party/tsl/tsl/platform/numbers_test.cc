@@ -99,7 +99,7 @@ TEST(HumanReadableNumBytes, Bytes) {
   EXPECT_EQ("-4B", HumanReadableNumBytes(-4));
   EXPECT_EQ("-1000B", HumanReadableNumBytes(-1000));
   EXPECT_EQ("-11.77MiB", HumanReadableNumBytes(-12345678));
-  EXPECT_EQ("-8E", HumanReadableNumBytes(kint64min));
+  EXPECT_EQ("-8E", HumanReadableNumBytes(std::numeric_limits<int64_t>::min()));
 }
 
 TEST(HumanReadableElapsedTime, Basic) {
@@ -200,9 +200,9 @@ TEST(safe_strto64, Int64s) {
   EXPECT_EQ(true, absl::SimpleAtoi("9223372036854775807", &result));
   EXPECT_EQ(9223372036854775807, result);
   EXPECT_EQ(true, absl::SimpleAtoi("-9223372036854775808", &result));
-  // kint64min == -9223372036854775808
+  // std::numeric_limits<int64_t>::min() == -9223372036854775808
   // Use -9223372036854775808 directly results in out of range error
-  EXPECT_EQ(kint64min, result);
+  EXPECT_EQ(std::numeric_limits<int64_t>::min(), result);
 
   // Invalid argument
   EXPECT_EQ(false, absl::SimpleAtoi(" 132as ", &result));
