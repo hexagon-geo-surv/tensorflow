@@ -31,6 +31,7 @@ limitations under the License.
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
@@ -65,13 +66,32 @@ namespace gpu {
 
 namespace {
 
-tsl::thread::ThreadPool* GetHostExecuteThreadPool() {
-  constexpr int kMaxNumHostExecuteThreads = 32;
-  static tsl::thread::ThreadPool* host_offloading_thread_pool =
-      new tsl::thread::ThreadPool(
-          tsl::Env::Default(), "host-offloading",
-          std::min(tsl::port::MaxParallelism(), kMaxNumHostExecuteThreads));
-  return host_offloading_thread_pool;
+class ThreadPoolResource : public se::StreamExecutor::Resource {
+ public:
+  explicit ThreadPoolResource(
+      std::unique_ptr<tsl::thread::ThreadPool> thread_pool)
+      : thread_pool_(std::move(thread_pool)) {}
+
+  tsl::thread::ThreadPool* thread_pool() const { return thread_pool_.get(); }
+
+ private:
+  std::unique_ptr<tsl::thread::ThreadPool> thread_pool_;
+};
+
+tsl::thread::ThreadPool* GetHostExecuteThreadPool(
+    se::StreamExecutor* stream_executor) {
+  return stream_executor
+      ->GetOrCreateResource<ThreadPoolResource>([stream_executor]() {
+        constexpr int kMaxNumHostExecuteThreads = 8;
+        return std::make_unique<ThreadPoolResource>(
+            std::make_unique<tsl::thread::ThreadPool>(
+                tsl::Env::Default(),
+                absl::StrCat("host-offloading-device-id-",
+                             stream_executor->device_ordinal()),
+                std::min(tsl::port::MaxParallelism(),
+                         kMaxNumHostExecuteThreads)));
+      })
+      ->thread_pool();
 }
 
 bool IsBufferOnDevice(se::Stream* stream, const void* ptr) {
@@ -79,10 +99,10 @@ bool IsBufferOnDevice(se::Stream* stream, const void* ptr) {
   return memory_type.ok() && *memory_type == se::MemoryType::kDevice;
 }
 
-// We ignore memory spaces in shape comparison since the memory can be on device
-// or host, and both are valid for the host offloading case.
-// If the memory is on device we copy it to host memory, and if it is on host
-// memory we use it as is.
+// We ignore memory spaces in shape comparison since the memory can be on
+// device or host, and both are valid for the host offloading case. If the
+// memory is on device we copy it to host memory, and if it is on host memory
+// we use it as is.
 bool CompareShapesIgnoringMemorySpace(const Shape& shape1,
                                       const Shape& shape2) {
   auto eq = Shape::Equal().IgnoreMemorySpaceInLayout();
@@ -485,7 +505,10 @@ absl::Status HostExecuteStartThunk::ExecuteOnStream(
       std::make_shared<HostExecuteCallFrame>(std::move(tmp_call_frame));
 
   auto execute = [this, call_frame = std::move(call_frame), params,
-                  shared_execute_event = std::move(execute_event)]() mutable {
+                  // We skip reference counting because destroying the event
+                  // would trigger a CUDA API call which is not allowed in host
+                  // callbacks.
+                  execute_event_ptr = execute_event.AsPtr()]() mutable {
     tsl::profiler::TraceMe trace(
         "HostExecuteStartThunk::ExecuteOnStream::execute (host_callback)");
     HostOffloadingExecutable::ExecuteOptions execute_options{
@@ -503,28 +526,30 @@ absl::Status HostExecuteStartThunk::ExecuteOnStream(
 
       tsl::BlockUntilReady(execute_event);
       if (execute_event.IsError()) {
-        shared_execute_event.SetError(execute_event.GetError());
+        execute_event_ptr.SetError(execute_event.GetError());
         return;
       }
     }
     auto publish_result_status = std::move(*call_frame).PublishResult();
     if (!publish_result_status.ok()) {
-      shared_execute_event.SetError(publish_result_status);
+      execute_event_ptr.SetError(publish_result_status);
       return;
     }
     auto record_event_status = params.host_to_device_stream->RecordEvent(
-        shared_execute_event.get().get());
+        execute_event_ptr.get().get());
     if (!record_event_status.ok()) {
-      shared_execute_event.SetError(record_event_status);
+      execute_event_ptr.SetError(record_event_status);
       return;
     }
 
-    shared_execute_event.SetStateConcrete();
+    execute_event_ptr.SetStateConcrete();
   };
 
   TF_RETURN_IF_ERROR(device_to_host_stream->DoHostCallbackWithStatus(
-      [execute = std::move(execute)] {
-        GetHostExecuteThreadPool()->Schedule(std::move(execute));
+      [execute = std::move(execute),
+       d2h_stream_executor = device_to_host_stream->parent()] {
+        GetHostExecuteThreadPool(d2h_stream_executor)
+            ->Schedule(std::move(execute));
         return absl::OkStatus();
       }));
 
@@ -571,6 +596,9 @@ absl::Status HostExecuteDoneThunk::ExecuteOnStream(
   if (event.IsError()) {
     return event.GetError();
   }
+
+  // We queue this event on the compute stream so that the host to device copy
+  // finishes before the consumer of the data can start.
   TF_RETURN_IF_ERROR(stream->WaitFor(event.get().get()));
 
   return absl::OkStatus();
