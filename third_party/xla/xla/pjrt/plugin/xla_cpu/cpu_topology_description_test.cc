@@ -100,5 +100,17 @@ TEST(CpuTopologyDescriptionTest, FromProto) {
               ElementsAre("attrA", "attrB"));
 }
 
+TEST(CpuTopologyDescriptionTest, LogicalDeviceOfDefaultTypeForId) {
+  std::vector<CpuTopology::CpuDevice> cpu_devices = {{0, 0}, {0, 1}};
+  std::vector<std::string> machine_attributes = {"attr1", "attr2"};
+  CpuTopologyDescription topology(xla::CpuId(), "cpu", "1.0", cpu_devices,
+                                  machine_attributes);
+  ASSERT_OK_AND_ASSIGN(
+      (auto [device_coords, core_id]),
+      topology.LogicalDeviceOfDefaultTypeForId(/*device_id=*/1));
+  ASSERT_EQ(device_coords, (PjRtDeviceDimensions{0, 0, 1}));
+  ASSERT_EQ(core_id, 0);
+}
+
 }  // namespace
 }  // namespace xla

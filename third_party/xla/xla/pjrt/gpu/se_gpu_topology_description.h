@@ -27,6 +27,7 @@ limitations under the License.
 #include "xla/pjrt/gpu/gpu_topology.h"
 #include "xla/pjrt/pjrt_compiler.h"
 #include "xla/pjrt/pjrt_device_description.h"
+#include "xla/pjrt/pjrt_device_dimensions.h"
 #include "xla/pjrt/pjrt_stream_executor_device_description.h"
 #include "xla/stream_executor/device_description.pb.h"
 #include "xla/xla_data.pb.h"
@@ -99,6 +100,9 @@ class StreamExecutorGpuTopologyDescription : public PjRtTopologyDescription {
   absl::StatusOr<int> CoreCountOfDefaultTypePerChip() const override {
     return 1;
   }
+
+  absl::StatusOr<std::pair<PjRtDeviceDimensions, int32_t>>
+  LogicalDeviceOfDefaultTypeForId(int device_id) const override;
 
   absl::StatusOr<std::string> Serialize() const override;
 

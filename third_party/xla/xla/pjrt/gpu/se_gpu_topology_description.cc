@@ -30,6 +30,7 @@ limitations under the License.
 #include "xla/pjrt/gpu/gpu_topology.h"
 #include "xla/pjrt/pjrt_compiler.h"
 #include "xla/pjrt/pjrt_device_description.h"
+#include "xla/pjrt/pjrt_device_dimensions.h"
 #include "xla/pjrt/pjrt_stream_executor_device_description.h"
 #include "xla/primitive_util.h"
 #include "xla/shape.h"
@@ -138,6 +139,29 @@ absl::StatusOr<std::string> StreamExecutorGpuTopologyDescription::Serialize()
     return absl::InternalError("Failed to serialize gpu_topology");
   }
   return result;
+}
+
+absl::StatusOr<std::pair<PjRtDeviceDimensions, int32_t>>
+StreamExecutorGpuTopologyDescription::LogicalDeviceOfDefaultTypeForId(
+    int device_id) const {
+  // TODO: b/435476605 - improve the lookup performance by adding a lookup api
+  // in pjrt topology description.
+  for (const auto& device_desc : DeviceDescriptions()) {
+    if (device_desc->id() == device_id) {
+      const auto& gpu_device_desc =
+          down_cast<const xla::PjRtStreamExecutorDeviceDescription&>(
+              *device_desc);
+      const auto& coords = gpu_device_desc.coords();
+      if (coords.size() != 3) {
+        return absl::InvalidArgumentError(absl::StrCat(
+            "GPU topology must have 3 dimensions, but got ", coords.size()));
+      }
+      return std::make_pair(
+          PjRtDeviceDimensions{coords[0], coords[1], coords[2]}, 0);
+    }
+  }
+  return absl::NotFoundError(
+      absl::StrCat("Device id ", device_id, " not found in GPU topology."));
 }
 
 absl::StatusOr<Layout> StreamExecutorGpuTopologyDescription::GetDefaultLayout(
