@@ -61,11 +61,11 @@ cc_library(
         "@com_google_absl//absl/time",
         "@com_google_protobuf//:any_cc_proto",
         "@com_google_protobuf//:protobuf",
-        "@local_tsl//tsl/platform:blocking_counter",
-        "@local_tsl//tsl/platform:fingerprint",
-        "@local_tsl//tsl/platform:path",
-        "@local_tsl//tsl/profiler/lib:scoped_annotation",
-        "@local_tsl//tsl/profiler/lib:traceme",
+        "@tsl//tsl/platform:blocking_counter",
+        "@tsl//tsl/platform:fingerprint",
+        "@tsl//tsl/platform:path",
+        "@tsl//tsl/profiler/lib:scoped_annotation",
+        "@tsl//tsl/profiler/lib:traceme",
     ],
 )
 
@@ -109,8 +109,8 @@ xla_cc_test(
         "@com_google_googletest//:gtest_main",
         "@com_google_protobuf//:any_cc_proto",
         "@com_google_protobuf//:protobuf",
-        "@local_tsl//tsl/platform:path",
-        "@local_tsl//tsl/platform:protobuf",
+        "@tsl//tsl/platform:path",
+        "@tsl//tsl/platform:protobuf",
     ],
 )
 
@@ -170,9 +170,9 @@ cc_library(
         "@com_google_absl//absl/synchronization",
         "@com_google_protobuf//:protobuf",
         "@llvm-project//llvm:Support",
-        "@local_tsl//tsl/platform:base64",
-        "@local_tsl//tsl/platform:path",
-        "@local_tsl//tsl/platform:protobuf",
+        "@tsl//tsl/platform:base64",
+        "@tsl//tsl/platform:path",
+        "@tsl//tsl/platform:protobuf",
     ],
 )
 
@@ -193,6 +193,6 @@ xla_cc_test(
         "@com_google_absl//absl/status",
         "@com_google_googletest//:gtest_main",
         "@com_google_protobuf//:any_cc_proto",
-        "@local_tsl//tsl/platform:path",
+        "@tsl//tsl/platform:path",
     ],
 )

@@ -93,10 +93,10 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
-        "@local_tsl//tsl/platform:casts",
-        "@local_tsl//tsl/platform:platform_port",
-        "@local_tsl//tsl/profiler/lib:connected_traceme",
-        "@local_tsl//tsl/profiler/lib:traceme",
+        "@tsl//tsl/platform:casts",
+        "@tsl//tsl/platform:platform_port",
+        "@tsl//tsl/profiler/lib:connected_traceme",
+        "@tsl//tsl/profiler/lib:traceme",
     ],
 )
 
@@ -234,11 +234,11 @@ cc_library(
         "@com_google_absl//absl/types:span",
         "@eigen_archive//:eigen3",  # TODO(zhangqiaorjc): Remove if use TFRT threadpool.
         "@llvm-project//mlir:IR",
-        "@local_tsl//tsl/platform:casts",
-        "@local_tsl//tsl/platform:denormal",
-        "@local_tsl//tsl/platform:fingerprint",
-        "@local_tsl//tsl/platform:setround",
-        "@local_tsl//tsl/profiler/lib:traceme",
+        "@tsl//tsl/platform:casts",
+        "@tsl//tsl/platform:denormal",
+        "@tsl//tsl/platform:fingerprint",
+        "@tsl//tsl/platform:setround",
+        "@tsl//tsl/profiler/lib:traceme",
     ],
 )
 
@@ -283,7 +283,7 @@ xla_cc_test(
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Parser",
-        "@local_tsl//tsl/platform:path",
+        "@tsl//tsl/platform:path",
     ],
 )
 
@@ -338,7 +338,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/types:span",
         "@llvm-project//mlir:IR",
-        "@local_tsl//tsl/platform:casts",
+        "@tsl//tsl/platform:casts",
     ],
     alwayslink = True,
 )

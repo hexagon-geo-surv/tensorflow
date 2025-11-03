@@ -158,16 +158,16 @@ cc_library(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
         "@llvm-project//mlir:IR",
-        "@local_tsl//tsl/platform:casts",
-        "@local_tsl//tsl/platform:env",
-        "@local_tsl//tsl/platform:errors",
-        "@local_tsl//tsl/platform:fingerprint",
-        "@local_tsl//tsl/platform:protobuf",
-        "@local_tsl//tsl/platform:status",
-        "@local_tsl//tsl/platform:statusor",
-        "@local_tsl//tsl/profiler/lib:connected_traceme",
-        "@local_tsl//tsl/profiler/lib:nvtx_utils",
-        "@local_tsl//tsl/profiler/lib:traceme",
+        "@tsl//tsl/platform:casts",
+        "@tsl//tsl/platform:env",
+        "@tsl//tsl/platform:errors",
+        "@tsl//tsl/platform:fingerprint",
+        "@tsl//tsl/platform:protobuf",
+        "@tsl//tsl/platform:status",
+        "@tsl//tsl/platform:statusor",
+        "@tsl//tsl/profiler/lib:connected_traceme",
+        "@tsl//tsl/profiler/lib:nvtx_utils",
+        "@tsl//tsl/profiler/lib:traceme",
     ] + if_cuda_or_rocm([
         # keep sorted
         "//xla:debug_options_flags",
@@ -275,9 +275,9 @@ xla_test(
         "@com_google_googletest//:gtest",
         "@com_google_protobuf//:protobuf",
         "@llvm-project//mlir:IR",
-        "@local_tsl//tsl/platform",
-        "@local_tsl//tsl/platform:casts",
-        "@local_tsl//tsl/platform:platform_port",
+        "@tsl//tsl/platform",
+        "@tsl//tsl/platform:casts",
+        "@tsl//tsl/platform:platform_port",
     ] + if_google([
         # In OSS this dependency is added automatically for xla_test targets. See
         # third_party/tensorflow/compiler/xla/xla.default.bzl.
@@ -470,7 +470,7 @@ cc_library(
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/synchronization",
         "@llvm-project//mlir:IR",
-        "@local_tsl//tsl/platform:casts",
+        "@tsl//tsl/platform:casts",
     ],
 )
 
@@ -607,7 +607,7 @@ xla_test(
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Parser",
-        "@local_tsl//tsl/platform:casts",
+        "@tsl//tsl/platform:casts",
     ],
 )
 
@@ -640,7 +640,7 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
-        "@local_tsl//tsl/platform:casts",
+        "@tsl//tsl/platform:casts",
     ],
 )
 
