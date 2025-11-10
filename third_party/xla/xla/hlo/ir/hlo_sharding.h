@@ -508,6 +508,11 @@ class HloSharding {
   // REQUIRES: !IsReplicated() && !IsTuple()
   const TileAssignment& tile_assignment() const { return tile_assignment_; }
 
+  // Gets the tile assignment dimension for the given dimension index.
+  int64_t tile_assignment_dim(int64_t dim_index) const {
+    return tile_assignment().dim(dim_index);
+  }
+
   // Gets the subgroup types array.
   // REQUIRES: !IsTuple()
   const std::vector<OpSharding::Type>& subgroup_types() const {
