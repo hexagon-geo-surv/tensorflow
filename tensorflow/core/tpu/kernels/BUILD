@@ -1560,6 +1560,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:stringpiece",
     ],
+    alwayslink = 1,
 )
 
 tf_cc_test(
