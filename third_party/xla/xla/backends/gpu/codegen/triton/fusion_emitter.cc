@@ -1155,6 +1155,13 @@ absl::StatusOr<TensorValue> EmitPad(
           .getResult());
 }
 
+absl::StatusOr<TensorValue> EmitTiledDynamicSlice(
+    EmitterLocOpBuilder b, const TiledHloInstruction& tiled_dynamic_slice,
+    absl::flat_hash_map<const TiledHloInstruction*, TensorValue>& values) {
+  // Slicing happens in `ComputeOffsetsForTile` when this value is emitted.
+  return values[tiled_dynamic_slice.operand(0)];
+}
+
 absl::StatusOr<TensorValue> EmitTiledHloInstruction(
     EmitterLocOpBuilder b, const HloFusionInstruction* fusion,
     const TiledHloInstruction& tiled_hlo,
@@ -1285,9 +1292,7 @@ absl::StatusOr<TensorValue> EmitTiledHloInstruction(
   }
 
   if (hlo->opcode() == HloOpcode::kDynamicSlice) {
-    // Dynamic slice is implemented as a load and does not require any further
-    // processing.
-    return values[tiled_hlo.operand(0)];
+    return EmitTiledDynamicSlice(b, tiled_hlo, values);
   }
 
   return absl::UnimplementedError(
