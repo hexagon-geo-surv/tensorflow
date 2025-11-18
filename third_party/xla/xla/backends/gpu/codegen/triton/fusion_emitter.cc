@@ -1952,9 +1952,13 @@ absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> EmitXTileModule(
       llvm_ir::CreateMlirModuleOp(loc);
   b.setInsertionPointToEnd(triton_module->getBody());
 
-  auto backend_config =
-      fusion->backend_config<GpuBackendConfig>()->fusion_backend_config();
-  absl::string_view fusion_kind = backend_config.kind();
+  std::string fusion_kind(kTritonFusionKind);
+  if (fusion->has_backend_config()) {
+    auto backend_config = fusion->backend_config<GpuBackendConfig>();
+    if (backend_config.ok()) {
+      fusion_kind = backend_config->fusion_backend_config().kind();
+    }
+  }
 
   if (fusion_kind == kTritonGemmFusionKind) {
     return Internal(
@@ -2041,6 +2045,7 @@ absl::Status LowerXTileToTriton(mlir::ModuleOp xtile_dialect_module,
     if (fusion_kind != kTritonGemmFusionKind) {
       pm.addPass(xtile::createConvertElementwise0DTensorToScalarPass());
     }
+    pm.addPass(mlir::triton::xla::CreateArithFP8ConversionToTritonPass());
     pm.addPass(mlir::triton::xla::CreateTensorLowerToTritonPass());
     pm.addPass(mlir::triton::xla::CreateStableHLOLowerToTritonPass());
     pm.addPass(mlir::triton::xla::CreateXTileLowerToTritonPass());
