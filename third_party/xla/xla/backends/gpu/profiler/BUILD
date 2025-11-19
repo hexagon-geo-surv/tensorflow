@@ -65,6 +65,7 @@ xla_test(
     srcs = ["kernel_name_tracer_test.cc"],
     # There is a leak in CUPTI which triggers the heap checker.
     args = if_google(["--heap_check="]),
+    backend_tags = {"gpu": ["requires-gpu-sm80"]},
     backends = [
         "gpu",
     ],
