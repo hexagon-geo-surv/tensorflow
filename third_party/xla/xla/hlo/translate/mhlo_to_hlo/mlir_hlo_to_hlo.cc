@@ -93,6 +93,7 @@ limitations under the License.
 #include "xla/hlo/translate/mhlo_to_hlo/location_exporter.h"
 #include "xla/hlo/translate/mhlo_to_hlo/module_attributes_exporter.h"
 #include "xla/hlo/translate/mhlo_to_hlo/stack_frame_index_builder.h"
+#include "xla/hlo/translate/mhlo_to_hlo/translate_util.h"
 #include "xla/hlo/translate/mhlo_to_hlo/type_to_shape.h"
 #include "xla/layout.h"
 #include "xla/layout_util.h"
@@ -377,28 +378,6 @@ static xla::Layout ExtractLayout(mlir::Operation* op, int rank,
     return xla::LayoutUtil::MakeLayout(minor_to_major);
   }
   return xla::LayoutUtil::MakeDescendingLayout(rank);
-}
-
-// Returns a failure or a valid XLA shape corresponding to the given op's
-// results.
-static mlir::FailureOr<xla::Shape> ExtractXlaShape(mlir::Operation* op) {
-  if (auto attr = op->getAttrOfType<mlir::StringAttr>(xla::kXlaShape)) {
-    return *xla::ParseShape(
-        absl::string_view(attr.getValue().data(), attr.getValue().size()));
-  } else {
-    std::vector<xla::Shape> subshapes;
-    for (auto [index, result] : llvm::enumerate(op->getResults())) {
-      subshapes.push_back(xla::TypeToShape(result.getType()));
-      if (subshapes.back().element_type() == xla::PRIMITIVE_TYPE_INVALID) {
-        return op->emitError()
-               << "result #" << index << " type is not supported";
-      }
-    }
-    if (subshapes.size() > 1) {
-      return xla::ShapeUtil::MakeTupleShape(subshapes);
-    }
-    return subshapes[0];
-  }
 }
 
 #define I64_ELEMENTS_ATTR_TO_VECTOR(attribute)               \

@@ -173,6 +173,7 @@ cc_library(
         ":location_exporter",
         ":module_attributes_exporter",
         ":stack_frame_index_builder",
+        ":translate_util",
         ":type_to_shape",
         "//xla:array",
         "//xla:comparison_util",
@@ -335,6 +336,22 @@ cc_library(
         "@llvm-project//mlir:TranslateLib",
     ],
     alwayslink = 1,
+)
+
+cc_library(
+    name = "translate_util",
+    srcs = ["translate_util.cc"],
+    hdrs = ["translate_util.h"],
+    deps = [
+        ":type_to_shape",
+        "//xla:shape_util",
+        "//xla/hlo/parser:hlo_parser",
+        "//xla/mlir_hlo:unregistered_attributes",
+        "@com_google_absl//absl/strings:string_view",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
+    ],
 )
 
 cc_library(
