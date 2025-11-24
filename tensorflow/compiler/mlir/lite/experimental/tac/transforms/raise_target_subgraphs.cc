@@ -129,6 +129,32 @@ std::optional<StringAttr> GetCustomOptionsFingerprint(func::FuncOp func) {
   return custom_options_fingerprint;
 }
 
+// Returns the delegate compiler stack version for an added function op, by
+// walking through the ops in the function and collating all the delegate
+// compiler stack versions.
+std::optional<StringAttr> GetDelegateCompilerStackVersion(func::FuncOp func) {
+  StringAttr delegate_compiler_stack_version;
+  WalkResult result = func.walk([&](Operation* op) {
+    if (op->hasAttr(kDelegateCompilerStackVersion)) {
+      if (delegate_compiler_stack_version &&
+          delegate_compiler_stack_version !=
+              op->getAttr(kDelegateCompilerStackVersion)) {
+        // If the delegate compiler stack version is not null, and it is
+        // different from the current op's delegate compiler stack version,
+        // then it is an error.
+        return WalkResult::interrupt();
+      }
+      delegate_compiler_stack_version =
+          mlir::cast<StringAttr>(op->getAttr(kDelegateCompilerStackVersion));
+    }
+    return WalkResult::advance();
+  });
+  if (result.wasInterrupted()) {
+    return std::nullopt;
+  }
+  return delegate_compiler_stack_version;
+}
+
 // After raising ops and adding the Func & Call op, call this function
 // to set attributes specific to this pass.
 bool AddAttrs(OpsAdded& ops_added, OpBuilder& builder, int func_count) {
@@ -146,6 +172,16 @@ bool AddAttrs(OpsAdded& ops_added, OpBuilder& builder, int func_count) {
   if (custom_options_fingerprint.value() != nullptr) {
     added_func_op->setAttr(kCustomOptionsFingerprint,
                            custom_options_fingerprint.value());
+  }
+
+  auto delegate_compiler_stack_version =
+      GetDelegateCompilerStackVersion(added_func_op);
+  if (!delegate_compiler_stack_version.has_value()) {
+    return false;
+  }
+  if (delegate_compiler_stack_version.value() != nullptr) {
+    added_func_op->setAttr(kDelegateCompilerStackVersion,
+                           delegate_compiler_stack_version.value());
   }
 
   StringAttr device = mlir::cast<StringAttr>(
