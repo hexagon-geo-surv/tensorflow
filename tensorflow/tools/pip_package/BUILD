@@ -336,6 +336,7 @@ tf_wheel(
         ":cc_deps",
         ":py_deps",
         "//tensorflow:tf_python_api_gen_v2",
+        "@rules_ml_toolchain//cc/sysroots:openmp_lib",
     ] + select({
         "//tensorflow:dynamic_loaded_kernels": if_pywrap(
             if_false = DYNAMIC_LOADED_KERNELS,
