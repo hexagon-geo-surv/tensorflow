@@ -85,9 +85,6 @@ tf_cc_test(
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
         "@local_xla//xla/tsl/platform:env",
-        "@local_xla//xla/tsl/platform:status",
-        "@local_xla//xla/tsl/platform:status_matchers",
-        "@local_xla//xla/tsl/platform:types",
     ],
 )
 
@@ -198,6 +195,7 @@ tf_cc_test(
         "//tensorflow/core:core_cpu_base",
         "//tensorflow/core:ops",  # buildcleaner: keep Required to export to GraphDef
         "//tensorflow/core:protos_all_cc",
+        "//third_party/protobuf",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/status:statusor",
@@ -206,7 +204,6 @@ tf_cc_test(
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
         "@local_tsl//tsl/platform:protobuf",
-        "@local_xla//xla/tsl/platform:status_matchers",
         "@local_xla//xla/tsl/platform:statusor",
     ],
 )
@@ -318,7 +315,6 @@ tf_cc_test(
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Support",
-        "@local_xla//xla/tsl/platform:status_matchers",
     ],
 )
 
@@ -351,6 +347,7 @@ tf_cc_test(
         ":report",
         "//tensorflow/compiler/mlir/quantization/common:test_base",
         "//tensorflow/compiler/mlir/quantization/stablehlo:quantization_config_proto_cc",
+        "//third_party/protobuf",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/status:statusor",
@@ -359,7 +356,6 @@ tf_cc_test(
         "@com_google_googletest//:gtest_main",
         "@llvm-project//mlir:IR",
         "@local_tsl//tsl/platform:protobuf",
-        "@local_xla//xla/tsl/platform:status_matchers",
     ],
 )
 
