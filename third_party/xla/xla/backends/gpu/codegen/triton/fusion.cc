@@ -214,9 +214,11 @@ absl::StatusOr<FusionEmissionResult> TritonFusion::Emit(
 
     TF_ASSIGN_OR_RETURN(
         llvm::Function * kernel,
-        BuildKernelPrototype(ir_emitter_context, impl_fn_name,
-                             suggested_kernel_name, kernel_arguments,
-                             launch_dimensions, &builder));
+        BuildKernelPrototype(
+            ir_emitter_context.llvm_module(),
+            ir_emitter_context.gpu_device_info(), impl_fn_name,
+            GetSanitizedUniqueName(ir_emitter_context, suggested_kernel_name),
+            kernel_arguments, launch_dimensions, &builder));
 
     PopulateNvvmAnnotations(ir_emitter_context.llvm_module(), kernel,
                             triton_wrapper_result);
