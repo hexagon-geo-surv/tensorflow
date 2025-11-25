@@ -130,6 +130,7 @@ xla_cc_test(
     name = "gpu_memory_space_assignment_test",
     srcs = ["gpu_memory_space_assignment_test.cc"],
     deps = [
+        ":backend_configs_cc",
         ":gpu_memory_space_assignment",
         "//xla/hlo/analysis:alias_info",
         "//xla/hlo/analysis:hlo_alias_analysis",
