@@ -66,6 +66,7 @@ xla_test(
     # There is a leak in CUPTI which triggers the heap checker.
     args = if_google(["--heap_check="]),
     backends = [
+        # Seems this test can not pass COPYBARA
         "gpu",
     ],
     tags = [
