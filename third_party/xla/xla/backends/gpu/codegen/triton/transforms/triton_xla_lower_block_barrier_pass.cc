@@ -135,7 +135,7 @@ LogicalResult LowerBlockBarrierOp(BlockBarrierOp block_barrier,
         // Signal all ranks on the same block id.
         mlir::triton::xla::AtomicWriteOp::create(
             builder,
-            /*result_types=*/mlir::TypeRange{},
+            /*resultTypes=*/mlir::TypeRange{},
             /*ptr=*/signal_addresses,
             /*signal_value=*/signal_value,
             /*mask=*/mlir::Value{},
@@ -172,7 +172,7 @@ LogicalResult LowerBlockBarrierOp(BlockBarrierOp block_barrier,
         // Wait for all ranks on the same block id to signal.
         mlir::triton::xla::AtomicSpinWaitOp::create(
             builder,
-            /*result_types=*/mlir::TypeRange{},
+            /*resultTypes=*/mlir::TypeRange{},
             /*ptr=*/wait_addresses,
             /*expected=*/signal_value,
             /*mask=*/mlir::Value{},
