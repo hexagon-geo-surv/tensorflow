@@ -508,6 +508,12 @@ class HloSharding {
   // REQUIRES: !IsReplicated() && !IsTuple()
   const TileAssignment& tile_assignment() const { return tile_assignment_; }
 
+  // Returns the list of devices used by sharding.
+  std::vector<int64_t> used_devices() const {
+    return std::vector<int64_t>(tile_assignment().array().begin(),
+                                tile_assignment().array().end());
+  }
+
   // Gets the subgroup types array.
   // REQUIRES: !IsTuple()
   const std::vector<OpSharding::Type>& subgroup_types() const {

@@ -1760,6 +1760,9 @@ void DevicesForShardingInternal(
     return;
   }
 
+  // TODO: If we add option of creating replicated sharding with mesh then we
+  // might have to check for those mesh devices, but replicated sharding used by
+  // current format is independent of devices.
   if (sharding.IsReplicated()) {
     for (int64_t device : available_devices) {
       if (!HloSharding::IsReservedDevice(device)) {
@@ -1769,24 +1772,19 @@ void DevicesForShardingInternal(
     return;
   }
 
+  std::vector<int64_t> used_devices = sharding.used_devices();
   DCHECK(std::all_of(
-      sharding.tile_assignment().array().begin(),
-      sharding.tile_assignment().array().end(),
+      used_devices.begin(), used_devices.end(),
       [&](int64_t device) { return available_devices.contains(device); }));
-  sharding.tile_assignment().Each(
-      [&](absl::Span<const int64_t> /*indices*/, int64_t device) {
-        used->insert(device);
-      });
+  used->insert(used_devices.begin(), used_devices.end());
 }
 
 }  // namespace
 
 std::vector<int64_t> DevicesForSharding(
     const HloSharding& sharding, absl::Span<const int64_t> available_devices) {
-  absl::flat_hash_set<int64_t> available_set;
-  for (int64_t device : available_devices) {
-    available_set.insert(device);
-  }
+  absl::flat_hash_set<int64_t> available_set(available_devices.begin(),
+                                             available_devices.end());
   absl::flat_hash_set<int64_t> used_set;
   DevicesForShardingInternal(sharding, available_set, &used_set);
   std::vector<int64_t> devices;
