@@ -4638,5 +4638,121 @@ TEST_F(CopyInsertionTest, NonCopyableChainPipelinedConnectedParts) {
   EXPECT_EQ(pin_d0->operand(0)->opcode(), HloOpcode::kCopy);
 }
 
+TEST_F(CopyInsertionTest, DoNotRemoveCopyForPipelinedCollectivesIndex) {
+  constexpr absl::string_view kModuleString = R"(
+
+HloModule module, entry_computation_layout={(bf16[3,8,128]{2,1,0})->bf16[3,8,128]{2,1,0}}, replica_count=4, num_partitions=2
+
+add {
+  lhs = bf16[] parameter(0)
+  rhs = bf16[] parameter(1)
+  ROOT add = bf16[] add(lhs, rhs)
+}
+
+while_body.clone {
+  loop_peel_param = (s32[], bf16[3,8,128]{2,1,0}, bf16[3,8,128]{2,1,0}, s32[], bf16[1,8,128]{2,1,0}) parameter(0)
+  get-tuple-element.6 = bf16[3,8,128]{2,1,0} get-tuple-element(loop_peel_param), index=2
+  constant.8 = s32[] constant(3)
+  get-tuple-element.3 = s32[] get-tuple-element(loop_peel_param), index=0
+  subtract.1 = s32[] subtract(constant.8, get-tuple-element.3)
+  constant.9 = s32[] constant(-1)
+  add.5 = s32[] add(subtract.1, constant.9)
+  constant.10 = s32[] constant(0)
+  compare.1 = pred[] compare(add.5, constant.10), direction=LT
+  constant.11 = s32[] constant(2)
+  add.6 = s32[] add(subtract.1, constant.11)
+  select.1 = s32[] select(compare.1, add.6, add.5)
+  dynamic-slice.1 = bf16[1,8,128]{2,1,0} dynamic-slice(get-tuple-element.6, select.1, constant.10, constant.10), dynamic_slice_sizes={1,8,128}
+  mul.2 = bf16[1,8,128]{2,1,0} multiply(dynamic-slice.1, dynamic-slice.1)
+  ar.3 = bf16[1,8,128]{2,1,0} all-reduce(mul.2), channel_id=1, replica_groups={}, to_apply=add
+  ar.4 = bf16[1,8,128]{2,1,0} all-reduce(mul.2), channel_id=1, replica_groups={}, to_apply=add
+  constant.7 = s32[] constant(1)
+  add.4 = s32[] add(get-tuple-element.3, constant.7)
+  get-tuple-element.4 = bf16[3,8,128]{2,1,0} get-tuple-element(loop_peel_param), index=1
+  get-tuple-element.9 = s32[] get-tuple-element(loop_peel_param), index=3
+  constant.12 = s32[] constant(0)
+  dynamic-slice.2 = bf16[1,8,128]{2,1,0} dynamic-slice(get-tuple-element.4, get-tuple-element.9, constant.12, constant.12), dynamic_slice_sizes={1,8,128}
+  ar.5 = bf16[1,8,128]{2,1,0} all-reduce(dynamic-slice.2), channel_id=3, replica_groups={}, to_apply=add
+  c2.3 = bf16[] constant(2)
+  bc.3 = bf16[1,8,128]{2,1,0} broadcast(c2.3), dimensions={}
+  mul2.3 = bf16[1,8,128]{2,1,0} multiply(ar.5, bc.3)
+  get-tuple-element.7 = bf16[1,8,128]{2,1,0} get-tuple-element(loop_peel_param), index=4
+  ar.6 = bf16[1,8,128]{2,1,0} all-reduce(get-tuple-element.7), channel_id=1, replica_groups={}, to_apply=add
+  mul3.3 = bf16[1,8,128]{2,1,0} multiply(mul2.3, ar.6)
+  mul4.2 = bf16[1,8,128]{2,1,0} multiply(mul3.3, get-tuple-element.7)
+  dynamic-update-slice.2 = bf16[3,8,128]{2,1,0} dynamic-update-slice(get-tuple-element.4, mul4.2, get-tuple-element.9, constant.12, constant.12)
+  constant.14 = s32[] constant(0)
+  dynamic-update-slice.4 = bf16[3,8,128]{2,1,0} dynamic-update-slice(dynamic-update-slice.2, mul.2, select.1, constant.14, constant.14)
+  ROOT tuple.3 = (s32[], bf16[3,8,128]{2,1,0}, bf16[3,8,128]{2,1,0}, s32[], bf16[1,8,128]{2,1,0}) tuple(add.4, dynamic-update-slice.4, get-tuple-element.6, select.1, mul.2)
+}
+
+while_cond.clone {
+  loop_peel_cond_param = (s32[], bf16[3,8,128]{2,1,0}, bf16[3,8,128]{2,1,0}, s32[], bf16[1,8,128]{2,1,0}) parameter(0)
+  gte.1 = s32[] get-tuple-element(loop_peel_cond_param), index=0
+  constant.6 = s32[] constant(3)
+  ROOT cmp.1 = pred[] compare(gte.1, constant.6), direction=LT
+}
+
+ENTRY entry {
+  c0 = s32[] constant(0)
+  p0 = bf16[3,8,128]{2,1,0} parameter(0)
+  tuple.1 = (s32[], bf16[3,8,128]{2,1,0}, bf16[3,8,128]{2,1,0}) tuple(c0, p0, p0)
+  get-tuple-element.2 = bf16[3,8,128]{2,1,0} get-tuple-element(tuple.1), index=2
+  constant.2 = s32[] constant(3)
+  get-tuple-element.0 = s32[] get-tuple-element(tuple.1), index=0
+  subtract.0 = s32[] subtract(constant.2, get-tuple-element.0)
+  constant.3 = s32[] constant(-1)
+  add.2 = s32[] add(subtract.0, constant.3)
+  constant.4 = s32[] constant(0)
+  compare.0 = pred[] compare(add.2, constant.4), direction=LT
+  constant.5 = s32[] constant(2)
+  add.3 = s32[] add(subtract.0, constant.5)
+  select.0 = s32[] select(compare.0, add.3, add.2)
+  dynamic-slice.0 = bf16[1,8,128]{2,1,0} dynamic-slice(get-tuple-element.2, select.0, constant.4, constant.4), dynamic_slice_sizes={1,8,128}
+  mul.1 = bf16[1,8,128]{2,1,0} multiply(dynamic-slice.0, dynamic-slice.0)
+  ar.0 = bf16[1,8,128]{2,1,0} all-reduce(mul.1), channel_id=2, replica_groups={}, to_apply=add
+  constant.0 = s32[] constant(1)
+  add.1 = s32[] add(get-tuple-element.0, constant.0)
+  get-tuple-element.1 = bf16[3,8,128]{2,1,0} get-tuple-element(tuple.1), index=1
+  dynamic-update-slice.0 = bf16[3,8,128]{2,1,0} dynamic-update-slice(get-tuple-element.1, mul.1, select.0, constant.4, constant.4)
+  tuple.4 = (s32[], bf16[3,8,128]{2,1,0}, bf16[3,8,128]{2,1,0}, s32[], bf16[1,8,128]{2,1,0}) tuple(add.1, dynamic-update-slice.0, get-tuple-element.2, select.0, mul.1)
+  while.1 = (s32[], bf16[3,8,128]{2,1,0}, bf16[3,8,128]{2,1,0}, s32[], bf16[1,8,128]{2,1,0}) while(tuple.4), condition=while_cond.clone, body=while_body.clone
+  get-tuple-element.11 = bf16[3,8,128]{2,1,0} get-tuple-element(while.1), index=1
+  get-tuple-element.10 = s32[] get-tuple-element(while.1), index=3
+  constant.13 = s32[] constant(0)
+  dynamic-slice.3 = bf16[1,8,128]{2,1,0} dynamic-slice(get-tuple-element.11, get-tuple-element.10, constant.13, constant.13), dynamic_slice_sizes={1,8,128}
+  ar.7 = bf16[1,8,128]{2,1,0} all-reduce(dynamic-slice.3), channel_id=4, replica_groups={}, to_apply=add
+  c2.4 = bf16[] constant(2)
+  bc.4 = bf16[1,8,128]{2,1,0} broadcast(c2.4), dimensions={}
+  mul2.4 = bf16[1,8,128]{2,1,0} multiply(ar.7, bc.4)
+  get-tuple-element.8 = bf16[1,8,128]{2,1,0} get-tuple-element(while.1), index=4
+  ar.8 = bf16[1,8,128]{2,1,0} all-reduce(get-tuple-element.8), channel_id=1, replica_groups={}, to_apply=add
+  mul3.4 = bf16[1,8,128]{2,1,0} multiply(mul2.4, ar.8)
+  mul4.3 = bf16[1,8,128]{2,1,0} multiply(mul3.4, get-tuple-element.8)
+  ROOT dynamic-update-slice.3 = bf16[3,8,128]{2,1,0} dynamic-update-slice(get-tuple-element.11, mul4.3, get-tuple-element.10, constant.13, constant.13)
+}
+
+ )";
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<xla::HloModule> module,
+                          ParseAndReturnVerifiedModule(kModuleString));
+  CopyInsertion copy_insertion(&alias_info_,
+                               /*use_region_based_live_range_analysis=*/-1);
+
+  ASSERT_IS_OK(copy_insertion.Run(module.get()).status());
+  VLOG(2) << module->ToString();
+  EXPECT_EQ(CountCopies(*module), 2);
+  // Expect a copy of the get-tuple-element at index 3 of while body parameter.
+  HloInstruction* while_inst = FindInstruction(module.get(), "while.1");
+  HloInstruction* gte = *absl::c_find_if(
+      while_inst->while_body()->parameter_instruction(0)->users(),
+      [](const HloInstruction* user) {
+        return user->opcode() == HloOpcode::kGetTupleElement &&
+               user->tuple_index() == 3;
+      });
+  ASSERT_NE(gte, nullptr);
+  EXPECT_TRUE(gte->users().size() == 1 &&
+              gte->users().front()->opcode() == HloOpcode::kCopy);
+}
 }  // namespace
 }  // namespace xla

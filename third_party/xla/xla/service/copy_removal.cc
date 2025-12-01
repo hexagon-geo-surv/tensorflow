@@ -851,6 +851,29 @@ LiveRangeRegions CopyRemover::ComputeLiveRangeRegions(const ValueNode* head) {
   return live_range;
 }
 
+// Do not elide copies of indices for dynamic update slices of pipelined
+// collectives. If the copy is elided, the pipelined collectives will have
+// control dependencies inserted between them, which hinders the overlap
+// opportunities.
+bool SkipElidingForPipelinedIndices(const HloInstruction* copy) {
+  return ShapeUtil::IsEffectiveScalar(copy->shape()) &&
+         copy->operand(0)->opcode() == HloOpcode::kGetTupleElement &&
+         copy->operand(0)->operand(0)->opcode() == HloOpcode::kParameter &&
+         !copy->parent()->caller_instructions(HloOpcode::kWhile).empty() &&
+         absl::c_all_of(copy->users(), [](const HloInstruction* user) {
+           return user->opcode() == HloOpcode::kDynamicUpdateSlice ||
+                  user->opcode() == HloOpcode::kDynamicSlice ||
+                  (user->IsLoopFusion() &&
+                   absl::c_any_of(user->fused_instructions(),
+                                  [](const HloInstruction* fused_inst) {
+                                    return fused_inst->opcode() ==
+                                               HloOpcode::kDynamicUpdateSlice ||
+                                           fused_inst->opcode() ==
+                                               HloOpcode::kDynamicSlice;
+                                  }));
+         });
+}
+
 // Try to elide the given copy. Elision of a copy is possible only if no
 // live range interference is introduced by the copy's elimination. If
 // elision is possible, then the internal state (value lists) are updated,
@@ -858,6 +881,15 @@ LiveRangeRegions CopyRemover::ComputeLiveRangeRegions(const ValueNode* head) {
 bool CopyRemover::TryElideCopy(
     const HloInstruction* copy, int64_t* region_analysis_limit,
     bool insert_post_scheduling_control_dependencies) {
+  if (SkipElidingForPipelinedIndices(copy)) {
+    VLOG(2)
+        << copy->name()
+        << " is an index for dynamic update slice of a pipelined collective. "
+           "Removing the copy inserts control dependencies between dyanmic "
+           "update slices for different pipelined collectives and so hinders "
+           "the overlap opportunities.";
+    return false;
+  }
   VLOG(3) << "TryElideCopy starting for: " << copy->name();
   CHECK_NE(region_analysis_limit, nullptr);
 
