@@ -107,6 +107,9 @@ class GpuCodegenBackend : public CodegenBackend {
     debug_options.set_xla_gpu_async_dot(false);
     debug_options.set_xla_embed_ir_in_executable(false);
     debug_options.set_xla_gpu_kernel_cache_file("");
+    debug_options.set_xla_gpu_experimental_enable_checksum_tracing_on_thunks(
+        false);
+    debug_options.set_xla_gpu_detect_nan(DebugOptions::DETECTION_MODE_NONE);
     debug_options.set_xla_enable_scoped_logging_timers(false);
     // Don't touch the "fail on register spilling" flag if it's already on.
     if (!debug_options.xla_gpu_fail_ptx_compilation_on_register_spilling()) {
