@@ -2456,6 +2456,18 @@ int64_t AllocateStaticBuffers(BufferMap& buffers,
 
 }  // namespace
 
+absl::StatusOr<int64_t> ComputeTotalAllocationBytes(
+    const BufferAssignmentProto& proto) {
+  int64_t total_allocation_bytes = 0;
+  for (const auto& alloc : proto.buffer_allocations()) {
+    // Memory space 0 is the default device memory space.
+    if (alloc.color() == 0) {
+      total_allocation_bytes += alloc.size();
+    }
+  }
+  return total_allocation_bytes;
+}
+
 absl::StatusOr<int64_t> ComputePeakMemory(const BufferAssignmentProto& proto) {
   BufferMap buffers(proto);
 

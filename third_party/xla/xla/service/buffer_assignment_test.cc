@@ -4205,5 +4205,62 @@ TEST(ComputePeakMemoryTest, LargeResult) {
   EXPECT_EQ(*ComputePeakMemory(proto), 1LL << 33);
 }
 
+TEST(ComputeTotalAllocationBytesTest, EmptyProto) {
+  BufferAssignmentProto proto;
+  TF_ASSERT_OK_AND_ASSIGN(auto result, ComputeTotalAllocationBytes(proto));
+  EXPECT_EQ(result, 0);
+}
+
+TEST(ComputeTotalAllocationBytesTest, NonColorZeroAllocations) {
+  BufferAssignmentProto proto;
+  BufferAllocationProto* alloc1 = proto.add_buffer_allocations();
+  alloc1->set_size(10);
+  alloc1->set_color(1);
+  BufferAllocationProto* alloc2 = proto.add_buffer_allocations();
+  alloc2->set_size(20);
+  alloc2->set_color(2);
+  TF_ASSERT_OK_AND_ASSIGN(auto result, ComputeTotalAllocationBytes(proto));
+  EXPECT_EQ(result, 0);
+}
+
+TEST(ComputeTotalAllocationBytesTest, OnlyColorZeroAllocations) {
+  BufferAssignmentProto proto;
+  BufferAllocationProto* alloc1 = proto.add_buffer_allocations();
+  alloc1->set_size(10);
+  alloc1->set_color(0);
+  BufferAllocationProto* alloc2 = proto.add_buffer_allocations();
+  alloc2->set_size(20);
+  alloc2->set_color(0);
+  TF_ASSERT_OK_AND_ASSIGN(auto result, ComputeTotalAllocationBytes(proto));
+  EXPECT_EQ(result, 30);
+}
+
+TEST(ComputeTotalAllocationBytesTest, MixedColorAllocations) {
+  BufferAssignmentProto proto;
+  BufferAllocationProto* alloc1 = proto.add_buffer_allocations();
+  alloc1->set_size(10);
+  alloc1->set_color(0);
+  BufferAllocationProto* alloc2 = proto.add_buffer_allocations();
+  alloc2->set_size(20);
+  alloc2->set_color(1);
+  BufferAllocationProto* alloc3 = proto.add_buffer_allocations();
+  alloc3->set_size(30);
+  alloc3->set_color(0);
+  TF_ASSERT_OK_AND_ASSIGN(auto result, ComputeTotalAllocationBytes(proto));
+  EXPECT_EQ(result, 40);
+}
+
+TEST(ComputeTotalAllocationBytesTest, LargeAllocations) {
+  BufferAssignmentProto proto;
+  BufferAllocationProto* alloc1 = proto.add_buffer_allocations();
+  alloc1->set_size(1LL << 33);
+  alloc1->set_color(0);
+  BufferAllocationProto* alloc3 = proto.add_buffer_allocations();
+  alloc3->set_size(1LL << 33);
+  alloc3->set_color(0);
+  TF_ASSERT_OK_AND_ASSIGN(auto result, ComputeTotalAllocationBytes(proto));
+  EXPECT_EQ(result, 1LL << 34);
+}
+
 }  // namespace
 }  // namespace xla
