@@ -67,6 +67,7 @@ cc_library(
         ":all_to_all_thunk",
         ":annotation",
         ":collective_broadcast_thunk",
+        ":collective_execution",
         ":collective_permute_thunk",
         ":collective_thunk",
         ":copy_thunk",
@@ -1350,6 +1351,7 @@ cc_library(
     srcs = ["all_to_all_thunk.cc"],
     hdrs = ["all_to_all_thunk.h"],
     deps = [
+        ":collective_execution",
         ":collective_thunk",
         ":thunk",
         "//xla:shape_util",
@@ -1648,11 +1650,35 @@ cc_library(
 )
 
 cc_library(
+    name = "collective_execution",
+    srcs = ["collective_execution.cc"],
+    hdrs = ["collective_execution.h"],
+    deps = [
+        ":collective_cliques",
+        ":collective_params",
+        "//xla:debug_options_flags",
+        "//xla:status_macros",
+        "//xla:util",
+        "//xla/backends/gpu/collectives:gpu_clique_key",
+        "//xla/core/collectives:communicator",
+        "//xla/core/collectives:rank_id",
+        "//xla/runtime:device_id",
+        "//xla/service:collective_ops_utils",
+        "//xla/tsl/platform:statusor",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_library(
     name = "collective_thunk",
     srcs = ["collective_thunk.cc"],
     hdrs = ["collective_thunk.h"],
     deps = [
         ":collective_cliques",
+        ":collective_execution",
         ":collective_params",
         ":thunk",
         ":thunk_proto_cc",
@@ -2776,6 +2802,7 @@ cc_library(
         ":collective_thunk",
         ":thunk",
         "//xla:shape_util",
+        "//xla:status_macros",
         "//xla:xla_data_proto_cc",
         "//xla/backends/gpu/collectives:gpu_clique_key",
         "//xla/backends/gpu/collectives:gpu_collectives",
