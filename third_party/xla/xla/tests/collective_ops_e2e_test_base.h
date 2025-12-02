@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef XLA_TESTS_COLLECTIVE_OPS_E2E_TEST_BASE_H_
 #define XLA_TESTS_COLLECTIVE_OPS_E2E_TEST_BASE_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -44,9 +45,14 @@ limitations under the License.
 
 namespace xla {
 
+constexpr size_t kMB = 1024LL * 1024LL;
+constexpr size_t kGB = 1024LL * kMB;
 class CollectiveOpsE2ETestBase : public HloHardwareIndependentTestBase {
  public:
-  CollectiveOpsE2ETestBase();
+  CollectiveOpsE2ETestBase(size_t memory_size, size_t collectives_memory_size)
+      : HloHardwareIndependentTestBase() {
+    SetupHloRunner(memory_size, collectives_memory_size);
+  }
 
   struct ExecutionResult {
     std::unique_ptr<OpaqueExecutable> executable;
@@ -110,6 +116,9 @@ class CollectiveOpsE2ETestBase : public HloHardwareIndependentTestBase {
  protected:
   std::unique_ptr<HloRunner> hlo_runner_;
   std::unique_ptr<HloRunner> reference_hlo_runner_;
+
+ private:
+  void SetupHloRunner(size_t memory_size, size_t collectives_memory_size);
 };
 
 // E2E tests for collective ops. These will generally verify some HLO transform
@@ -121,8 +130,11 @@ class CollectiveOpsE2ETestBase : public HloHardwareIndependentTestBase {
 // flag. Subclasses pass in constructor arguments based on GetParam().
 class CollectiveOpsWithFlagsBase : public CollectiveOpsE2ETestBase {
  public:
-  CollectiveOpsWithFlagsBase(bool enable_async, bool enable_p2p_memcpy)
-      : enable_async_(enable_async), enable_p2p_memcpy_(enable_p2p_memcpy) {}
+  CollectiveOpsWithFlagsBase(bool enable_async, bool enable_p2p_memcpy,
+                             size_t memory_size, size_t collectives_memory_size)
+      : CollectiveOpsE2ETestBase(memory_size, collectives_memory_size),
+        enable_async_(enable_async),
+        enable_p2p_memcpy_(enable_p2p_memcpy) {}
 
  protected:
   DebugOptions GetDebugOptionsForTest() const override;

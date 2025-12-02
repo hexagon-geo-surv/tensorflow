@@ -15,6 +15,7 @@ limitations under the License.
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -81,7 +82,11 @@ bool IsAsync(const HloInstruction* inst) {
 
 class CollectiveOpsTestE2E : public CollectiveOpsE2ETestBase {
  public:
-  CollectiveOpsTestE2E() {
+  explicit CollectiveOpsTestE2E(size_t memory_size = 32 * kMB,
+                                size_t collectives_memory_size = 0)
+      : CollectiveOpsE2ETestBase(
+            /*memory_size=*/memory_size,
+            /*collectives_memory_size=*/collectives_memory_size) {
     replacements_[kF8E4M3DatatypePlaceholder] =
         Capability().IsCuda() ? "f8e4m3fn" : "f8e4m3fnuz";
     replacements_[kF8E5M2DatatypePlaceholder] =
@@ -137,7 +142,9 @@ class AsyncCollectiveOps : public CollectiveOpsWithFlagsBase,
  public:
   AsyncCollectiveOps()
       : CollectiveOpsWithFlagsBase(/*enable_async=*/GetParam(),
-                                   /*enable_p2p_memcpy=*/false) {}
+                                   /*enable_p2p_memcpy=*/false,
+                                   /*memory_size=*/8 * kGB,
+                                   /*collectives_memory_size=*/0) {}
 };
 
 class MemcpyCollectiveOps : public CollectiveOpsWithFlagsBase,
@@ -145,7 +152,9 @@ class MemcpyCollectiveOps : public CollectiveOpsWithFlagsBase,
  public:
   MemcpyCollectiveOps()
       : CollectiveOpsWithFlagsBase(/*enable_async=*/true,
-                                   /*enable_p2p_memcpy=*/GetParam()) {}
+                                   /*enable_p2p_memcpy=*/GetParam(),
+                                   /*memory_size=*/32 * kMB,
+                                   /*collectives_memory_size=*/0) {}
 };
 
 class AsyncMemcpyCollectiveOps
@@ -154,7 +163,9 @@ class AsyncMemcpyCollectiveOps
  public:
   AsyncMemcpyCollectiveOps()
       : CollectiveOpsWithFlagsBase(std::get<0>(GetParam()),
-                                   std::get<1>(GetParam())) {}
+                                   std::get<1>(GetParam()),
+                                   /*memory_size=*/32 * kMB,
+                                   /*collectives_memory_size=*/0) {}
 };
 
 std::string GetAsyncTestName(bool is_async) {
@@ -1288,6 +1299,10 @@ TEST_F(CollectiveOpsTestE2E, HostMemoryOffloadingWithDonation) {
 // E2E tests comparing the results of windowed einsum and non-windowed cases.
 class CollectiveOpsTestE2EWindowedNonWindowed : public CollectiveOpsTestE2E {
  public:
+  CollectiveOpsTestE2EWindowedNonWindowed()
+      : CollectiveOpsTestE2E(/*memory_size=*/4 * kGB,
+                             /*collectives_memory_size=*/0) {}
+
   void CollectiveOpsCompareWindowedNonWindowed(
       absl::string_view hlo_text, bool disable_dot_merger = false,
       bool enable_a2a_rewrite = false) {
@@ -2466,7 +2481,9 @@ class AllReduceTest
 
   AllReduceTest()
       : CollectiveOpsWithFlagsBase(std::get<0>(GetParam()),
-                                   /*enable_p2p_memcpy=*/false) {}
+                                   /*enable_p2p_memcpy=*/false,
+                                   /*memory_size=*/32 * kMB,
+                                   /*collectives_memory_size=*/0) {}
 
  protected:
   DebugOptions GetDebugOptionsForTest() const override {
@@ -2987,171 +3004,5 @@ INSTANTIATE_TEST_SUITE_P(
       return absl::StrCat(GetAsyncTestName(std::get<0>(info.param)), "_",
                           std::get<1>(info.param) ? "one_shot" : "nccl");
     });
-
-class CollectiveMetadataTest : public CollectiveOpsE2ETestBase {
- protected:
-  void SetUp() override {
-    CollectiveOpsE2ETestBase::SetUp();
-    if (!IsHopperAndHigher()) {
-      GTEST_SKIP() << "Test requires Hopper or newer architecture since it's "
-                      "using a multicast.";
-    }
-  }
-};
-
-TEST_F(CollectiveMetadataTest, ConstructCollectiveMetadata) {
-  constexpr int kNumReplicas = 2;
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> unoptimized_module,
-                          ParseAndReturnVerifiedModule(R"(
-  HloModule test, replica_count=2
-
-  ENTRY test_computation {
-    param_0 = f32[4] parameter(0)
-    param_1 = f32[4] parameter(1)
-    copy_1 = f32[4]{0:S(1)} copy(param_1)
-
-    const_0 = f32[1] constant({10})
-
-    result_tuple = (f32[4], f32[4]{0:S(1)}, f32[1], u64[9]) custom-call(param_0, copy_1, const_0), custom_call_target="CollectiveMetadata", output_to_operand_aliasing={{0}: (0, {}), {1}: (1, {})}
-    ROOT get_tuple_element = u64[9] get-tuple-element(result_tuple), index=3
-  })"));
-
-  TF_ASSERT_OK_AND_ASSIGN(
-      std::unique_ptr<OpaqueExecutable> executable,
-      hlo_runner_->CreateExecutable(std::move(unoptimized_module),
-                                    /*run_hlo_passes=*/false));
-  const std::array<Literal, 2> arguments = {
-      LiteralUtil::CreateR1<float>({1.0f, 2.0f, 3.0f, 4.0f}),
-      LiteralUtil::CreateR1<float>({1.0f, 2.0f, 3.0f, 4.0f})};
-  DeviceAssignment device_assignment = MakeDeviceAssignment(kNumReplicas);
-  TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> result,
-      ExecuteReplicated(
-          /*executable_provider*/ [&](int64_t) { return executable.get(); },
-          /*argument_count_provider*/ [&](int64_t) { return arguments.size(); },
-          /*argument_provider*/
-          [&](int64_t replica_id, int64_t arg_index) {
-            return &arguments[arg_index];
-          },
-          kNumReplicas,
-          /*run_hlo_passes=*/false, &device_assignment));
-
-  ASSERT_EQ(result.size(), kNumReplicas);
-  Literal first_result = std::move(result[0]);
-  Literal second_result = std::move(result[1]);
-
-  absl::Span<const uint64_t> first_result_data = first_result.data<uint64_t>();
-  absl::Span<const uint64_t> second_result_data =
-      second_result.data<uint64_t>();
-  constexpr int kNumElements = 9;
-  ASSERT_EQ(first_result_data.size(), kNumElements);
-  ASSERT_EQ(second_result_data.size(), kNumElements);
-
-  // Check the rank in the first position.
-  EXPECT_EQ(first_result_data[0], 0);
-  EXPECT_EQ(second_result_data[0], 1);
-
-  // Check pointer to peers in the second position.
-  EXPECT_NE(first_result_data[1], 0);
-  EXPECT_NE(second_result_data[1], 0);
-
-  // Check pointer to multimem metadata in the third position.
-  EXPECT_NE(first_result_data[2], 0);
-  EXPECT_NE(second_result_data[2], 0);
-
-  // Check param_to_peers structure.
-  for (int i = 3; i < kNumElements; ++i) {
-    EXPECT_NE(first_result_data[i], 0);
-    EXPECT_EQ(second_result_data[i], first_result_data[i]);
-  }
-}
-
-TEST_F(CollectiveMetadataTest, ConstructCollectiveMetadataWithReplicaGroup) {
-  constexpr int kNumReplicas = 4;
-  if (hlo_runner_->device_count() < kNumReplicas) {
-    GTEST_SKIP() << "Test requires at least " << kNumReplicas << " devices ("
-                 << hlo_runner_->device_count() << " available)";
-  }
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> unoptimized_module,
-                          ParseAndReturnVerifiedModule(R"(
-  HloModule test, replica_count=4
-
-  ENTRY test_computation {
-    param_0 = f32[4] parameter(0)
-    param_1 = f32[4] parameter(1)
-    copy_1 = f32[4]{0:S(1)} copy(param_1)
-
-    result_tuple = (f32[4], f32[4]{0:S(1)}, u64[7]) custom-call(param_0, copy_1), custom_call_target="CollectiveMetadata", output_to_operand_aliasing={{0}: (0, {}), {1}: (1, {})}, backend_config="{\"collective_metadata_backend_config\":{\"collective_devices\": { \"replica_groups\": [{\"replica_ids\": [0,1]}, {\"replica_ids\": [2,3]}]}}}"
-    ROOT get_tuple_element = u64[7] get-tuple-element(result_tuple), index=2
-  })"));
-
-  TF_ASSERT_OK_AND_ASSIGN(
-      std::unique_ptr<OpaqueExecutable> executable,
-      hlo_runner_->CreateExecutable(std::move(unoptimized_module),
-                                    /*run_hlo_passes=*/false));
-  const std::array<Literal, 2> arguments = {
-      LiteralUtil::CreateR1<float>({1.0f, 2.0f, 3.0f, 4.0f}),
-      LiteralUtil::CreateR1<float>({1.0f, 2.0f, 3.0f, 4.0f})};
-  DeviceAssignment device_assignment = MakeDeviceAssignment(kNumReplicas);
-  TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> result,
-      ExecuteReplicated(
-          /*executable_provider*/ [&](int64_t) { return executable.get(); },
-          /*argument_count_provider*/ [&](int64_t) { return arguments.size(); },
-          /*argument_provider*/
-          [&](int64_t replica_id, int64_t arg_index) {
-            return &arguments[arg_index];
-          },
-          kNumReplicas,
-          /*run_hlo_passes=*/false, &device_assignment));
-
-  ASSERT_EQ(result.size(), kNumReplicas);
-  Literal replica_0_result_0 = std::move(result[0]);
-  Literal replica_0_result_1 = std::move(result[1]);
-  Literal replica_1_result_0 = std::move(result[2]);
-  Literal replica_1_result_1 = std::move(result[3]);
-
-  absl::Span<const uint64_t> replica_0_result_0_data =
-      replica_0_result_0.data<uint64_t>();
-  absl::Span<const uint64_t> replica_0_result_1_data =
-      replica_0_result_1.data<uint64_t>();
-  absl::Span<const uint64_t> replica_1_result_0_data =
-      replica_1_result_0.data<uint64_t>();
-  absl::Span<const uint64_t> replica_1_result_1_data =
-      replica_1_result_1.data<uint64_t>();
-
-  // Check the rank in the first position.
-  constexpr int kNumElements = 7;
-  ASSERT_EQ(replica_0_result_0_data.size(), kNumElements);
-  ASSERT_EQ(replica_0_result_1_data.size(), kNumElements);
-  ASSERT_EQ(replica_1_result_0_data.size(), kNumElements);
-  ASSERT_EQ(replica_1_result_1_data.size(), kNumElements);
-
-  EXPECT_EQ(replica_0_result_0_data[0], 0);
-  EXPECT_EQ(replica_0_result_1_data[0], 1);
-  EXPECT_EQ(replica_1_result_0_data[0], 0);
-  EXPECT_EQ(replica_1_result_1_data[0], 1);
-
-  // Check pointer to peers in the second position.
-  EXPECT_NE(replica_0_result_0_data[1], 0);
-  EXPECT_NE(replica_0_result_1_data[1], 0);
-  EXPECT_NE(replica_1_result_0_data[1], 0);
-  EXPECT_NE(replica_1_result_1_data[1], 0);
-
-  // Check pointer to multimem metadata in the third position.
-  EXPECT_NE(replica_0_result_0_data[2], 0);
-  EXPECT_NE(replica_0_result_1_data[2], 0);
-  EXPECT_NE(replica_1_result_0_data[2], 0);
-  EXPECT_NE(replica_1_result_1_data[2], 0);
-
-  // Check param_to_peers structure.
-  for (int i = 3; i < kNumElements; ++i) {
-    EXPECT_NE(replica_0_result_0_data[i], 0);
-    EXPECT_EQ(replica_0_result_1_data[i], replica_0_result_0_data[i]);
-    EXPECT_NE(replica_1_result_0_data[i], 0);
-    EXPECT_EQ(replica_1_result_1_data[i], replica_1_result_0_data[i]);
-  }
-}
-
 }  // namespace
 }  // namespace xla

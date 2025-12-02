@@ -51,6 +51,10 @@ namespace {
 // E2E tests comparing the results of sharded and unsharded execution.
 class CollectiveOpsTestE2EShardedUnsharded : public CollectiveOpsE2ETestBase {
  public:
+  CollectiveOpsTestE2EShardedUnsharded()
+      : CollectiveOpsE2ETestBase(/*memory_size=*/32 * kMB,
+                                 /*collectives_memory_size=*/0) {}
+
   void CollectiveOpsCompareShardedUnsharded(
       const std::string& hlo_text, const int64_t num_partitions = 2,
       bool enable_enzyme_comms_opt = false) {
