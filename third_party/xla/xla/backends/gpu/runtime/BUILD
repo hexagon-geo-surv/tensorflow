@@ -449,6 +449,7 @@ cc_library(
         "//xla:status_macros",
         "//xla:util",
         "//xla:xla_data_proto_cc",
+        "//xla/runtime:buffer_use",
         "//xla/service:buffer_assignment",
         "//xla/stream_executor:device_memory",
         "//xla/stream_executor:stream_executor_h",
@@ -588,6 +589,7 @@ cc_library(
         ":thunk_proto_cc",
         ":while_thunk",
         "//xla/hlo/ir:hlo",
+        "//xla/runtime:buffer_use",
         "//xla/service:buffer_assignment",
         "//xla/stream_executor:device_memory",
         "//xla/stream_executor:event",
@@ -826,6 +828,7 @@ cc_library(
     deps = [
         ":thunk",
         ":thunk_proto_cc",
+        "//xla/runtime:buffer_use",
         "//xla/service:buffer_assignment",
         "//xla/service/gpu:buffer_allocations",
         "//xla/service/gpu:matmul_utils",
@@ -933,6 +936,7 @@ cc_library(
         "//xla:shape_util",
         "//xla:status_macros",
         "//xla:util",
+        "//xla/runtime:buffer_use",
         "//xla/service:buffer_assignment",
         "//xla/service/gpu:buffer_allocations",
         "//xla/service/gpu:gpu_transfer_manager",
@@ -1181,6 +1185,7 @@ cc_library(
     hdrs = ["memset_thunk.h"],
     deps = [
         ":thunk",
+        "//xla/runtime:buffer_use",
         "//xla/service:buffer_assignment",
         "//xla/stream_executor:device_memory",
         "//xla/tsl/platform:statusor",
@@ -1953,6 +1958,7 @@ cc_library(
     deps = [
         ":thunk",
         ":thunk_proto_cc",
+        "//xla/runtime:buffer_use",
         "//xla/runtime:device_id",
         "//xla/service:buffer_assignment",
         "//xla/service:computation_placer_hdr",
@@ -2275,6 +2281,7 @@ cc_library(
         "//xla:util",
         "//xla:xla_data_proto_cc",
         "//xla/hlo/ir:hlo",
+        "//xla/runtime:buffer_use",
         "//xla/service:buffer_assignment",
         "//xla/stream_executor:device_memory",
         "//xla/stream_executor:stream_executor_h",
@@ -2365,6 +2372,7 @@ cc_library(
     deps = [
         ":thunk",
         ":thunk_proto_cc",
+        "//xla/runtime:buffer_use",
         "//xla/service:buffer_assignment",
         "//xla/service:buffer_assignment_proto_cc",
         "//xla/stream_executor:device_memory",
