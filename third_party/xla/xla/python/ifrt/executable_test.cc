@@ -15,6 +15,8 @@ limitations under the License.
 
 #include "xla/python/ifrt/executable.h"
 
+#include <string>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "xla/python/ifrt/attribute_map.h"
@@ -58,9 +60,8 @@ TEST_P(ExecuteOptionsSerDesTest, RoundTrip) {
               UnorderedElementsAre(0, 3));
   EXPECT_TRUE(deserialized.fill_status);
   ASSERT_TRUE(deserialized.custom_options.has_value());
-  EXPECT_THAT(
-      deserialized.custom_options->map(),
-      UnorderedElementsAre(Pair("foo", AttributeMap::StringValue("bar"))));
+  EXPECT_THAT(deserialized.custom_options->Get<std::string>("foo"),
+              testing::status::IsOkAndHolds("bar"));
 }
 
 INSTANTIATE_TEST_SUITE_P(
