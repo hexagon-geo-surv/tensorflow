@@ -93,6 +93,7 @@ cc_library(
     ]),
     deps = [
         ":metadata_utils",
+        "//xla/backends/profiler/util:metadata_registry",
         "//xla/service:hlo_proto_cc",
         "//xla/service:xla_debug_info_manager",
         "//xla/tsl/profiler/utils:xplane_builder",
