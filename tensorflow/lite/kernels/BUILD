@@ -1641,13 +1641,9 @@ cc_test(
         ":test_util",
         "//tensorflow/lite:framework_stable",
         "//tensorflow/lite/core:framework_stable",
-        "//tensorflow/lite/core/api",
-        "//tensorflow/lite/kernels/internal:types",
         "//tensorflow/lite/schema:schema_fbs",
-        "@com_google_absl//absl/memory",
+        "//tensorflow/lite/types:half",
         "@com_google_googletest//:gtest",
-        "@eigen_archive//:eigen3",
-        "@flatbuffers",
     ],
 )
 
