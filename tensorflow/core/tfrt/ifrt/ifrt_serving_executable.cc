@@ -551,6 +551,15 @@ IfrtServingExecutable::CreateExecutableSynchronously(
   executable_bundle->compile_metadata =
       std::move(tf2hlo_result.compile_metadata);
   executable_bundle->host_callbacks = std::move(tf_host_callbacks);
+  executable_bundle->input_hlo_sharding.reserve(
+      executable_bundle->compile_metadata.args().size());
+  for (int i = 0; i < dtypes_and_shapes.size(); i++) {
+    TF_ASSIGN_OR_RETURN(
+        xla::HloSharding hlo_sharding,
+        xla::HloSharding::FromProto(
+            executable_bundle->compile_metadata.args()[i].sharding()));
+    executable_bundle->input_hlo_sharding.push_back(std::move(hlo_sharding));
+  }
 
   return executable_bundle;
 }
@@ -690,7 +699,6 @@ absl::StatusOr<std::vector<tensorflow::Tensor>> IfrtServingExecutable::Execute(
         "Expected ", executable_bundle->compile_metadata.args().size(),
         " but got ", dtypes_and_shapes.size(), " arguments"));
   }
-
   {
     tsl::profiler::TraceMe traceme("AsyncRestoreVariables");
     absl::ReaderMutexLock lock(mutex_);
@@ -724,14 +732,10 @@ absl::StatusOr<std::vector<tensorflow::Tensor>> IfrtServingExecutable::Execute(
   for (int i = 0; i < inputs.size(); i++) {
     if (variable_arg_index < variable_arg_indices.size() &&
         i == variable_arg_indices[variable_arg_index]) {
-      TF_ASSIGN_OR_RETURN(
-          xla::HloSharding hlo_sharding,
-          xla::HloSharding::FromProto(
-              executable_bundle->compile_metadata.args()[i].sharding()));
       IfrtLoadedVariableRegistry::Key key{
           .device_ids = device_ids,
           .input_name = inputs[i].scalar<tsl::tstring>()(),
-          .hlo_sharding = std::move(hlo_sharding),
+          .hlo_sharding = executable_bundle->input_hlo_sharding[i],
       };
       TF_ASSIGN_OR_RETURN(
           auto loaded_variable,
@@ -754,10 +758,9 @@ absl::StatusOr<std::vector<tensorflow::Tensor>> IfrtServingExecutable::Execute(
       TF_ASSIGN_OR_RETURN(
           tsl::Future<xla::ifrt::ArrayRef> array_ref,
           (*user_inputs_h2d_transfer_executor)
-              ->ScheduledH2DTransfer(
-                  reshaped, device_list,
-                  executable_bundle->compile_metadata.args()[i].sharding(),
-                  thread_pool_));
+              ->ScheduledH2DTransfer(reshaped, device_list,
+                                     executable_bundle->input_hlo_sharding[i],
+                                     thread_pool_));
       args.push_back(std::move(array_ref));
     }
   }
@@ -842,12 +845,8 @@ absl::Status IfrtServingExecutable::AsyncLoadIfrtArray(
     }
     std::string tensor_name = inputs[i].scalar<tsl::tstring>()();
     // TODO(b/339521818): Add test cases for OpSharding on variables.
-    TF_ASSIGN_OR_RETURN(
-        xla::HloSharding hlo_sharding,
-        xla::HloSharding::FromProto(
-            executable_bundle.compile_metadata.args()[i].sharding()));
     VariableDeviceShardingConfig sharding_config{
-        .hlo_sharding = std::move(hlo_sharding),
+        .hlo_sharding = executable_bundle.input_hlo_sharding[i],
     };
     for (xla::ifrt::Device* device : devices->devices()) {
       sharding_config.device_ids.push_back(device->Id().value());
