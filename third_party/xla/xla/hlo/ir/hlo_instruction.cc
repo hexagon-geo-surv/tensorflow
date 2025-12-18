@@ -412,6 +412,7 @@ absl::StatusOr<std::unique_ptr<HloInstruction>> HloInstruction::CreateFromProto(
                                      proto.async_execution_thread().empty()
                                          ? kMainExecutionThread
                                          : proto.async_execution_thread());
+      instruction->set_output_to_operand_aliasing(output_to_operand_aliasing());
       break;
     }
     case HloOpcode::kAsyncUpdate: {
@@ -3375,6 +3376,11 @@ absl::Status HloInstruction::ReplaceUseWithDifferentShape(
     RETURN_IF_ERROR(
         Cast<HloFusionInstruction>(user)->DeduplicateFusionOperands());
   }
+  // Update the async chain if the new producer is an async instruction.
+  if (HloAsyncInstruction* async_op =
+          DynCast<HloAsyncInstruction>(new_producer)) {
+    async_op->UpdateAsyncChain();
+  }
   return absl::OkStatus();
 }
 
@@ -3403,6 +3409,11 @@ absl::Status HloInstruction::ReplaceUseWithDifferentShape(
       << " to be equal to " << ToString();
   user->operands_[operand_number] = new_producer;
   new_producer->AddUser(user);
+  // Update the async chain if the new producer is an async instruction.
+  if (HloAsyncInstruction* async_op =
+          DynCast<HloAsyncInstruction>(new_producer)) {
+    async_op->UpdateAsyncChain();
+  }
   return absl::OkStatus();
 }
 
@@ -3434,6 +3445,11 @@ absl::Status HloInstruction::ReplaceOperandWithDifferentShape(
     old_operand->RemoveUser(this);
   }
   new_operand->AddUser(this);
+  // Update the async chain if the new operand is an async instruction.
+  if (HloAsyncInstruction* async_op =
+          DynCast<HloAsyncInstruction>(new_operand)) {
+    async_op->UpdateAsyncChain();
+  }
   return absl::OkStatus();
 }
 
@@ -3604,6 +3620,11 @@ absl::Status HloInstruction::ReplaceAllUsesWithDifferentShape(
   // Copy the original value recovery table from this instruction to the new
   // producer instruction if their shapes are compatible.
   new_producer->CopyOriginalValue(/*instruction=*/this);
+  // Update the async chain if the new producer is an async instruction.
+  if (HloAsyncInstruction* async_op =
+          DynCast<HloAsyncInstruction>(new_producer)) {
+    async_op->UpdateAsyncChain();
+  }
 
   return absl::OkStatus();
 }
@@ -6028,14 +6049,19 @@ const CholeskyOptions& HloInstruction::cholesky_options() const {
 
 const std::vector<std::pair<ShapeIndex, std::pair<int64_t, ShapeIndex>>>&
 HloInstruction::output_operand_aliasing() const {
-  return Cast<HloCallableInstruction>(this)->output_to_operand_aliasing();
+  const HloAliasible* aliasable = dynamic_cast<const HloAliasible*>(this);
+  CHECK(aliasable != nullptr)
+      << "Instruction does not support aliasing: " << ToShortString();
+  return aliasable->output_to_operand_aliasing();
 }
 
 void HloInstruction::set_output_to_operand_aliasing(
     std::vector<std::pair<ShapeIndex, std::pair<int64_t, ShapeIndex>>>
         aliasing) {
-  Cast<HloCallableInstruction>(this)->set_output_to_operand_aliasing(
-      std::move(aliasing));
+  HloAliasible* aliasable = dynamic_cast<HloAliasible*>(this);
+  CHECK(aliasable != nullptr)
+      << "Instruction does not support aliasing: " << ToShortString();
+  aliasable->set_output_to_operand_aliasing(std::move(aliasing));
 }
 
 std::shared_ptr<OriginalValue> HloInstruction::original_value() const {
