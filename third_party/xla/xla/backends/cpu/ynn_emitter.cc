@@ -445,9 +445,6 @@ static ynn_status DefineConvolution(
     const std::vector<int64_t>& padding_highs) {
   ynn_status status;
 
-  // Make a copy in case we need to shift these for grouped convolution.
-  std::vector<int32_t> new_axes_shifted = new_axes;
-
   // We will need to create an intermediate buffer for the output if it's
   // grouped convolution.
   uint32_t output_unfused_id =
@@ -455,18 +452,6 @@ static ynn_status DefineConvolution(
 
   if (feature_group_count != 1) {
     uint32_t split_id = YNN_INVALID_VALUE_ID;
-
-    // [n, h, w, ci] -> [n, h, w, g, 1, ci/g].
-    size_t input_split[] = {feature_group_count, 1,
-                            input_channels / feature_group_count};
-    status =
-        ynn_define_split_dim(subgraph, /*axis=*/-1, /*num_splits=*/3,
-                             input_split, input1_id, &split_id, /*flags=*/0);
-    if (status != ynn_status_success) {
-      return status;
-    }
-    input1_id = split_id;
-    split_id = YNN_INVALID_VALUE_ID;
     CHECK_EQ(filter_dims.size(), 4);
     // [kh, kw, ci/g, co] -> [kh, kw, ci/g, g, co/g].
     size_t filter_split[] = {feature_group_count,
@@ -506,11 +491,6 @@ static ynn_status DefineConvolution(
     if (status != ynn_status_success) {
       return status;
     }
-
-    // Shift new stencil axes by two.
-    for (int i = 0; i < new_axes_shifted.size(); ++i) {
-      new_axes_shifted[i] += 2;
-    }
   }
 
   // If any of paddings is not zero, define a padding value and pad the input.
@@ -547,11 +527,37 @@ static ynn_status DefineConvolution(
   // Make a stenciled view of the input [n, h, w, ci] -> [n, h, w, kh, kw, ci].
   status = ynn_define_stencil_copy(
       subgraph, /*num_stencils=*/stencil_dims.size(), stencil_axes.data(),
-      new_axes_shifted.data(), stencil_dims.data(), stencil_strides.data(),
+      new_axes.data(), stencil_dims.data(), stencil_strides.data(),
       stencil_dilations.data(), input1_id, YNN_INVALID_VALUE_ID, &stencil_id,
       /*flags=*/0);
   if (status != ynn_status_success) {
     return status;
+  }
+
+  if (feature_group_count != 1) {
+    uint32_t split_id = YNN_INVALID_VALUE_ID;
+    // [n, h, w, kh, kw, ci] -> [n, h, w, kh, kw, g, 1, ci/g].
+    size_t input_split[] = {feature_group_count, 1,
+                            input_channels / feature_group_count};
+    status =
+        ynn_define_split_dim(subgraph, /*axis=*/-1, /*num_splits=*/3,
+                             input_split, stencil_id, &split_id, /*flags=*/0);
+    if (status != ynn_status_success) {
+      return status;
+    }
+    stencil_id = split_id;
+
+    uint32_t transposed_stencil_id = YNN_INVALID_VALUE_ID;
+    // [n, h, w, kh, kw, g, 1, ci/g] -> [n, h, w, g, 1, kh, kw, ci/g]
+    int32_t stencil_perm[8] = {0, 1, 2, 5, 6, 3, 4, 7};
+    status = ynn_define_static_transpose(subgraph, /*rank=*/8, stencil_perm,
+                                         stencil_id, &transposed_stencil_id,
+                                         /*flags=*/0);
+
+    if (status != ynn_status_success) {
+      return status;
+    }
+    stencil_id = transposed_stencil_id;
   }
 
   status = ynn_define_dot(subgraph, /*num_k_dims=*/stencil_dims.size() + 1,
