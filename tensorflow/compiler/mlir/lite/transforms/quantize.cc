@@ -15,6 +15,7 @@ limitations under the License.
 
 // This transformation pass applies quantization on TFLite dialect.
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -80,13 +81,13 @@ static LogicalResult IsDrqTensor(Value value, Value& fq_input) {
   // fake quant op.
   // This is to support the case such as:
   // %2077 = "vhlo.composite_v1"(%73, %69, %2070) : (tensor<i32>, tensor<i32>,
-  //  tensor<1x?x512xf32>) -> tensor<1x?x512xf32>
+  //   tensor<1x?x512xf32>) -> tensor<1x?x512xf32>
   // %2078 = "tfl.reshape"(%2077, %99) : (tensor<1x?x512xf32>, tensor<2xi32>) ->
-  //  tensor<?x512xf32>
+  //   tensor<?x512xf32>
   // %2079 = "tfl.pseudo_qconst"() <{qtype = tensor<64x512x!quant.uniform<i8....
-  // %2080 = "tfl.dequantize"(%2079) %2081 = "tfl.fully_connected"
-  //  (%2078, %2080, %0) : (tensor<?x512xf32>, tensor<64x512xf32>, none) ->
-  //  tensor<?x64xf32>
+  // %2080 = "tfl.dequantize"(%2079)
+  // %2081 = "tfl.fully_connected"(%2078, %2080, %0) : (tensor<?x512xf32>,
+  //   tensor<64x512xf32>, none) -> tensor<?x64xf32>
   // TODO - b/422588785: Have proper support for dynamic shaped models.
   auto v = value;
   if (auto reshape_op = llvm::dyn_cast_or_null<ReshapeOp>(v.getDefiningOp())) {
@@ -224,6 +225,51 @@ class PushForwardDrqFQ : public OpRewritePattern<stablehlo::CompositeOp> {
         drq_fq_op->getAttrs());
 
     rewriter.replaceOp(pad_op, new_drq_fq_op.getResult(0));
+    return success();
+  }
+};
+
+// Fixes the FC output dimensions if output dims is different from input dims
+// though keep_num_dims is true and it's followed by a reshape op. It happens
+// when FC's input has changed after quantization.
+struct FixFullyConnectedDims : public OpRewritePattern<FullyConnectedOp> {
+  explicit FixFullyConnectedDims(MLIRContext* context)
+      : OpRewritePattern<TFL::FullyConnectedOp>(context, /*benefit=*/0) {}
+
+  LogicalResult matchAndRewrite(FullyConnectedOp fc,
+                                PatternRewriter& rewriter) const override {
+    if (!fc.getKeepNumDims()) return failure();
+
+    auto input_ty =
+        mlir::dyn_cast_or_null<RankedTensorType>(fc.getInput().getType());
+    auto fc_ty = mlir::dyn_cast_or_null<RankedTensorType>(fc.getType(0));
+    if (!input_ty || !fc_ty) return failure();
+
+    auto input_shape = input_ty.getShape();
+    auto fc_shape = fc_ty.getShape();
+    if (input_shape.size() == fc_shape.size()) {
+      return failure();
+    }
+
+    // Only fix the dims if it's only used by a reshape op.
+    auto users = fc.getResult(0).getUsers();
+    llvm::SmallVector<Operation*, 4> users_vec(users.begin(), users.end());
+    if (users_vec.size() != 1) {
+      return failure();
+    }
+    auto reshape_op = llvm::dyn_cast<ReshapeOp>(*users.begin());
+    if (!reshape_op) {
+      return failure();
+    }
+
+    llvm::SmallVector<int64_t> new_fc_shape(input_shape);
+    new_fc_shape.pop_back();
+    new_fc_shape.push_back(fc_shape.back());
+    rewriter.replaceOpWithNewOp<FullyConnectedOp>(
+        fc, RankedTensorType::get(new_fc_shape, fc_ty.getElementType()),
+        fc.getInput(), fc.getFilter(), fc.getBias(),
+        fc.getFusedActivationFunction(), fc.getWeightsFormat(),
+        /*keep_num_dims=*/true, fc.getAsymmetricQuantizeInputsAttr());
     return success();
   }
 };
@@ -764,7 +810,7 @@ void QuantizePass::runOnOperation() {
     patterns.add<TFLFullQuantization, TFLFullQuantizationReverse>(ctx,
                                                                   quant_params);
   }
-
+  patterns.add<FixFullyConnectedDims>(ctx);
   (void)applyPatternsGreedily(func, std::move(patterns));
 
   // Constant quantization is a lossy transformation, so they are applied only
