@@ -58,6 +58,8 @@ absl::Status Mesh::ValidateMesh() {
         ", Number of dimensions: ", device_assignment_.dimensions().size()));
   }
 
+  // TODO: Maybe we should not allow axis_names to be fully integers as that
+  // might be confusing for parsing/printing
   absl::flat_hash_set<std::string> seen_axis_names;
   for (const std::string& axis_name : axes_names_) {
     if (!seen_axis_names.insert(axis_name).second) {
@@ -105,10 +107,10 @@ Mesh::Mesh(TileAssignment device_assignment,
 std::string Mesh::ToString() const {
   if (IsMaximal()) {
     return absl::StrCat(
-        "@maximal_mesh<device_id=", device_assignment_.array()(0), ">");
+        "maximal_mesh[device_id=", device_assignment_.array()(0), "]");
   }
 
-  std::string mesh_str = "@mesh";
+  std::string mesh_str = "mesh";
   // Add the mesh axes names and sizes.
   std::vector<std::string> formatted_axes_names;
   formatted_axes_names.reserve(axes_names_.size());
@@ -125,7 +127,7 @@ std::string Mesh::ToString() const {
     device_assignment_str =
         absl::StrCat(", device_ids=(", device_assignment_.ArrayToString(), ")");
   }
-  absl::StrAppend(&mesh_str, "<", absl::StrJoin(formatted_axes_names, ","), ">",
+  absl::StrAppend(&mesh_str, "[", absl::StrJoin(formatted_axes_names, ","), "]",
                   device_assignment_str);
   return mesh_str;
 }
