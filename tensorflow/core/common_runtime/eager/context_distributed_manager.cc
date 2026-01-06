@@ -28,8 +28,10 @@ limitations under the License.
 #include <vector>
 
 #include "google/protobuf/any.pb.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
+#include "xla/tsl/distributed_runtime/call_options.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/macros.h"
 #include "xla/tsl/platform/statusor.h"
@@ -129,6 +131,13 @@ class XlaKeyValueStore : public xla::KeyValueStoreInterface {
   absl::StatusOr<std::string> TryGet(std::string_view key) override {
     return coordination_service_agent_->TryGetKeyValue(
         absl::StrCat(key_prefix_, key));
+  }
+
+  std::shared_ptr<tsl::CallOptions> AsyncGet(
+      absl::string_view key,
+      tsl::CoordinationServiceAgent::StatusOrValueCallback done) override {
+    return coordination_service_agent_->GetKeyValueAsync(
+        absl::StrCat(key_prefix_, key), std::move(done));
   }
 
   absl::Status Set(std::string_view key, std::string_view value) override {

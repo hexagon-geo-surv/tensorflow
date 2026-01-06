@@ -217,6 +217,7 @@ tf_cuda_library(
         "//tensorflow/core/distributed_runtime:master_env",
         "//tensorflow/core/distributed_runtime:rendezvous_mgr_interface",
         "//tensorflow/core/distributed_runtime:worker_env",
+        "@local_xla//xla/tsl/distributed_runtime:call_options",
     ] + select({
         "//tensorflow:android": [
             "//tensorflow/core:portable_tensorflow_lib_lite",

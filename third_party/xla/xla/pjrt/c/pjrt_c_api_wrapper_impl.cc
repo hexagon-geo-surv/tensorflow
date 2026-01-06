@@ -69,6 +69,8 @@ limitations under the License.
 #include "xla/service/hlo.pb.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
+#include "xla/tsl/distributed_runtime/call_options.h"
+#include "xla/tsl/distributed_runtime/coordination/coordination_service_agent.h"
 #include "xla/tsl/framework/allocator.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
@@ -331,6 +333,15 @@ class CApiKeyValueStore : public xla::KeyValueStoreInterface {
     auto result = std::string(args.value, args.value_size);
     args.value_deleter_callback(args.value);
     return result;
+  }
+
+  std::shared_ptr<tsl::CallOptions> AsyncGet(
+      absl::string_view key,
+      tsl::CoordinationServiceAgent::StatusOrValueCallback done) override {
+    absl::Status status = absl::UnimplementedError(
+        "AsyncGet is not supported in CApiKeyValueStore.");
+    done(status);
+    return nullptr;
   }
 
   absl::Status Set(absl::string_view key, absl::string_view value) override {
@@ -2664,7 +2675,7 @@ PJRT_Error* PJRT_Event_Create(PJRT_Event_Create_Args* args) {
   PJRT_RETURN_IF_ERROR(ActualStructSizeIsGreaterOrEqual(
       "PJRT_Event_Create", PJRT_Event_Create_Args_STRUCT_SIZE,
       args->struct_size));
-  auto [promise, future] = xla::Future<>::MakePromise();
+  auto [promise, future] = xla::MakePromise();
   args->event = new PJRT_Event{std::move(future), std::move(promise)};
   return nullptr;
 }
