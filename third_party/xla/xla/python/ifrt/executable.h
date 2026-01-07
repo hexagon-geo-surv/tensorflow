@@ -259,6 +259,12 @@ class LoadedExecutable
 
   using ExecuteOptions = ::xla::ifrt::ExecuteOptions;
 
+  // Handle that can be passed to `CancelExecution` to perform best-effort
+  // cancellation of the enqueued execution.
+  struct CancellationHandle {
+    tsl::Future<uint64_t> value = 0;
+  };
+
   // Result from an execution.
   struct ExecuteResult {
     // Resulting status of the execution. Filled only if
@@ -266,6 +272,9 @@ class LoadedExecutable
     tsl::Future<> status;
     // Output arrays.
     std::vector<ArrayRef> outputs;
+    // Handle that can be passed to `CancelExecution` to perform best-effort
+    // cancellation of the enqueued execution.
+    CancellationHandle cancellation_handle;
   };
 
   // Executes the executable on devices.
