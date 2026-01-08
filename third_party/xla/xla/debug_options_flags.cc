@@ -453,6 +453,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_gpu_unsupported_use_all_reduce_one_shot_kernel(false);
   opts.set_xla_gpu_unsupported_use_ragged_all_to_all_one_shot_kernel(true);
   opts.set_xla_gpu_unsupported_enable_all_reduce_decomposer(false);
+  opts.set_xla_gpu_unsupported_enable_tile_nesting(false);
   opts.set_xla_gpu_experimental_use_autotuner_pass(false);
   opts.set_xla_gpu_experimental_enable_fusion_autotuner(true);
   opts.set_xla_gpu_experimental_allow_unroll_factor_eight(true);
@@ -2555,6 +2556,12 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       "Internal: Enable the RaggedAllToAllMultiHostDecomposer, an experimental "
       "pass to decompose ragged-all-to-all operation in intra-host and "
       "inter-host parts."));
+  flag_list->push_back(tsl::Flag(
+      "xla_gpu_unsupported_enable_tile_nesting",
+      bool_setter_for(
+          &DebugOptions::set_xla_gpu_unsupported_enable_tile_nesting),
+      debug_options->xla_gpu_unsupported_enable_tile_nesting(),
+      "Enable the new pipeline that does not use nesting at HLO level"));
   flag_list->push_back(tsl::Flag(
       "xla_gpu_unsupported_override_fast_interconnect_slice_size",
       int64_setter_for(

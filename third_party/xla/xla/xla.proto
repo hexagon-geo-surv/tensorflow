@@ -959,6 +959,10 @@ message DebugOptions {
   optional bool
       xla_gpu_unsupported_enable_ragged_all_to_all_multi_host_decomposer = 415;
 
+  // Internal testing flag to enable new tile nesting pipeline that removes
+  // nested fusions at HLO level.
+  optional bool xla_gpu_unsupported_enable_tile_nesting = 443;
+
   // Internal debug/testing flag to switch Triton GEMM fusions on or off.
   optional bool xla_gpu_unsupported_enable_triton_gemm = 322;
 
@@ -1353,7 +1357,7 @@ message DebugOptions {
   // Note: when adding a new flag, please add it to one of the hardware-specific
   // or hardware-agnostic sections at the top of this proto message.
 
-  // Next id: 443
+  // Next id: 444
 
   // Extra options to pass to the compilation backend (e.g. LLVM); specific
   // interpretation of these values is left to the backend.

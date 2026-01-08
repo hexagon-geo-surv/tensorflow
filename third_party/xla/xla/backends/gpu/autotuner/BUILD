@@ -445,6 +445,7 @@ cc_library(
         "//xla/service/gpu:split_k_gemm_rewriter",
         "//xla/service/gpu/autotuning:dot_search_space",
         "//xla/service/gpu/autotuning:triton_configs",
+        "//xla/service/gpu/transforms:convert_triton_gemm_config",
         "//xla/service/gpu/transforms:fusion_wrapper",
         "//xla/service/gpu/transforms:hoist_fused_bitcasts",
         "//xla/service/gpu/transforms:nest_gemm_fusion",

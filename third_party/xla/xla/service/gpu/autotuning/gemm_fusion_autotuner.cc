@@ -88,6 +88,7 @@ limitations under the License.
 #include "xla/service/gpu/split_k_gemm_rewriter.h"
 #include "xla/service/gpu/stream_executor_util.h"
 #include "xla/service/gpu/transforms/block_scaling_rewriter.h"
+#include "xla/service/gpu/transforms/convert_triton_gemm_config.h"
 #include "xla/service/gpu/transforms/custom_kernel_fusion_rewriter.h"
 #include "xla/service/gpu/transforms/dot_algorithm_rewriter.h"
 #include "xla/service/gpu/transforms/fusion_wrapper.h"
@@ -353,8 +354,15 @@ absl::StatusOr<std::unique_ptr<HloModule>> TritonGemmAutotuneExtractor(
 
   HoistFusedBitcasts hoist_fused_bitcasts;
   TF_RETURN_IF_ERROR(hoist_fused_bitcasts.Run(new_module.get()).status());
-  NestGemmFusion nest_gemm_fusion(gpu_device_info, mlir_context);
-  TF_RETURN_IF_ERROR(nest_gemm_fusion.Run(new_module.get()).status());
+  if (debug_opts.xla_gpu_unsupported_enable_tile_nesting()) {
+    ConvertTritonGemmConfig convert_triton_gemm_config(gpu_device_info,
+                                                       mlir_context);
+    TF_RETURN_IF_ERROR(
+        convert_triton_gemm_config.Run(new_module.get()).status());
+  } else {
+    NestGemmFusion nest_gemm_fusion(gpu_device_info, mlir_context);
+    TF_RETURN_IF_ERROR(nest_gemm_fusion.Run(new_module.get()).status());
+  }
   return new_module;
 }
 
