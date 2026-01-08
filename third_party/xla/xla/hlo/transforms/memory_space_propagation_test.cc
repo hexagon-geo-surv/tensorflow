@@ -594,9 +594,11 @@ TEST_F(MemorySpacePropagationTest, RunOnComputationPropagateFromOutput) {
   EXPECT_EQ(absl::HashOf(*module), absl::HashOf(*ref));
 }
 
-// TODO (b/469840065): Re-enable this test once the memory space propagation bug
-// is fixed for nested fusions.
-TEST_F(MemorySpacePropagationTest, DISABLED_NestedFusionShapeMismatchBug) {
+// This test tests that the memory space propagation works correctly when there
+// is a nested fusion with a shape mismatch. In this test, S(1) must propagate
+// from the parameter of the nested fusion fusion.505 its output shape, and from
+// there the root of the root of the nested fusion %copy.4014.
+TEST_F(MemorySpacePropagationTest, NestedFusionShapeMismatchBug) {
   absl::string_view hlo_string =
       R"(HloModule jit_insert.fusion.21.isolated, is_scheduled=true
 
@@ -607,7 +609,7 @@ TEST_F(MemorySpacePropagationTest, DISABLED_NestedFusionShapeMismatchBug) {
 
 %fused_computation.434.clone {
   %param_0.777 = s4[8,32768,1,256]{3,1,0,2:T(64,128)(8,1)E(4)S(1)} parameter(0)
-  %fusion.505 = s4[8,32768,1,256]{3,1,0,2:T(8,128)(8,1)E(4)S(1)} fusion(%param_0.777), kind=kLoop, output_to_operand_aliasing={{}: (0, {})}, calls=%copy_fusion.20.clone
+  %fusion.505 = s4[8,32768,1,256]{3,1,0,2:T(8,128)(8,1)E(4)} fusion(%param_0.777), kind=kLoop, output_to_operand_aliasing={{}: (0, {})}, calls=%copy_fusion.20.clone
   %param_3.751 = pred[]{:T(512)} parameter(3)
   %broadcast.1846 = pred[1,16384,1,256]{3,1,0,2:T(8,128)(4,1)} broadcast(%param_3.751), dimensions={}, metadata={op_name="jit(insert)/jit(main)/pjit/jit(insert)/jit(main)/jit(insert)/pjit/jit(insert)/jit(main)/jit(insert)/jit(insert)/dynamic_update_slice" stack_frame_id=146}
   %param_2.1768 = s4[1,16384,1,256]{3,1,0,2:T(8,128)(8,1)E(4)S(1)} parameter(2)
@@ -640,6 +642,12 @@ ENTRY %jit_insert.fusion.21.isolated.root {
   const HloInstruction* copy = computation->GetInstructionWithName("copy.4014");
   EXPECT_NE(copy, nullptr);
   EXPECT_EQ(copy->shape().layout().memory_space(), 1);
+  computation = module->GetComputationWithName("fused_computation.434.clone");
+  EXPECT_NE(computation, nullptr);
+  const HloInstruction* fusion =
+      computation->GetInstructionWithName("fusion.505");
+  EXPECT_NE(fusion, nullptr);
+  EXPECT_EQ(fusion->shape().layout().memory_space(), 1);
   TF_EXPECT_OK(Verify(module.get()));
 }
 

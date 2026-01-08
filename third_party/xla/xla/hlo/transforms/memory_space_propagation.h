@@ -50,12 +50,15 @@ class MemorySpacePropagation : public HloModulePass {
       const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
  private:
+  bool PropagateForComputation(HloComputation* computation);
+
   // Given the shape index (operand or output) and its corresponding instruction
   // in the fused computation (parameter or root), propagates the memory space
   // (and associated split config) in the callee side. Returns true if the
   // module is modified.
   bool Propagate(ShapeIndexView index, const HloInstruction* callee_instruction,
-                 const Shape& src_shape) const;
+                 const Shape& src_shape,
+                 absl::flat_hash_set<const HloValue*>* visited = nullptr) const;
 
   std::unique_ptr<HloDataflowAnalysis> dataflow_analysis_;
 };
