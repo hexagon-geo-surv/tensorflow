@@ -574,6 +574,8 @@ cc_library(
         "@local_tsl//tsl/platform:protobuf",
         "@local_tsl//tsl/platform:regexp",
         "@local_tsl//tsl/profiler/lib:scoped_annotation",
+        "@riegeli//riegeli/bytes:cfile_writer",
+        "@riegeli//riegeli/bytes:writer",
     ] + if_google([
         "@com_google_absl//absl/base:builddata",
     ]),
@@ -586,9 +588,12 @@ xla_cc_test(
     stamp = 1,
     deps = [
         ":buffer_assignment",
+        ":buffer_value",
         ":dump",
         ":hlo_module_config",
+        ":logical_buffer",
         "//xla:debug_options_flags",
+        "//xla:shape_util",
         "//xla:xla_proto_cc",
         "//xla/hlo/analysis:alias_info",
         "//xla/hlo/analysis:hlo_ordering",
@@ -608,7 +613,6 @@ xla_cc_test(
         "@com_google_protobuf//:protobuf",
         "@local_tsl//tsl/platform",
         "@local_tsl//tsl/platform:path",
-        "@local_tsl//tsl/platform:protobuf",
     ],
 )
 
