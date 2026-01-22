@@ -143,6 +143,54 @@ TEST(HloShardingUtilTest, MoveAndMergeShardingTilesSubGroup) {
                             {OpSharding::MANUAL, OpSharding::REPLICATED}));
 }
 
+TEST(HloShardingUtilTest, MoveAndMergeShardingDimsNamedSharding) {
+  Mesh mesh({2, 2}, {"x", "y"});
+  NamedSharding input = test_utils::FromAxisNames(mesh, {{"x"}, {"y"}});
+  HloSharding sharding(input);
+
+  HloSharding result = MoveAndMergeShardingDims(sharding, 1, 0);
+  NamedSharding expected = test_utils::FromAxisNames(mesh, {{"x", "y"}, {}});
+  EXPECT_EQ(result.named_sharding(), expected);
+}
+
+TEST(HloShardingUtilTest, MoveAndMergeShardingTilesNamedSharding) {
+  Mesh mesh({2, 2}, {"x", "y"});
+  NamedSharding input = test_utils::FromAxisNames(mesh, {{"x"}, {"y"}});
+  HloSharding sharding(input);
+
+  HloSharding result = MoveAndMergeShardingTiles(sharding, 1, 0);
+  NamedSharding expected = test_utils::FromAxisNames(mesh, {{"x", "y"}, {}});
+  EXPECT_EQ(result.named_sharding(), expected);
+}
+
+TEST(HloShardingUtilTest, MoveAndMergeShardingDimsErrorCases) {
+  Mesh mesh({2, 2}, {"x", "y"});
+  NamedSharding input = test_utils::FromAxisNames(mesh, {{"x"}, {"y"}});
+  HloSharding sharding(input);
+
+  EXPECT_DEATH(MoveAndMergeShardingDims(sharding, 0, 0),
+               "source_dim != target_dim");
+  EXPECT_DEATH(MoveAndMergeShardingDims(sharding, 2, 0),
+               "source_dim < sharding.num_dimensions()");
+  EXPECT_DEATH(MoveAndMergeShardingDims(sharding, 0, 2),
+               "target_dim < sharding.num_dimensions()");
+  EXPECT_DEATH(MoveAndMergeShardingDims(HloSharding::IotaTile({2, 2}), 0, 1),
+               "sharding.UseNamedShardingLeaf()");
+}
+
+TEST(HloShardingUtilTest, MoveAndMergeShardingTilesErrorCases) {
+  HloSharding sharding = HloSharding::IotaTile({2, 2});
+
+  EXPECT_DEATH(MoveAndMergeShardingTiles(sharding, 0, 0),
+               "source_dim != target_dim");
+  EXPECT_DEATH(MoveAndMergeShardingTiles(sharding, 2, 0),
+               "source_dim < sharding.TiledDataRank()");
+  EXPECT_DEATH(MoveAndMergeShardingTiles(sharding, 0, 2),
+               "target_dim < sharding.TiledDataRank()");
+  EXPECT_DEATH(MoveAndMergeShardingTiles(HloSharding::Replicate(), 0, 1),
+               "sharding.IsTiled()");
+}
+
 TEST(HloShardingUtilTest, MergeShardingDimension) {
   EXPECT_EQ(MergeShardingDimension(HloSharding::IotaTile({2, 2}), 0),
             HloSharding::IotaTile({4}));
