@@ -854,14 +854,14 @@ def TFL_ConcatenationOp : TFL_Op<"concatenation",
 
   let arguments = (
     ins TFL_VariadicTensorOf<
-      [F32, I64, I32, I16, I8, QI8, QUI8, UI8, UI32, I1]>:$values,
+      [F32, I64, I32, I16, QI4, I8, QI8, QUI8, UI8, UI32, I1]>:$values,
     I32Attr:$axis,
     TFL_AFAttr:$fused_activation_function
   );
 
   let results = (outs
     TFL_TensorOf<
-      [F32, I64, I32, I16, I8, QI8, QUI8, UI8, UI32, I1]>:$output
+      [F32, I64, I32, I16, QI4, I8, QI8, QUI8, UI8, UI32, I1]>:$output
   );
 
   let hasOptions = 1;
@@ -4200,13 +4200,13 @@ def TFL_DynamicUpdateSliceOp: TFL_Op<"dynamic_update_slice", [
   }];
 
   let arguments = (ins
-    TFL_TensorOf<[I1, I8, I16, I32, I64, F32, F16]>:$operand,
-    TFL_TensorOf<[I1, I8, I16, I32, I64, F32, F16]>:$update,
+    TFL_TensorOf<[I1, QI4, QI8, I8, I16, I32, I64, F32, F16]>:$operand,
+    TFL_TensorOf<[I1, QI4, QI8, I8, I16, I32, I64, F32, F16]>:$update,
     TFL_I32OrI64Tensor:$start_indices
   );
 
   let results = (
-    outs TFL_TensorOf<[I1, I8, I16, I32, I64, F32, F16]>:$output);
+    outs TFL_TensorOf<[I1, QI4, QI8, I8, I16, I32, I64, F32, F16]>:$output);
 
   let hasFolder = 1;
 }
