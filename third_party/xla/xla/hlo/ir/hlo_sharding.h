@@ -367,6 +367,17 @@ class HloSharding {
   // Returns true if the sharding defines an operation on the given device.
   bool UsesDevice(int64_t device) const;
 
+  // Returns the device assignment for the sharding.
+  //
+  // For NamedSharding we convert it to tile based HloShardingV2 and then return
+  // the device assignment.
+  TileAssignment device_assignment() const {
+    if (UseNamedShardingLeaf()) {
+      return V3ToV2Sharding(*named_sharding_).device_assignment();
+    }
+    return tile_assignment_;
+  }
+
   // Returns the tile that should be executed on the given device.
   // REQUIRES: !IsTuple()
   std::vector<int64_t> TileIndexForDevice(int64_t device) const;
@@ -389,6 +400,14 @@ class HloSharding {
   std::vector<int64_t> TileLimitForDevice(const Shape& shape,
                                           int64_t device) const;
 
+  // Invokes a callback with the (tile_index, device_id) for each tile in the
+  // sharding.
+  //
+  // For NamedSharding we convert it to tile based HloShardingV2 and then invoke
+  // callback on the tile based sharding.
+  void EachTile(
+      absl::FunctionRef<void(absl::Span<const int64_t>, int64_t)> f) const;
+
   // Invokes a callback with the (device_index, tile_offset, tile_limit) for
   // each tile in the sharding. tile_offset is the offset within the specified
   // shape dims of the tile that should be executed on device_index, tile_limit
@@ -397,6 +416,9 @@ class HloSharding {
   // REQUIRES: !IsManual()
   // REQUIRES: !IsUnknown()
   // REQUIRES: !maximal_
+  //
+  // For NamedSharding we convert it to tile based HloShardingV2 and then invoke
+  // callback on the tile based sharding.
   absl::Status EachTile(
       absl::Span<const int64_t> dims,
       absl::FunctionRef<void(int64_t, absl::Span<const int64_t>,

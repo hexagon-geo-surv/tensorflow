@@ -1203,6 +1203,7 @@ PartitionedHlo::ReshardAsWindowedInput(const Window& window,
   std::optional<HloSharding> trimmed_target;
   const HloSharding* halo_exchange_target = &target;
   if (trimmed_shards) {
+    TileAssignment target_device_assignment = target.device_assignment();
     // Remove devices on the right side.
     Array<int64_t> trimmed_devices(trimmed_target_sharding_tile_shape);
     trimmed_devices.Each([&](absl::Span<const int64_t> indices, int64_t* d) {
@@ -1213,7 +1214,7 @@ PartitionedHlo::ReshardAsWindowedInput(const Window& window,
           target_indices[i] += range.second;
         }
       }
-      *d = target.tile_assignment()(target_indices);
+      *d = target_device_assignment(target_indices);
     });
     trimmed_target = target.ReplicateOnLastTileDim()
                          ? HloSharding::PartialTile(trimmed_devices)
@@ -1393,6 +1394,8 @@ HloInstruction* PartitionedHlo::ReplicatePartial(
     auto grouped =
         hlo_sharding_util::GroupShardingOnDims(original_sharding, other_dims);
     std::vector<int64_t> dev_indices(grouped.sharding.num_dimensions(), 0);
+    // TODO(b/476984041): Update tile_assignment() use case once GroupedSharding
+    // supports HloShardingV3
     hlo_->set_sharding(HloSharding::AssignDevice(
         grouped.sharding.tile_assignment()(dev_indices)));
     auto per_group_partitioner_state = CreatePerGroupPartitioningState(
@@ -2347,10 +2350,12 @@ PartitionedHlo PartitionedHlo::ReshardWithCollectivePermute(
       }
     }
   }
+
+  TileAssignment target_device_assignment = target.device_assignment();
   std::vector<std::pair<int64_t, int64_t>> src_dst_pairs;
-  sharding().tile_assignment().Each(
+  sharding().EachTile(
       [&](absl::Span<const int64_t> indices, int64_t src_device) {
-        int64_t dst_device = target.tile_assignment()(indices);
+        int64_t dst_device = target_device_assignment(indices);
         src_dst_pairs.emplace_back(src_device, dst_device);
       });
   auto cp = state_.collective_ops_creator.create_collective_permute(
@@ -3535,7 +3540,7 @@ absl::Status SpmdPartitioningVisitor::HandleAllReduce(HloInstruction* hlo) {
         << "Cross-partition allreduce in partial manual partitioning mode must "
            "use global device IDs.";
     std::vector<int64_t> partition_to_group_id(hlo->sharding().num_devices());
-    hlo->sharding().tile_assignment().Each(
+    hlo->sharding().EachTile(
         [&](absl::Span<const int64_t> indices, int64_t partition) {
           int64_t group_id = 0;
           for (int64_t i = 0; i < indices.size(); ++i) {

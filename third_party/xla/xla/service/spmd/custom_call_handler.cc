@@ -315,7 +315,12 @@ absl::Status SpmdPartitioningVisitor::HandleCustomCallSPMDInternal_RotateRight(
       }
       if (shard_distance != 0) {
         std::vector<std::pair<int64_t, int64_t>> pairs;
-        hlo->sharding().tile_assignment().Each(
+        // TODO(b/477900810): Remove sharding conversions.
+        HloSharding tile_based_sharding =
+            hlo->sharding().UseNamedShardingLeaf()
+                ? HloSharding::V3ToV2Sharding(hlo->sharding().named_sharding())
+                : hlo->sharding();
+        tile_based_sharding.EachTile(
             [&](absl::Span<const int64_t> indices, int64_t device) {
               if (indices[dim] >= participating_shards) {
                 return;
@@ -323,8 +328,8 @@ absl::Status SpmdPartitioningVisitor::HandleCustomCallSPMDInternal_RotateRight(
               std::vector<int64_t> dst_idx(indices.begin(), indices.end());
               dst_idx[dim] += shard_distance;
               dst_idx[dim] %= participating_shards;
-              pairs.emplace_back(device,
-                                 hlo->sharding().tile_assignment()(dst_idx));
+              pairs.emplace_back(
+                  device, tile_based_sharding.tile_assignment()(dst_idx));
             });
         halo = collective_ops_creator_.create_collective_permute(
             &b_, halo, pairs, NewChannel());
