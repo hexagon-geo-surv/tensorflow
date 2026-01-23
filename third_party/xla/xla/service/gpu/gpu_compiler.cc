@@ -2839,8 +2839,12 @@ GpuCompiler::NewCompileAheadOfTime(std::unique_ptr<HloModule> hlo_module,
   compile_options.gpu_topology = options.gpu_topology();
 
   ASSIGN_OR_RETURN(
-      std::unique_ptr<Executable> executable,
-      RunBackend(std::move(hlo_module), options.executor(), compile_options));
+      std::unique_ptr<HloModule> optimized_module,
+      RunHloPasses(std::move(hlo_module), options.executor(), compile_options));
+
+  ASSIGN_OR_RETURN(std::unique_ptr<Executable> executable,
+                   RunBackend(std::move(optimized_module), options.executor(),
+                              compile_options));
 
   std::vector<std::unique_ptr<CompiledModule>> results;
   TF_ASSIGN_OR_RETURN(results.emplace_back(), Export(executable.get()));
