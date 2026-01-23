@@ -1454,6 +1454,7 @@ cc_library(
         ":cuda_platform",
         ":cudnn_plugin",
         ":cufft_plugin",
+        ":gpu_collective_utils_cuda",
         ":make_batch_pointers_kernel_cuda",
         ":ragged_all_to_all_kernel_cuda",
         ":redzone_allocator_kernel_cuda",
@@ -2447,6 +2448,25 @@ cuda_library(
 )
 
 cuda_library(
+    name = "gpu_collective_utils_cuda",
+    hdrs = [
+        "gpu_collective_utils_cuda.cu.h",
+        "//xla/stream_executor/gpu:gpu_collective_utils.cu.h",
+    ],
+    # copybara:uncomment compatible_with = ["//buildenv/target:non_prod"],
+    tags = [
+        "cuda-only",
+        "gpu",
+    ],
+    deps = [
+        "//xla/service:collective_ops_utils",
+        "//xla/stream_executor:kernel_spec",
+        "@local_config_cuda//cuda:cuda_headers",
+    ],
+    alwayslink = 1,
+)
+
+cuda_library(
     name = "all_reduce_kernel_cuda",
     srcs = [
         "all_reduce_kernel_cuda.cc",
@@ -2459,6 +2479,7 @@ cuda_library(
     ],
     deps = [
         ":cuda_platform_id",
+        ":gpu_collective_utils_cuda",
         "//xla:types",
         "//xla/service:collective_ops_utils",
         "//xla/stream_executor:kernel_spec",
