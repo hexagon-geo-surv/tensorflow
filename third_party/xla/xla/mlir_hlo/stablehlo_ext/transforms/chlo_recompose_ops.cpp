@@ -13,7 +13,6 @@ limitations under the License.
 ==============================================================================*/
 
 #include <cstdint>
-#include <functional>
 #include <utility>
 
 #include "llvm/ADT/STLExtras.h"
@@ -128,74 +127,6 @@ FailureOr<SmallVector<NamedAttribute>> deserializeChloAttributes(
     newAttrs.push_back({attr.getName(), chloAttr.value()});
   }
   return newAttrs;
-}
-
-/////////////
-// CustomCall deserialization
-/////////////
-
-FailureOr<DictionaryAttr> getCustomCallOpAttributes(stablehlo::CustomCallOp op,
-                                                    PatternRewriter& rewriter) {
-  auto attrs = llvm::dyn_cast_or_null<DictionaryAttr>(
-      op->getDiscardableAttr("mhlo.attributes"));
-  if (!attrs)
-    return rewriter.notifyMatchFailure(
-        op, "Expected mhlo.attributes dictionary attribute.");
-  return attrs;
-}
-
-using CustomCallAttrVerifier =
-    std::function<LogicalResult(NamedAttribute, Operation*, PatternRewriter&)>;
-
-LogicalResult verifyCustomCallOpAttributes(
-    stablehlo::CustomCallOp op, PatternRewriter& rewriter,
-    CustomCallAttrVerifier const& verifyFn) {
-  auto attrs = getCustomCallOpAttributes(op, rewriter);
-  if (failed(attrs)) return failure();
-
-  for (auto attr : attrs->getValue()) {
-    if (failed(verifyFn(attr, op, rewriter))) return failure();
-  }
-  return success();
-}
-
-// Experimental, extension, and public ops in MHLO that do not exist yet in
-// StableHLO can be encoded as a StableHLO CustomCallOp to allow round-tripping
-// between dialects. Some of these ops are CHLO ops that are accelerated by XLA.
-// For these ops we can recompose to CHLO.
-//
-// Example:
-//  %0 = stablehlo.custom_call @mhlo.topk(...) {...}
-//  ==>
-//   %0 = "chlo.topk"(...) {...}
-template <typename OpType>
-LogicalResult recomposeChloOpFromCustomCall(stablehlo::CustomCallOp op,
-                                            PatternRewriter& rewriter) {
-  // Only call_target_name, backend_config, called_computations, mhlo.version,
-  // and mhlo.attributes are compatible with the extensibility protocol.
-  auto isSupportedAttrName = [](NamedAttribute attr) {
-    auto name = attr.getName();
-    return name == "call_target_name" || name == "backend_config" ||
-           name == "called_computations" || name == "mhlo.attributes" ||
-           name == "mhlo.version";
-  };
-  if (!llvm::all_of(op->getAttrs(), isSupportedAttrName) ||
-      !op.hasEmptyBackendConfig()) {
-    return rewriter.notifyMatchFailure(
-        op, "CHLO Recompose custom call did not have required attributes.");
-  }
-  if (!op.getCalledComputations().empty())
-    return rewriter.notifyMatchFailure(op, "Ops with regions not supported.");
-
-  auto attrs = getCustomCallOpAttributes(op, rewriter);
-  if (failed(attrs)) return failure();
-  auto chloAttrs =
-      deserializeChloAttributes(op, op.getCallTargetName(), attrs.value());
-  if (failed(chloAttrs)) return failure();
-
-  rewriter.replaceOpWithNewOp<OpType>(op, op->getResultTypes(),
-                                      op->getOperands(), chloAttrs.value());
-  return success();
 }
 
 /////////
@@ -375,150 +306,6 @@ struct ErfOpRecomposePattern : public OpRewritePattern<stablehlo::CompositeOp> {
   }
 };
 
-/////////
-// (Deprecated) Custom call patterns
-////////
-
-LogicalResult defaultAttrVerifier(NamedAttribute, Operation*,
-                                  PatternRewriter&) {
-  return success();
-}
-
-template <typename ChloOpType>
-LogicalResult recomposeChloOpFromCustomCall(
-    stablehlo::CustomCallOp op, ArrayRef<StringRef> customCallNames,
-    PatternRewriter& rewriter,
-    CustomCallAttrVerifier const& verifyFn = defaultAttrVerifier) {
-  StringRef customCallName = customCallNames[0];
-  if (!llvm::is_contained(customCallNames, op.getCallTargetName()))
-    return rewriter.notifyMatchFailure(
-        op, "not a CHLO custom call for " + customCallName);
-  if (failed(verifyCustomCallOpAttributes(op, rewriter, verifyFn)))
-    return failure();
-  return recomposeChloOpFromCustomCall<ChloOpType>(op, rewriter);
-}
-
-struct RaggedDotOpCustomCallRecomposePattern
-    : public OpRewritePattern<stablehlo::CustomCallOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(stablehlo::CustomCallOp op,
-                                PatternRewriter& rewriter) const override {
-    SmallVector<StringRef> customCallNames = {"chlo.ragged_dot"};
-    return recomposeChloOpFromCustomCall<chlo::RaggedDotOp>(op, customCallNames,
-                                                            rewriter);
-  }
-};
-
-struct TopKOpCustomCallRecomposePattern
-    : public OpRewritePattern<stablehlo::CustomCallOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(stablehlo::CustomCallOp op,
-                                PatternRewriter& rewriter) const override {
-    SmallVector<StringRef> customCallNames = {"mhlo.topk", "chlo.top_k"};
-    return recomposeChloOpFromCustomCall<chlo::TopKOp>(
-        op, customCallNames, rewriter, verifyOpAttributes);
-  }
-
-  static LogicalResult verifyOpAttributes(NamedAttribute attr, Operation* op,
-                                          PatternRewriter& rewriter) {
-    if (attr.getName() != "largest") return success();
-    if (!cast<BoolAttr>(attr.getValue()).getValue())
-      return rewriter.notifyMatchFailure(op,
-                                         "largest = false is not supported.");
-    return success();
-  }
-};
-
-struct TanOpCustomCallRecomposePattern
-    : public OpRewritePattern<stablehlo::CustomCallOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(stablehlo::CustomCallOp op,
-                                PatternRewriter& rewriter) const override {
-    return recomposeChloOpFromCustomCall<chlo::TanOp>(op, {"mhlo.tan"},
-                                                      rewriter);
-  }
-};
-
-struct ErfOpCustomCallRecomposePattern
-    : public OpRewritePattern<stablehlo::CustomCallOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(stablehlo::CustomCallOp op,
-                                PatternRewriter& rewriter) const override {
-    return recomposeChloOpFromCustomCall<chlo::ErfOp>(
-        op, {"mhlo.erf", "chlo.erf"}, rewriter);
-  }
-};
-
-struct AcoshOpCustomCallRecomposePattern
-    : public OpRewritePattern<stablehlo::CustomCallOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(stablehlo::CustomCallOp op,
-                                PatternRewriter& rewriter) const override {
-    return recomposeChloOpFromCustomCall<chlo::AcoshOp>(
-        op, {"mhlo.acosh", "chlo.acosh"}, rewriter);
-  }
-};
-
-struct AcosOpCustomCallRecomposePattern
-    : public OpRewritePattern<stablehlo::CustomCallOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(stablehlo::CustomCallOp op,
-                                PatternRewriter& rewriter) const override {
-    return recomposeChloOpFromCustomCall<chlo::AcosOp>(
-        op, {"mhlo.acos", "chlo.acos"}, rewriter);
-  }
-};
-
-struct AtanhOpCustomCallRecomposePattern
-    : public OpRewritePattern<stablehlo::CustomCallOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(stablehlo::CustomCallOp op,
-                                PatternRewriter& rewriter) const override {
-    return recomposeChloOpFromCustomCall<chlo::AtanhOp>(
-        op, {"mhlo.atanh", "chlo.atanh"}, rewriter);
-  }
-};
-
-struct CoshOpCustomCallRecomposePattern
-    : public OpRewritePattern<stablehlo::CustomCallOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(stablehlo::CustomCallOp op,
-                                PatternRewriter& rewriter) const override {
-    return recomposeChloOpFromCustomCall<chlo::CoshOp>(
-        op, {"mhlo.cosh", "chlo.cosh"}, rewriter);
-  }
-};
-
-struct SinhOpCustomCallRecomposePattern
-    : public OpRewritePattern<stablehlo::CustomCallOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(stablehlo::CustomCallOp op,
-                                PatternRewriter& rewriter) const override {
-    return recomposeChloOpFromCustomCall<chlo::SinhOp>(
-        op, {"mhlo.sinh", "chlo.sinh"}, rewriter);
-  }
-};
-
-struct AsinOpCustomCallRecomposePattern
-    : public OpRewritePattern<stablehlo::CustomCallOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(stablehlo::CustomCallOp op,
-                                PatternRewriter& rewriter) const override {
-    return recomposeChloOpFromCustomCall<chlo::AsinOp>(
-        op, {"mhlo.asin", "chlo.asin"}, rewriter);
-  }
-};
-
-struct AsinhOpCustomCallRecomposePattern
-    : public OpRewritePattern<stablehlo::CustomCallOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(stablehlo::CustomCallOp op,
-                                PatternRewriter& rewriter) const override {
-    return recomposeChloOpFromCustomCall<chlo::AsinhOp>(
-        op, {"mhlo.asinh", "chlo.asinh"}, rewriter);
-  }
-};
-
 }  // namespace
 
 struct ChloRecomposeOpsPass
@@ -537,20 +324,6 @@ struct ChloRecomposeOpsPass
     auto* ctx = &getContext();
     RewritePatternSet patterns(ctx);
     // clang-format off
-    // CustomCall Patterns
-    patterns.add<
-      AcosOpCustomCallRecomposePattern,
-      AsinOpCustomCallRecomposePattern,
-      AsinhOpCustomCallRecomposePattern,
-      AcoshOpCustomCallRecomposePattern,
-      AtanhOpCustomCallRecomposePattern,
-      CoshOpCustomCallRecomposePattern,
-      SinhOpCustomCallRecomposePattern,
-      ErfOpCustomCallRecomposePattern,
-      RaggedDotOpCustomCallRecomposePattern,
-      TanOpCustomCallRecomposePattern,
-      TopKOpCustomCallRecomposePattern>(ctx);
-
     // Composite Patterns
     patterns.add<
       AcosOpRecomposePattern,
@@ -568,8 +341,6 @@ struct ChloRecomposeOpsPass
     // Only apply to CustomCallOps
     auto moduleOp = getOperation();
     llvm::SmallVector<Operation*> candidateOps;
-    moduleOp.walk(
-        [&](stablehlo::CustomCallOp op) { candidateOps.push_back(op); });
     moduleOp.walk(
         [&](stablehlo::CompositeOp op) { candidateOps.push_back(op); });
 
