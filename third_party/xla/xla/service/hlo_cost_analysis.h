@@ -24,6 +24,7 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "xla/hlo/ir/dfs_hlo_visitor.h"
 #include "xla/hlo/ir/hlo_computation.h"
@@ -339,6 +340,31 @@ class HloCostAnalysis : public ConstDfsHloVisitor {
           utilization_, operand0_utilization_, operand1_utilization_,
           operand0_bytes_accessed_, operand1_bytes_accessed_,
           output_root_bytes_accessed_, reserved0_);
+    }
+
+    std::string ToStringVerbose() const {
+      std::string verbose_string = absl::StrFormat(
+          "HloCostAnalysis::Properties{\n"
+          " flops: %f,\n"
+          " transcendentals: %f\n"
+          " bytes_accessed: %f\n"
+          " optimal_seconds: %f\n"
+          " utilization: %f\n"
+          " operand0_utilization: %f\n"
+          " operand1_utilization: %f\n"
+          " operand0_bytes_accessed: %f\n"
+          " operand1_bytes_accessed: %f\n"
+          " output_root_bytes_accessed: %f\n"
+          " reserved0: %f\n",
+          flops_, transcendentals_, bytes_accessed_, optimal_seconds_,
+          utilization_, operand0_utilization_, operand1_utilization_,
+          operand0_bytes_accessed_, operand1_bytes_accessed_,
+          output_root_bytes_accessed_, reserved0_);
+      for (const auto& [k, v] : named_props_) {
+        absl::StrAppend(&verbose_string, absl::StrFormat(" %s: %f\n", k, v));
+      }
+      absl::StrAppend(&verbose_string, "}");
+      return verbose_string;
     }
 
    private:
