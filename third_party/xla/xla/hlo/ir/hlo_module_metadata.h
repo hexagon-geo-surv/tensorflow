@@ -37,6 +37,19 @@ limitations under the License.
 
 namespace xla {
 
+// Strong typedef for stack frame IDs.
+struct StackFrameId {
+  int value = 0;  // 0 is reserved for "not present".
+  bool operator==(StackFrameId other) const { return value == other.value; }
+  bool operator!=(StackFrameId other) const { return value != other.value; }
+  bool valid() const { return value != 0; }
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, StackFrameId id) {
+    absl::Format(&sink, "%d", id.value);
+  }
+};
+
 // Describes a stack frame.
 struct HloStackFrame {
   absl::string_view file_name;
@@ -44,9 +57,8 @@ struct HloStackFrame {
   int line = 0;
   int column = 0;
 
-  // 1-based index of the parent frame.
-  // 0 value indicates that the current frame is the root.
-  int parent_frame_id = 0;
+  // Index of the parent frame.
+  StackFrameId parent_frame_id;
 
   bool empty() const {
     return line == 0 && column == 0 && file_name.empty() &&
