@@ -6889,7 +6889,7 @@ AllocationResult MsaAlgorithm::Evict(const AllocationRequest& request,
   // start time to ensure that the value is created before we start copying
   // back to default memory.
   int64_t eviction_exclusive_start_time = prev_allocation->start_time();
-  int64_t eviction_end_time = prev_allocation->end_time();
+  int64_t eviction_end_time = prev_allocation->end_time() + 1;
   CHECK(eviction_exclusive_start_time <= eviction_end_time);
 
   int64_t preferred_eviction_end_time = std::max(

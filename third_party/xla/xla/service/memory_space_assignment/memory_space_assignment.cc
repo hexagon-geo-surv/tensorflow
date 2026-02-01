@@ -888,16 +888,31 @@ class AsyncCopyStep {
   virtual ~AsyncCopyStep() = default;
 
   bool operator<(const AsyncCopyStep& rhs) const {
+    // Compare AsyncCopySteps to maintain FIFO order and prioritize evictions
+    // over prefetches. The comparison only matters for steps that are scheduled
+    // at the same time to break ties.
+    //
+    // The comparison priority is:
+    // 1. schedule_before_time (earlier is scheduled first)
+    // 2. schedule_after_time (earlier is scheduled first)
+    // 3. evictions (destination != kAlternate) before prefetches
+    //    (destination == kAlternate).
+    //
+    // Evictions are scheduled first to free up alternate memory. This is
+    // required for correctness when the source buffer of an eviction overlaps
+    // with the destination buffer of another prefetch.
     std::optional<StartPhase> lhs_start_phase = start_phase();
     auto lhs_tuple = std::make_tuple(
         done_phase().schedule_before_time,
         (lhs_start_phase.has_value() ? lhs_start_phase->schedule_after_time
-                                     : done_phase().schedule_before_time));
+                                     : done_phase().schedule_before_time),
+        destination_memory_space() == MemorySpace::kAlternate);
     std::optional<StartPhase> rhs_start_phase = rhs.start_phase();
     auto rhs_tuple = std::make_tuple(
         rhs.done_phase().schedule_before_time,
         (rhs_start_phase.has_value() ? rhs_start_phase->schedule_after_time
-                                     : rhs.done_phase().schedule_before_time));
+                                     : rhs.done_phase().schedule_before_time),
+        destination_memory_space() == MemorySpace::kAlternate);
 
     return lhs_tuple < rhs_tuple;
   }
@@ -907,6 +922,7 @@ class AsyncCopyStep {
   virtual std::optional<StartPhase> start_phase() const = 0;
   virtual void set_start_phase_schedule_after_time(int64_t schedule_after) = 0;
   virtual DonePhase done_phase() const = 0;
+  virtual MemorySpace destination_memory_space() const = 0;
 
  protected:
   AsyncCopyStep() = default;
@@ -937,6 +953,10 @@ class AsyncCopyStepForCopyAllocation : public AsyncCopyStep {
   DonePhase done_phase() const override {
     return {copy_allocation_->copy_done_schedule_before(),
             copy_allocation_->copy_done()};
+  }
+
+  MemorySpace destination_memory_space() const override {
+    return copy_allocation_->memory_space();
   }
 
  private:
@@ -983,6 +1003,10 @@ class AsyncCopyStepForSlice : public AsyncCopyStep {
     return phase;
   }
 
+  MemorySpace destination_memory_space() const override {
+    return sliced_copy_allocation_->memory_space();
+  }
+
  private:
   SlicedCopyAllocation* sliced_copy_allocation_ = nullptr;
   size_t slice_index_;
@@ -1009,6 +1033,10 @@ class AsyncCopyStepForSliceConcat : public AsyncCopyStep {
   DonePhase done_phase() const override {
     return {sliced_copy_allocation_->earliest_available_time(),
             sliced_copy_allocation_->concat()};
+  }
+
+  MemorySpace destination_memory_space() const override {
+    return sliced_copy_allocation_->memory_space();
   }
 
  private:
@@ -1148,29 +1176,10 @@ absl::Status MemorySpaceAssignment::FixSchedule() {
   // Create the schedule for all computations at the same time, by first
   // scheduling the before instructions, then the current instruction and
   // finally the after instructions (each in its respective computation).
-  for (int64_t instruction_index = -1;; ++instruction_index) {
-    auto insts_before_iter = schedule_before_.find(instruction_index);
-    if (insts_before_iter != schedule_before_.end()) {
-      for (HloInstruction* new_instruction : insts_before_iter->second) {
-        HloComputation* computation = new_instruction->parent();
-        if (computation_to_stats.contains(computation)) {
-          ComputationStats& stats = computation_to_stats[computation];
-          VLOG(4) << "before " << instruction_index << ": "
-                  << new_instruction->ToString();
-          InsertInstructionAndEnsureOperandsInserted(
-              new_instruction, &stats.sequence, &stats.inserted_instructions);
-        }
-      }
-    }
-
-    if (instruction_index != -1) {
-      // We allow scheduling copy dones past the root instruction (for
-      // end-of-program cross-program prefetch). So the loop exit condition is
-      // actually here.
-      if (instruction_index >= flattened_instructions_.size()) {
-        break;
-      }
-
+  int64_t instructions_count = flattened_instructions_.size();
+  for (int64_t instruction_index = -2; instruction_index < instructions_count;
+       ++instruction_index) {
+    if (0 <= instruction_index) {
       HloInstruction* instruction = flattened_instructions_[instruction_index];
       // Insert only if it is not deleted (SimplifyGraph sets it to nullptr if
       // it was deleted) and not previously inserted. Also bitcasts and tuples
@@ -1193,11 +1202,31 @@ absl::Status MemorySpaceAssignment::FixSchedule() {
       }
     }
 
+    // Among all instructions that are supposed to be scheduled after the
+    // current instruction and before the next instruction - schedule the
+    // copy-done instructions first, then the copy-start instructions to avoid
+    // unnecessary overlaps.
+    auto insts_before_iter = schedule_before_.find(instruction_index + 1);
+    if (insts_before_iter != schedule_before_.end()) {
+      for (HloInstruction* new_instruction : insts_before_iter->second) {
+        HloComputation* computation = new_instruction->parent();
+        if (computation_to_stats.contains(computation)) {
+          ComputationStats& stats = computation_to_stats[computation];
+          VLOG(4) << "before " << instruction_index + 1 << ": "
+                  << new_instruction->ToString();
+          InsertInstructionAndEnsureOperandsInserted(
+              new_instruction, &stats.sequence, &stats.inserted_instructions);
+        }
+      }
+    }
+
     auto insts_after_iter = schedule_after_.find(instruction_index);
     if (insts_after_iter != schedule_after_.end()) {
       for (HloInstruction* new_instruction : insts_after_iter->second) {
         HloComputation* computation = new_instruction->parent();
         if (computation_to_stats.contains(computation)) {
+          VLOG(4) << "after " << instruction_index << ": "
+                  << new_instruction->ToString();
           ComputationStats& stats = computation_to_stats[computation];
           InsertInstructionAndEnsureOperandsInserted(
               new_instruction, &stats.sequence, &stats.inserted_instructions);
