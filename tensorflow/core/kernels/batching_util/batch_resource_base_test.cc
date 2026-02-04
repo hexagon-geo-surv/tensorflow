@@ -409,6 +409,10 @@ class TestTpuCostMeasurement : public CostMeasurement {
   using CostMeasurement::CostMeasurement;
 
   absl::Duration GetTotalCost() override { return absl::Milliseconds(100); }
+  absl::Duration GetTotalCostWithMPMDOverhead(
+      int num_mpmd_pipeline_stages) override {
+    return absl::Milliseconds(200);
+  }
   absl::string_view GetCostType() const override { return "test_tpu"; }
 };
 REGISTER_COST_MEASUREMENT("test_tpu", TestTpuCostMeasurement);
@@ -418,6 +422,10 @@ class TestGcuCostMeasurement : public CostMeasurement {
   using CostMeasurement::CostMeasurement;
 
   absl::Duration GetTotalCost() override { return absl::Milliseconds(200); }
+  absl::Duration GetTotalCostWithMPMDOverhead(
+      int num_mpmd_pipeline_stages) override {
+    return absl::Milliseconds(400);
+  }
   absl::string_view GetCostType() const override { return "test_gcu"; }
 };
 REGISTER_COST_MEASUREMENT("test_gcu", TestGcuCostMeasurement);
@@ -623,6 +631,10 @@ TEST(SplitBatchCostsAndRecordMetricsTest, UpdatesGlobalBatchStats) {
    public:
     using CostMeasurement::CostMeasurement;
     absl::Duration GetTotalCost() override { return absl::Hours(555); }
+    absl::Duration GetTotalCostWithMPMDOverhead(
+        int num_mpmd_pipeline_stages) override {
+      return absl::Hours(666);
+    }
     absl::string_view GetCostType() const override { return kTpuCostName; }
   };
   CostMeasurement::Context context{/* is_per_query= */ false};
@@ -659,6 +671,10 @@ TEST(SplitBatchCostsAndRecordMetricsTest, GlobalBatchStatsProcessedSize) {
    public:
     using CostMeasurement::CostMeasurement;
     absl::Duration GetTotalCost() override { return absl::Hours(555); }
+    absl::Duration GetTotalCostWithMPMDOverhead(
+        int num_mpmd_pipeline_stages) override {
+      return absl::Hours(666);
+    }
     absl::string_view GetCostType() const override { return kTpuCostName; }
   };
   CostMeasurement::Context context{/* is_per_query= */ false};
