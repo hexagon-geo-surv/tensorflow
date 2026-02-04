@@ -515,7 +515,7 @@ INSTANTIATE_TEST_SUITE_P(
                "custom_call_target=\"__cublas$gemm\"",
                "\"selected_algorithm\":\"-1\""};
          },
-         /*expected_backend_name=*/""},
+         /*expected_backend_name=*/"CUBLAS_FISSION"},
         {"TritonFusion_CublasLt_F8", kF8TritonFusionHlo,
          &FissionTest::GetCublasRewriterPipeline,
          &FissionTest::CreateCublasBackendWithF8Fallback,
@@ -532,7 +532,7 @@ INSTANTIATE_TEST_SUITE_P(
                "custom_call_target=\"__cublas$gemm\"",
                "\"selected_algorithm\":\"-1\""};
          },
-         /*expected_backend_name=*/""},
+         /*expected_backend_name=*/"CUBLAS_FISSION"},
         {"TritonFusion_CustomKernel", kTritonFusionHlo,
          &FissionTest::GetCustomKernelRewriterPipeline,
          &FissionTest::CreateCustomKernelBackend,
@@ -542,7 +542,7 @@ INSTANTIATE_TEST_SUITE_P(
                "\"kind\":\"__custom_fusion\"",
            };
          },
-         /*expected_backend_name=*/"CustomKernel_fission"},
+         /*expected_backend_name=*/"CUSTOM_KERNEL_FISSION"},
         {"ScaledDotFusion_Cublas", kScaledDotFusionHlo,
          &FissionTest::GetCublasRewriterPipeline,
          &FissionTest::CreateCublasBackend,
@@ -552,7 +552,7 @@ INSTANTIATE_TEST_SUITE_P(
                "custom_call_target=\"__cublas$gemm\"",
                "\"selected_algorithm\":\"-1\""};
          },
-         /*expected_backend_name=*/""},
+         /*expected_backend_name=*/"CUBLAS_FISSION"},
     }),
     [](const ::testing::TestParamInfo<FissionTest::ParamType>& info) {
       return info.param.test_name;
