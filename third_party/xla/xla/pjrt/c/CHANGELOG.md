@@ -1,5 +1,10 @@
 # PJRT C API changelog
 
+## 0.92
+
+* Added `PJRT_Layouts_PJRT_Executable_GetParameterLayouts`. This extension API
+  complements `PJRT_Layouts_PJRT_Executable_GetOutputLayouts`.
+
 ## 0.91
 
 * Added `PJRT_Extension_Type::PJRT_Extension_Type_Shardings`. This extension
