@@ -698,8 +698,8 @@ void operator()(
         *std::get<const se::dnn::FusedConvRunner*>(runner_and_scratch);
     cudnn_launch_status = runner(
         stream, /*output_profile_result=*/nullptr,
-        std::get<se::DeviceMemoryBase>(runner_and_scratch), conv_input_ptr,
-        filter_ptr, side_input_ptr, bias_ptr, output_ptr);
+        std::get<stream_executor::DeviceAddressBase>(runner_and_scratch),
+        conv_input_ptr, filter_ptr, side_input_ptr, bias_ptr, output_ptr);
   } else {
     auto dnn = stream->parent()->AsDnn();
     OP_REQUIRES(ctx, dnn != nullptr, absl::InternalError("No DNN for stream."));
