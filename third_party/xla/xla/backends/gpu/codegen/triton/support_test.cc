@@ -34,11 +34,13 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
 #include "absl/types/span.h"
+#include "xla/backends/gpu/codegen/triton/support_test_base.h"
 #include "xla/backends/gpu/codegen/triton/test_utils.h"
 #include "xla/backends/gpu/codegen/triton/xtile_compiler.h"
 #include "xla/codegen/xtile/codegen/fusion_emitter.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_opcode.h"
+#include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
 #include "xla/primitive_util.h"
 #include "xla/service/gpu/gpu_device_info_for_tests.h"
 #include "xla/service/gpu/ir_emission_utils.h"
@@ -212,8 +214,24 @@ enum class ExpectedFailMode {
   kFailOrCrash,
 };
 
-class TritonSupportTest : public TritonSupportTestBase {
+class SupportTest : public HloHardwareIndependentTestBase,
+                    public SupportTestBase {
  public:
+  SupportTest()
+      : SupportTestBase(
+            [this](absl::string_view hlo_text)
+                -> absl::StatusOr<std::unique_ptr<VerifiedHloModule>> {
+              return ParseAndReturnVerifiedModule(hlo_text);
+            }) {}
+
+  DebugOptions GetDebugOptionsForTest() const override {
+    auto options = HloHardwareIndependentTestBase::GetDebugOptionsForTest();
+    // It's necessary to set this manually, because it's disabled in optimized
+    // builds and there are some ASAN builds that run on TAP with -c opt.
+    options.set_xla_gpu_llvm_verification_level(1);
+    return options;
+  }
+
   // Runs a support test for the given `TestedInstruction` and the given
   // compute capability. The support test verifies that
   // `IsTritonSupportedInstruction` is in sync with the implemented Triton
@@ -314,7 +332,7 @@ class TritonSupportTest : public TritonSupportTestBase {
   }
 };
 
-TEST_F(TritonSupportTest, IsTritonSupportedComputationSkipsRootTuple) {
+TEST_F(SupportTest, IsTritonSupportedComputationSkipsRootTuple) {
   const std::string kHlo = R"(
   HloModule m
   ENTRY main {
@@ -328,12 +346,12 @@ TEST_F(TritonSupportTest, IsTritonSupportedComputationSkipsRootTuple) {
       *module->entry_computation(), se::CudaComputeCapability::Hopper()));
 }
 
-class TritonSupportTestWithTypeAndOpcodeAndDeviceParam
-    : public TritonSupportTest,
+class SupportTestWithTypeAndOpcodeAndDeviceParam
+    : public SupportTest,
       public ::testing::WithParamInterface<
           std::tuple<PrimitiveType, HloOpcode, se::GpuComputeCapability>> {};
 
-using BitcastOrReshapeTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using BitcastOrReshapeTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(BitcastOrReshapeTest, IsTritonSupportedBitcastOrReshape) {
   auto [data_type, opcode, cc] = GetParam();
@@ -367,9 +385,9 @@ constexpr std::array kTestedOpsBitcastReshape = {HloOpcode::kBitcast,
 INSTANTIATE_TEST_SUITE_P(
     BitcastOrReshapeTestSuite, BitcastOrReshapeTest,
     AllTestCombinationsForOpcodes(kTestedOpsBitcastReshape),
-    TritonSupportTestTypeAndOpcodeAndDeviceToString);
+    SupportTestTypeAndOpcodeAndDeviceToString);
 
-using PadTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using PadTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(PadTest, IsTritonSupportedHighPad) {
   auto [data_type, opcode, cc] = GetParam();
@@ -417,9 +435,9 @@ constexpr std::array kTestedOpsPad = {HloOpcode::kPad};
 
 INSTANTIATE_TEST_SUITE_P(PadTestSuite, PadTest,
                          AllTestCombinationsForOpcodes(kTestedOpsPad),
-                         TritonSupportTestTypeAndOpcodeAndDeviceToString);
+                         SupportTestTypeAndOpcodeAndDeviceToString);
 
-using UnaryElementwiseTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using UnaryElementwiseTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(UnaryElementwiseTest, IsTritonSupportedUnaryElementwise) {
   auto [data_type, opcode, cc] = GetParam();
@@ -514,10 +532,10 @@ constexpr std::array kTestedOpsUnaryElementwise = {
 INSTANTIATE_TEST_SUITE_P(
     UnaryElementwiseTestSuite, UnaryElementwiseTest,
     AllTestCombinationsForOpcodes(kTestedOpsUnaryElementwise),
-    TritonSupportTestTypeAndOpcodeAndDeviceToString);
+    SupportTestTypeAndOpcodeAndDeviceToString);
 
 class ConvertTest
-    : public TritonSupportTest,
+    : public SupportTest,
       public ::testing::WithParamInterface<
           std::tuple<PrimitiveType, PrimitiveType, se::GpuComputeCapability>> {
 };
@@ -585,9 +603,9 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(::testing::ValuesIn(AllXlaDataTypes()),
                        ::testing::ValuesIn(AllXlaDataTypes()),
                        ::testing::ValuesIn(AllDevicesToTest())),
-    TritonSupportTestTwoTypesAndDeviceToString);
+    SupportTestTwoTypesAndDeviceToString);
 
-using BinaryElementwiseTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using BinaryElementwiseTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(BinaryElementwiseTest, IsTritonSupportedBinaryElementwise) {
   auto [data_type, opcode, cc] = GetParam();
@@ -683,9 +701,9 @@ constexpr std::array kTestedOpsBinaryElementwise = {
 INSTANTIATE_TEST_SUITE_P(
     BinaryElementwiseTestSuite, BinaryElementwiseTest,
     AllTestCombinationsForOpcodes(kTestedOpsBinaryElementwise),
-    TritonSupportTestTypeAndOpcodeAndDeviceToString);
+    SupportTestTypeAndOpcodeAndDeviceToString);
 
-using TernaryElementwiseTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using TernaryElementwiseTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(TernaryElementwiseTest, IsTritonSupportedTernaryElementwise) {
   auto [data_type, opcode, cc] = GetParam();
@@ -714,9 +732,9 @@ constexpr std::array kTestedOpsTernaryElementwise = {HloOpcode::kSelect,
 INSTANTIATE_TEST_SUITE_P(
     TernaryElementwiseTestSuite, TernaryElementwiseTest,
     AllTestCombinationsForOpcodes(kTestedOpsTernaryElementwise),
-    TritonSupportTestTypeAndOpcodeAndDeviceToString);
+    SupportTestTypeAndOpcodeAndDeviceToString);
 
-using ReduceTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using ReduceTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 static absl::string_view init_value(PrimitiveType dtype) {
   if (dtype == C64 || dtype == C128) {
@@ -901,10 +919,9 @@ constexpr std::array kTestedOpsReduction = {HloOpcode::kReduce};
 
 INSTANTIATE_TEST_SUITE_P(ReduceTestSuite, ReduceTest,
                          AllTestCombinationsForOpcodes(kTestedOpsReduction),
-                         TritonSupportTestTypeAndOpcodeAndDeviceToString);
+                         SupportTestTypeAndOpcodeAndDeviceToString);
 
-using ReductionComputationTest =
-    TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using ReductionComputationTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 // The test below tests what kind of binary element-wise operations are
 // supported within a reduction's computation.
@@ -959,9 +976,9 @@ INSTANTIATE_TEST_SUITE_P(
     ReductionComputationTestSuite, ReductionComputationTest,
     AllTestCombinationsForOpcodes(ExcludeOps(kTestedOpsBinaryElementwise,
                                              {HloOpcode::kCompare})),
-    TritonSupportTestTypeAndOpcodeAndDeviceToString);
+    SupportTestTypeAndOpcodeAndDeviceToString);
 
-using TransposeTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using TransposeTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(TransposeTest, LoadTranspose3D) {
   auto [data_type, opcode, cc] = GetParam();
@@ -981,14 +998,14 @@ constexpr std::array kTestedOpsTranspose = {HloOpcode::kTranspose};
 
 INSTANTIATE_TEST_SUITE_P(TransposeTestSuite, TransposeTest,
                          AllTestCombinationsForOpcodes(kTestedOpsTranspose),
-                         TritonSupportTestTypeAndOpcodeAndDeviceToString);
+                         SupportTestTypeAndOpcodeAndDeviceToString);
 
-class TritonSupportTestWithTypeAndDeviceParam
-    : public TritonSupportTest,
+class SupportTestWithTypeAndDeviceParam
+    : public SupportTest,
       public ::testing::WithParamInterface<
           std::tuple<PrimitiveType, se::GpuComputeCapability>> {};
 
-using SliceTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using SliceTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(SliceTest, ContinuousSlice) {
   auto [data_type, opcode, cc] = GetParam();
@@ -1036,13 +1053,13 @@ constexpr std::array kTestedOpsSlice = {HloOpcode::kSlice};
 
 INSTANTIATE_TEST_SUITE_P(SliceTestSuite, SliceTest,
                          AllTestCombinationsForOpcodes(kTestedOpsSlice),
-                         TritonSupportTestTypeAndOpcodeAndDeviceToString);
+                         SupportTestTypeAndOpcodeAndDeviceToString);
 
-class TritonSupportTestWithDeviceParam
-    : public TritonSupportTest,
+class SupportTestWithDeviceParam
+    : public SupportTest,
       public ::testing::WithParamInterface<se::GpuComputeCapability> {};
 
-using ConcatenateDeviceTest = TritonSupportTestWithDeviceParam;
+using ConcatenateDeviceTest = SupportTestWithDeviceParam;
 
 TEST_P(ConcatenateDeviceTest,
        TritonDoesNotSupportConcatenateOfUnnestedParameters) {
@@ -1063,7 +1080,7 @@ ENTRY triton_computation {
 INSTANTIATE_TEST_SUITE_P(ConcatenateTestSuite, ConcatenateDeviceTest,
                          ::testing::ValuesIn(AllDevicesToTest()));
 
-using ConcatenateTest = TritonSupportTestWithTypeAndDeviceParam;
+using ConcatenateTest = SupportTestWithTypeAndDeviceParam;
 
 TEST_P(ConcatenateTest, IsTritonSupportedConcatenate) {
   auto [data_type, cc] = GetParam();
@@ -1108,9 +1125,9 @@ INSTANTIATE_TEST_SUITE_P(
     ConcatenateTestSuite, ConcatenateTest,
     ::testing::Combine(::testing::ValuesIn(AllXlaDataTypes()),
                        ::testing::ValuesIn(AllDevicesToTest())),
-    TritonSupportTestTypeAndDeviceToString);
+    SupportTestTypeAndDeviceToString);
 
-using CollectiveTest = TritonSupportTestWithTypeAndDeviceParam;
+using CollectiveTest = SupportTestWithTypeAndDeviceParam;
 
 TEST_P(CollectiveTest, UnsupportedAllGatherFailsGracefullyWithTriton) {
   auto [data_type, cc] = GetParam();
@@ -1435,9 +1452,9 @@ INSTANTIATE_TEST_SUITE_P(
     CollectiveTestSuite, CollectiveTest,
     ::testing::Combine(::testing::ValuesIn(AllXlaDataTypes()),
                        ::testing::ValuesIn(AllDevicesToTest())),
-    TritonSupportTestTypeAndDeviceToString);
+    SupportTestTypeAndDeviceToString);
 
-using BroadcastTest = TritonSupportTestWithTypeAndDeviceParam;
+using BroadcastTest = SupportTestWithTypeAndDeviceParam;
 
 TEST_P(BroadcastTest, Broadcast) {
   auto [data_type, cc] = GetParam();
@@ -1458,9 +1475,9 @@ INSTANTIATE_TEST_SUITE_P(
     BroadcastTestSuite, BroadcastTest,
     ::testing::Combine(::testing::ValuesIn(AllXlaDataTypes()),
                        ::testing::ValuesIn(AllDevicesToTest())),
-    TritonSupportTestTypeAndDeviceToString);
+    SupportTestTypeAndDeviceToString);
 
-using ParameterTest = TritonSupportTestWithTypeAndDeviceParam;
+using ParameterTest = SupportTestWithTypeAndDeviceParam;
 
 TEST_P(ParameterTest, Parameter) {
   auto [data_type, cc] = GetParam();
@@ -1489,9 +1506,9 @@ INSTANTIATE_TEST_SUITE_P(
     ParameterTestSuite, ParameterTest,
     ::testing::Combine(::testing::ValuesIn(AllXlaDataTypes()),
                        ::testing::ValuesIn(AllDevicesToTest())),
-    TritonSupportTestTypeAndDeviceToString);
+    SupportTestTypeAndDeviceToString);
 
-using ConstantTest = TritonSupportTestWithTypeAndDeviceParam;
+using ConstantTest = SupportTestWithTypeAndDeviceParam;
 
 TEST_P(ConstantTest, ConstantEffectiveScalar) {
   // The IsTritonSupportedReduction effectively tests the scalar constant
@@ -1531,9 +1548,9 @@ INSTANTIATE_TEST_SUITE_P(
     ConstantTestSuite, ConstantTest,
     ::testing::Combine(::testing::ValuesIn(AllXlaDataTypes()),
                        ::testing::ValuesIn(AllDevicesToTest())),
-    TritonSupportTestTypeAndDeviceToString);
+    SupportTestTypeAndDeviceToString);
 
-using IotaTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using IotaTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(IotaTest, Iota2D) {
   auto [data_type, opcode, cc] = GetParam();
@@ -1551,9 +1568,9 @@ constexpr std::array kTestedOpsIota = {HloOpcode::kIota};
 
 INSTANTIATE_TEST_SUITE_P(IotaTestSuite, IotaTest,
                          AllTestCombinationsForOpcodes(kTestedOpsIota),
-                         TritonSupportTestTypeAndOpcodeAndDeviceToString);
+                         SupportTestTypeAndOpcodeAndDeviceToString);
 
-using RngTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using RngTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(RngTest, Rng) {
   auto [data_type, opcode, cc] = GetParam();
@@ -1573,9 +1590,9 @@ constexpr std::array kTestedOpsRng = {HloOpcode::kRng};
 
 INSTANTIATE_TEST_SUITE_P(RngTestSuite, RngTest,
                          AllTestCombinationsForOpcodes(kTestedOpsRng),
-                         TritonSupportTestTypeAndOpcodeAndDeviceToString);
+                         SupportTestTypeAndOpcodeAndDeviceToString);
 
-using RngBitGeneratorTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using RngBitGeneratorTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(RngBitGeneratorTest, RngBitGenerator) {
   auto [data_type, opcode, cc] = GetParam();
@@ -1594,9 +1611,9 @@ ENTRY triton_computation {
 INSTANTIATE_TEST_SUITE_P(
     RngBitGeneratorTestSuite, RngBitGeneratorTest,
     AllTestCombinationsForOpcodes({HloOpcode::kRngBitGenerator}),
-    TritonSupportTestTypeAndOpcodeAndDeviceToString);
+    SupportTestTypeAndOpcodeAndDeviceToString);
 
-using RngGetAndUpdateStateTest = TritonSupportTestWithDeviceParam;
+using RngGetAndUpdateStateTest = SupportTestWithDeviceParam;
 
 TEST_P(RngGetAndUpdateStateTest, RngGetAndUpdateState) {
   auto cc = GetParam();
@@ -1614,9 +1631,9 @@ ENTRY triton_computation {
 INSTANTIATE_TEST_SUITE_P(RngGetAndUpdateStateTestSuite,
                          RngGetAndUpdateStateTest,
                          ::testing::ValuesIn(AllDevicesToTest()),
-                         TritonSupportTestDeviceToString);
+                         SupportTestDeviceToString);
 
-using ComplexTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using ComplexTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(ComplexTest, Complex) {
   auto [data_type, opcode, cc] = GetParam();
@@ -1644,9 +1661,9 @@ ENTRY triton_computation {
 
 INSTANTIATE_TEST_SUITE_P(ComplexTestSuite, ComplexTest,
                          AllTestCombinationsForOpcodes({HloOpcode::kComplex}),
-                         TritonSupportTestTypeAndOpcodeAndDeviceToString);
+                         SupportTestTypeAndOpcodeAndDeviceToString);
 
-using ConditionalTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using ConditionalTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(ConditionalTest, Conditional) {
   auto [data_type, opcode, cc] = GetParam();
@@ -1675,9 +1692,9 @@ ENTRY triton_computation {
 INSTANTIATE_TEST_SUITE_P(
     ConditionalTestSuite, ConditionalTest,
     AllTestCombinationsForOpcodes({HloOpcode::kConditional}),
-    TritonSupportTestTypeAndOpcodeAndDeviceToString);
+    SupportTestTypeAndOpcodeAndDeviceToString);
 
-using WhileTest = TritonSupportTestWithDeviceParam;
+using WhileTest = SupportTestWithDeviceParam;
 // TODO: b/363981282 - Add tests for more data types.
 TEST_P(WhileTest, While) {
   auto cc = GetParam();
@@ -1705,9 +1722,9 @@ ENTRY triton_computation {
 
 INSTANTIATE_TEST_SUITE_P(WhileTestSuite, WhileTest,
                          ::testing::ValuesIn(AllDevicesToTest()),
-                         TritonSupportTestDeviceToString);
+                         SupportTestDeviceToString);
 
-using CallTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using CallTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(CallTest, Call) {
   auto [data_type, opcode, cc] = GetParam();
@@ -1729,9 +1746,9 @@ ENTRY triton_computation {
 
 INSTANTIATE_TEST_SUITE_P(CallTestSuite, CallTest,
                          AllTestCombinationsForOpcodes({HloOpcode::kCall}),
-                         TritonSupportTestTypeAndOpcodeAndDeviceToString);
+                         SupportTestTypeAndOpcodeAndDeviceToString);
 
-using BatchNormInferenceTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using BatchNormInferenceTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(BatchNormInferenceTest, BatchNormInference) {
   auto [data_type, opcode, cc] = GetParam();
@@ -1754,9 +1771,9 @@ ENTRY triton_computation {
 INSTANTIATE_TEST_SUITE_P(
     BatchNormInferenceSuite, BatchNormInferenceTest,
     AllTestCombinationsForOpcodes({HloOpcode::kBatchNormInference}),
-    TritonSupportTestTypeAndOpcodeAndDeviceToString);
+    SupportTestTypeAndOpcodeAndDeviceToString);
 
-using BatchNormTrainingTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using BatchNormTrainingTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(BatchNormTrainingTest, BatchNormTraining) {
   auto [data_type, opcode, cc] = GetParam();
@@ -1778,9 +1795,9 @@ ENTRY triton_computation {
 INSTANTIATE_TEST_SUITE_P(
     BatchNormTrainingSuite, BatchNormTrainingTest,
     AllTestCombinationsForOpcodes({HloOpcode::kBatchNormTraining}),
-    TritonSupportTestTypeAndOpcodeAndDeviceToString);
+    SupportTestTypeAndOpcodeAndDeviceToString);
 
-using BatchNormGradTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using BatchNormGradTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(BatchNormGradTest, BatchNormGrad) {
   auto [data_type, opcode, cc] = GetParam();
@@ -1804,9 +1821,9 @@ ENTRY triton_computation {
 INSTANTIATE_TEST_SUITE_P(
     BatchNormGradSuite, BatchNormGradTest,
     AllTestCombinationsForOpcodes({HloOpcode::kBatchNormGrad}),
-    TritonSupportTestTypeAndOpcodeAndDeviceToString);
+    SupportTestTypeAndOpcodeAndDeviceToString);
 
-using DomainTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using DomainTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(DomainTest, Domain) {
   auto [data_type, opcode, cc] = GetParam();
@@ -1823,9 +1840,9 @@ ENTRY triton_computation {
 
 INSTANTIATE_TEST_SUITE_P(DomainSuite, DomainTest,
                          AllTestCombinationsForOpcodes({HloOpcode::kDomain}),
-                         TritonSupportTestTypeAndOpcodeAndDeviceToString);
+                         SupportTestTypeAndOpcodeAndDeviceToString);
 
-using GetDimensionSizeTest = TritonSupportTestWithDeviceParam;
+using GetDimensionSizeTest = SupportTestWithDeviceParam;
 
 TEST_P(GetDimensionSizeTest, GetDimensionSize) {
   const auto cc = GetParam();
@@ -1844,9 +1861,9 @@ ENTRY triton_computation {
 
 INSTANTIATE_TEST_SUITE_P(GetDimensionSizeSuite, GetDimensionSizeTest,
                          ::testing::ValuesIn(AllDevicesToTest()),
-                         TritonSupportTestDeviceToString);
+                         SupportTestDeviceToString);
 
-using ReverseTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using ReverseTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(ReverseTest, Reverse) {
   auto [data_type, opcode, cc] = GetParam();
@@ -1863,9 +1880,9 @@ ENTRY triton_computation {
 
 INSTANTIATE_TEST_SUITE_P(ReverseSuite, ReverseTest,
                          AllTestCombinationsForOpcodes({HloOpcode::kReverse}),
-                         TritonSupportTestTypeAndOpcodeAndDeviceToString);
+                         SupportTestTypeAndOpcodeAndDeviceToString);
 
-using DotTest = TritonSupportTest;
+using DotTest = SupportTest;
 
 class DotTypesTest
     : public DotTest,
@@ -1945,7 +1962,7 @@ INSTANTIATE_TEST_SUITE_P(
     DotTypesTest::ParamToString);
 
 class MixedF8DotTest
-    : public TritonSupportTest,
+    : public SupportTest,
       public ::testing::WithParamInterface<
           std::tuple<PrimitiveType, PrimitiveType, se::GpuComputeCapability>> {
  public:
@@ -2431,7 +2448,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::ValuesIn(AllDevicesToTest())),
     DotPrecisionAlgorithmTestName);
 
-class ScaledDotTest : public TritonSupportTest,
+class ScaledDotTest : public SupportTest,
                       public ::testing::WithParamInterface<PrimitiveType> {};
 
 TEST_P(ScaledDotTest, ScaledDotOperandTypes) {
@@ -2464,7 +2481,7 @@ INSTANTIATE_TEST_SUITE_P(
     });
 
 class FusionKindsTest
-    : public TritonSupportTest,
+    : public SupportTest,
       public ::testing::WithParamInterface<
           std::tuple<absl::string_view, se::GpuComputeCapability>> {};
 
@@ -2550,7 +2567,7 @@ INSTANTIATE_TEST_SUITE_P(
                        ::testing::ValuesIn(AllDevicesToTest())),
     FusionKindsTestName);
 
-using FusionTest = TritonSupportTest;
+using FusionTest = SupportTest;
 
 TEST_F(FusionTest, FusionComputationIsCheckedRecursively) {
   // We expect test for fail as `flhs` is not a supported computation as
@@ -2593,7 +2610,7 @@ ENTRY triton_computation {
 }
 
 class BitcastConvertTest
-    : public TritonSupportTest,
+    : public SupportTest,
       public ::testing::WithParamInterface<
           std::tuple<PrimitiveType, PrimitiveType, se::GpuComputeCapability>> {
 };
@@ -2709,9 +2726,9 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(::testing::ValuesIn(AllXlaDataTypes()),
                        ::testing::ValuesIn(AllXlaDataTypes()),
                        ::testing::ValuesIn(AllDevicesToTest())),
-    TritonSupportTestTwoTypesAndDeviceToString);
+    SupportTestTwoTypesAndDeviceToString);
 
-using AddDependencyTest = TritonSupportTestWithDeviceParam;
+using AddDependencyTest = SupportTestWithDeviceParam;
 
 TEST_P(AddDependencyTest, AddDependency) {
   auto cc = GetParam();
@@ -2730,9 +2747,9 @@ ENTRY triton_computation {
 
 INSTANTIATE_TEST_SUITE_P(AddDependencySuite, AddDependencyTest,
                          ::testing::ValuesIn(AllDevicesToTest()),
-                         TritonSupportTestDeviceToString);
+                         SupportTestDeviceToString);
 
-using AfterAllTest = TritonSupportTestWithDeviceParam;
+using AfterAllTest = SupportTestWithDeviceParam;
 
 TEST_P(AfterAllTest, AfterAll) {
   auto cc = GetParam();
@@ -2751,9 +2768,9 @@ ENTRY triton_computation {
 
 INSTANTIATE_TEST_SUITE_P(AfterAllSuite, AfterAllTest,
                          ::testing::ValuesIn(AllDevicesToTest()),
-                         TritonSupportTestDeviceToString);
+                         SupportTestDeviceToString);
 
-using TupleTest = TritonSupportTestWithDeviceParam;
+using TupleTest = SupportTestWithDeviceParam;
 
 TEST_P(TupleTest, Tuple) {
   auto cc = GetParam();
@@ -2773,9 +2790,9 @@ ENTRY triton_computation {
 
 INSTANTIATE_TEST_SUITE_P(TupleSuite, TupleTest,
                          ::testing::ValuesIn(AllDevicesToTest()),
-                         TritonSupportTestDeviceToString);
+                         SupportTestDeviceToString);
 
-using GetTupleElementTest = TritonSupportTestWithDeviceParam;
+using GetTupleElementTest = SupportTestWithDeviceParam;
 
 TEST_P(GetTupleElementTest, GetTupleElement) {
   auto cc = GetParam();
@@ -2793,9 +2810,9 @@ ENTRY triton_computation {
 
 INSTANTIATE_TEST_SUITE_P(GetTupleElementSuite, GetTupleElementTest,
                          ::testing::ValuesIn(AllDevicesToTest()),
-                         TritonSupportTestDeviceToString);
+                         SupportTestDeviceToString);
 
-using CustomCallTest = TritonSupportTestWithDeviceParam;
+using CustomCallTest = SupportTestWithDeviceParam;
 
 TEST_P(CustomCallTest, CustomCall) {
   auto cc = GetParam();
@@ -2813,10 +2830,10 @@ ENTRY triton_computation {
 
 INSTANTIATE_TEST_SUITE_P(CustomCallSuite, CustomCallTest,
                          ::testing::ValuesIn(AllDevicesToTest()),
-                         TritonSupportTestDeviceToString);
+                         SupportTestDeviceToString);
 
 class CholeskyTest
-    : public TritonSupportTest,
+    : public SupportTest,
       public ::testing::WithParamInterface<
           // The bool parameter is used to parametrize the lower=?.
           std::tuple<PrimitiveType, se::GpuComputeCapability, bool>> {};
@@ -2854,7 +2871,7 @@ INSTANTIATE_TEST_SUITE_P(
     CholeskyTestName);
 
 class TriangularSolveParamTest
-    : public TritonSupportTest,
+    : public SupportTest,
       public ::testing::WithParamInterface<
           std::tuple<PrimitiveType, se::GpuComputeCapability, bool /*lower*/,
                      bool /*unit_diagonal*/,
@@ -2926,7 +2943,7 @@ INSTANTIATE_TEST_SUITE_P(
                              TriangularSolveOptions::ADJOINT})),
     TriangularSolveParamTest::ParamToString);
 
-class FftTest : public TritonSupportTest,
+class FftTest : public SupportTest,
                 public ::testing::WithParamInterface<
                     std::tuple<PrimitiveType, se::GpuComputeCapability>> {};
 
@@ -3017,9 +3034,9 @@ INSTANTIATE_TEST_SUITE_P(
     // the complex type (C64 <-> F32, C128 <-> F64).
     ::testing::Combine(::testing::ValuesIn({C64, C128}),
                        ::testing::ValuesIn(AllDevicesToTest())),
-    TritonSupportTestTypeAndDeviceToString);
+    SupportTestTypeAndDeviceToString);
 
-using CopyStartDoneTest = TritonSupportTestWithTypeAndDeviceParam;
+using CopyStartDoneTest = SupportTestWithTypeAndDeviceParam;
 
 TEST_P(CopyStartDoneTest, CopyStartDone) {
   auto [data_type, cc] = GetParam();
@@ -3049,9 +3066,9 @@ INSTANTIATE_TEST_SUITE_P(
     CopyStartDoneSuite, CopyStartDoneTest,
     ::testing::Combine(::testing::ValuesIn(AllXlaDataTypes()),
                        ::testing::ValuesIn(AllDevicesToTest())),
-    TritonSupportTestTypeAndDeviceToString);
+    SupportTestTypeAndDeviceToString);
 
-using InfeedTest = TritonSupportTestWithTypeAndDeviceParam;
+using InfeedTest = SupportTestWithTypeAndDeviceParam;
 
 TEST_P(InfeedTest, Infeed) {
   auto [data_type, cc] = GetParam();
@@ -3071,9 +3088,9 @@ INSTANTIATE_TEST_SUITE_P(
     InfeedSuite, InfeedTest,
     ::testing::Combine(::testing::ValuesIn(AllXlaDataTypes()),
                        ::testing::ValuesIn(AllDevicesToTest())),
-    TritonSupportTestTypeAndDeviceToString);
+    SupportTestTypeAndDeviceToString);
 
-using OutfeedTest = TritonSupportTestWithTypeAndDeviceParam;
+using OutfeedTest = SupportTestWithTypeAndDeviceParam;
 
 TEST_P(OutfeedTest, Outfeed) {
   auto [data_type, cc] = GetParam();
@@ -3089,7 +3106,7 @@ ENTRY triton_computation {
   RunSupportTest(std::move(ti), /*output_tile_sizes=*/{}, cc);
 }
 
-using MapTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using MapTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(MapTest, Map) {
   auto [data_type, opcode, cc] = GetParam();
@@ -3113,15 +3130,15 @@ ENTRY triton_computation {
 
 INSTANTIATE_TEST_SUITE_P(MapSuite, MapTest,
                          AllTestCombinationsForOpcodes({HloOpcode::kMap}),
-                         TritonSupportTestTypeAndOpcodeAndDeviceToString);
+                         SupportTestTypeAndOpcodeAndDeviceToString);
 
 INSTANTIATE_TEST_SUITE_P(
     OutfeedSuite, OutfeedTest,
     ::testing::Combine(::testing::ValuesIn(AllXlaDataTypes()),
                        ::testing::ValuesIn(AllDevicesToTest())),
-    TritonSupportTestTypeAndDeviceToString);
+    SupportTestTypeAndDeviceToString);
 
-using SortTest = TritonSupportTestWithTypeAndOpcodeAndDeviceParam;
+using SortTest = SupportTestWithTypeAndOpcodeAndDeviceParam;
 
 TEST_P(SortTest, Sort) {
   auto [data_type, opcode, cc] = GetParam();
@@ -3169,9 +3186,9 @@ ENTRY triton_computation {
 
 INSTANTIATE_TEST_SUITE_P(SortSuite, SortTest,
                          AllTestCombinationsForOpcodes({HloOpcode::kSort}),
-                         TritonSupportTestTypeAndOpcodeAndDeviceToString);
+                         SupportTestTypeAndOpcodeAndDeviceToString);
 
-using RecvOpsTest = TritonSupportTestWithTypeAndDeviceParam;
+using RecvOpsTest = SupportTestWithTypeAndDeviceParam;
 
 TEST_P(RecvOpsTest, RecvAndRecvDone) {
   auto [data_type, cc] = GetParam();
@@ -3200,9 +3217,9 @@ INSTANTIATE_TEST_SUITE_P(
     RecvOpsSuite, RecvOpsTest,
     ::testing::Combine(::testing::ValuesIn(AllXlaDataTypes()),
                        ::testing::ValuesIn(AllDevicesToTest())),
-    TritonSupportTestTypeAndDeviceToString);
+    SupportTestTypeAndDeviceToString);
 
-using SendOpsTest = TritonSupportTestWithTypeAndDeviceParam;
+using SendOpsTest = SupportTestWithTypeAndDeviceParam;
 
 TEST_P(SendOpsTest, SendAndSendDone) {
   auto [data_type, cc] = GetParam();
@@ -3232,10 +3249,10 @@ INSTANTIATE_TEST_SUITE_P(
     SendOpsSuite, SendOpsTest,
     ::testing::Combine(::testing::ValuesIn(AllXlaDataTypes()),
                        ::testing::ValuesIn(AllDevicesToTest())),
-    TritonSupportTestTypeAndDeviceToString);
+    SupportTestTypeAndDeviceToString);
 
 class StochasticConvertTest
-    : public TritonSupportTest,
+    : public SupportTest,
       public ::testing::WithParamInterface<
           std::tuple<PrimitiveType, PrimitiveType, se::GpuComputeCapability>> {
 };
@@ -3276,10 +3293,10 @@ INSTANTIATE_TEST_SUITE_P(
             HloOpcode::kStochasticConvert)),     // Operand type.
         ::testing::ValuesIn(AllXlaDataTypes()),  // New element type.
         ::testing::ValuesIn(AllDevicesToTest())),
-    TritonSupportTestTwoTypesAndDeviceToString);
+    SupportTestTwoTypesAndDeviceToString);
 
 class TopKTest
-    : public TritonSupportTest,
+    : public SupportTest,
       public ::testing::WithParamInterface<
           std::tuple<PrimitiveType, se::GpuComputeCapability, bool>> {};
 
@@ -3317,7 +3334,7 @@ INSTANTIATE_TEST_SUITE_P(
     ParamToStringTopK);
 
 class ConvolutionTestFullParametrization
-    : public TritonSupportTest,
+    : public SupportTest,
       public ::testing::WithParamInterface<
           std::tuple<PrimitiveType, PrecisionConfig::Precision,
                      PrecisionConfig::Precision, se::GpuComputeCapability>> {};
@@ -3371,7 +3388,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::ValuesIn(AllDevicesToTest())),
     OperandPrecisionTestName);
 
-using ConvolutionTestCcOnly = TritonSupportTestWithDeviceParam;
+using ConvolutionTestCcOnly = SupportTestWithDeviceParam;
 
 // Test a convolution with stride > 1
 TEST_P(ConvolutionTestCcOnly, IsTritonSupportedConvStrided) {
@@ -3549,7 +3566,7 @@ ENTRY triton_computation {
 
 INSTANTIATE_TEST_SUITE_P(ConvolutionTestSuiteCcOnly, ConvolutionTestCcOnly,
                          ::testing::ValuesIn(AllDevicesToTest()),
-                         TritonSupportTestDeviceToString);
+                         SupportTestDeviceToString);
 
 // This denotes opcodes that are explicitly not supported by the generic Triton
 // emitter, and have also not been tested at all in the support test. If you
