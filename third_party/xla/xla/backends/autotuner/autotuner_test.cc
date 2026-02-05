@@ -94,6 +94,7 @@ AutotuneConfig GetTestAutotuneConfig() {
 class MockCodegenBackend : public CodegenBackend {
  public:
   MOCK_METHOD(absl::string_view, name, (), (const, override));
+  MOCK_METHOD(autotuner::Backend, backend, (), (const, override));
   MOCK_METHOD(absl::StatusOr<std::vector<std::unique_ptr<BackendConfig>>>,
               GetSupportedConfigs, (const HloInstruction& instr), (override));
   MOCK_METHOD(absl::StatusOr<std::unique_ptr<BackendConfig>>, GetDefaultConfig,
@@ -447,7 +448,7 @@ TEST_F(AutotunerTest, AutotuneButOneBackendFails) {
 TEST_F(AutotunerTest, CacheHit) {
   auto cache_manager = std::make_unique<MockAutotunerCache>();
   AutotunerCacheInterface::Config config;
-  config.codegen_backend_name = "mock_backend";
+  config.codegen_backend = autotuner::Backend::UNSPECIFIED_BACKEND;
   TestConfig test_config;
   GetTestConfig("test_config_2")->UnpackTo(&test_config);
   config.backend_config.PackFrom(test_config);
@@ -710,7 +711,7 @@ TEST_F(AutotunerTest, ExcludeCublasConfig) {
   EXPECT_CALL(*backend, Compile(_, _))
       .WillOnce(Return(std::unique_ptr<Executable>()))
       .WillOnce(Return(std::unique_ptr<Executable>()));
-  EXPECT_CALL(*backend, name()).WillRepeatedly(Return("Cublas_fission"));
+  EXPECT_CALL(*backend, name()).WillRepeatedly(Return("CUBLAS_FISSION"));
   std::vector<std::unique_ptr<CodegenBackend>> backends;
   backends.push_back(std::move(backend));
 
@@ -989,7 +990,7 @@ class MockKeyValueStore : public KeyValueStoreInterface {
 
 AutotunerCacheInterface::Config GetCacheConfig(absl::string_view name) {
   AutotunerCacheInterface::Config config;
-  config.codegen_backend_name = "mock_backend";
+  config.codegen_backend = autotuner::Backend::UNSPECIFIED_BACKEND;
   config.backend_config = *GetTestConfig(std::string(name));
   return config;
 };

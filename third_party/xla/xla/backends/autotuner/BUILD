@@ -19,6 +19,7 @@ cc_library(
     name = "codegen_backend",
     hdrs = ["codegen_backend.h"],
     deps = [
+        ":backends_proto_cc",
         "//xla/hlo/ir:hlo",
         "//xla/service:executable",
         "@com_google_absl//absl/status",
@@ -140,6 +141,7 @@ cc_library(
     hdrs = ["autotuner_cache_interface.h"],
     deps = [
         ":autotuner_cache_proto_cc",
+        ":backends_proto_cc",
         "//xla/hlo/ir:hlo",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -197,4 +199,9 @@ xla_cc_test(
         "@com_google_protobuf//:any_cc_proto",
         "@tsl//tsl/platform:path",
     ],
+)
+
+tf_proto_library(
+    name = "backends_proto",
+    srcs = ["backends.proto"],
 )
