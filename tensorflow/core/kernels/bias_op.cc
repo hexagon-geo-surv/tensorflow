@@ -453,8 +453,8 @@ class BiasGradOp<GPUDevice, T> : public OpKernel {
     if (channel == 0) return;
     auto* stream = context->op_device_context()->stream();
     OP_REQUIRES(context, stream, errors::Internal("No GPU stream available."));
-    se::DeviceMemoryBase output_ptr(output->flat<T>().data(),
-                                    output->NumElements() * sizeof(T));
+    stream_executor::DeviceAddressBase output_ptr(
+        output->flat<T>().data(), output->NumElements() * sizeof(T));
     OP_REQUIRES_OK(context, stream->MemZero(&output_ptr,
                                             output->NumElements() * sizeof(T)));
     if (output_backprop.NumElements() <= 0) return;
