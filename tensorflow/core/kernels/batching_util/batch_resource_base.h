@@ -86,6 +86,12 @@ class BatchResourceBase : public ResourceBase {
   struct BatchTask : public tensorflow::serving::BatchTask {
     BatchTask() : criticality_val(tsl::criticality::GetCriticality()) {};
 
+    BatchTask(AsyncOpKernel::DoneCallback done_callback,
+              std::shared_ptr<ThreadSafeStatus> status)
+        : done_callback(std::move(done_callback)),
+          status(status),
+          criticality_val(tsl::criticality::GetCriticality()) {}
+
     // A unique ID to identify this invocation of Batch.
     int64_t guid;
 
@@ -94,7 +100,6 @@ class BatchResourceBase : public ResourceBase {
     std::vector<Tensor> inputs;
     std::vector<Tensor> captured_inputs;
     OpKernelContext* context;
-    AsyncOpKernel::DoneCallback done_callback;
 
     // The index of this split, along the 0-th dimension of input from op
     // invocation.
@@ -106,11 +111,6 @@ class BatchResourceBase : public ResourceBase {
     // 2) callback that runs to merge output of individual splits for an op
     // invocation, after all splits complete.
     std::shared_ptr<TensorMatrix> output;
-
-    // 'status' records error (could be from any split) if at least one split
-    // returns error, OK otherwise.
-    // Ownership is shared by individual splits and callback.
-    std::shared_ptr<ThreadSafeStatus> status;
 
     bool is_partial = false;
 
@@ -144,11 +144,28 @@ class BatchResourceBase : public ResourceBase {
     int forced_warmup_batch_size = 0;
 
    protected:
+    void FinishTaskImpl(const absl::Status& status) override {
+      WithContext wc(this->propagated_context);
+
+      if (!status.ok()) {
+        this->status->Update(status);
+      }
+      this->done_callback();
+    }
+
     virtual std::unique_ptr<BatchTask> CreateDerivedTask() {
       return std::make_unique<BatchTask>();
     }
 
    private:
+    friend class BatchResourceBase;
+    AsyncOpKernel::DoneCallback done_callback;
+
+    // 'status' records error (could be from any split) if at least one split
+    // returns error, OK otherwise.
+    // Ownership is shared by individual splits and callback.
+    std::shared_ptr<ThreadSafeStatus> status;
+
     // Criticality associated with the task.
     ::tsl::criticality::Criticality criticality_val;
   };

@@ -39,6 +39,9 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "absl/base/call_once.h"
+#include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/notification.h"
@@ -97,6 +100,24 @@ class BatchTask {
   virtual tsl::criticality::Criticality criticality() const {
     return tsl::criticality::Criticality::kCritical;
   }
+
+  // Called when the task is finished, either successfully or with an error.
+  //
+  // BatchScheduler guarantees that this method is invoked exactly once for each
+  // BatchTask. This frees the task implementation from worrying about thread
+  // safety or idempotency of this method.
+  void FinishTask(const absl::Status& status) {
+    absl::call_once(finished_, [this, status]() { FinishTaskImpl(status); });
+  }
+
+ protected:
+  virtual void FinishTaskImpl(const absl::Status& status) {
+    // Default implementation does nothing. Subclasses should override.
+    LOG(ERROR) << "ERROR!!!! FinishTaskImpl is not implemented: " << status;
+  }
+
+ private:
+  absl::once_flag finished_;
 };
 
 // A thread-safe collection of BatchTasks. Tasks can be either added or removed

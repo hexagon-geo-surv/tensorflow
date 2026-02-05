@@ -181,7 +181,7 @@ class BatchResourceBaseWithPriorityTest
 
 #if defined(PLATFORM_GOOGLE)
 TEST(BatchTaskCriticalityTest, CriticalitySuccessfullyPropagated) {
-  std::vector<BatchResourceBase::BatchTask> batch_tasks;
+  std::vector<std::unique_ptr<BatchResourceBase::BatchTask>> batch_tasks;
   // Tasks created with the scoped criticalities must have proper criticalities
   // set.
   {
@@ -189,39 +189,39 @@ TEST(BatchTaskCriticalityTest, CriticalitySuccessfullyPropagated) {
         tsl::criticality::Criticality::kCriticalPlus);
     ASSERT_EQ(tsl::criticality::GetCriticality(),
               tsl::criticality::Criticality::kCriticalPlus);
-    batch_tasks.push_back(BatchResourceBase::BatchTask());
+    batch_tasks.push_back(std::make_unique<BatchResourceBase::BatchTask>());
   }
   {
     tsl::criticality::ScopedCriticality scoped_criticality(
         tsl::criticality::Criticality::kCritical);
     ASSERT_EQ(tsl::criticality::GetCriticality(),
               tsl::criticality::Criticality::kCritical);
-    batch_tasks.push_back(BatchResourceBase::BatchTask());
+    batch_tasks.push_back(std::make_unique<BatchResourceBase::BatchTask>());
   }
   {
     tsl::criticality::ScopedCriticality scoped_criticality(
         tsl::criticality::Criticality::kSheddablePlus);
     ASSERT_EQ(tsl::criticality::GetCriticality(),
               tsl::criticality::Criticality::kSheddablePlus);
-    batch_tasks.push_back(BatchResourceBase::BatchTask());
+    batch_tasks.push_back(std::make_unique<BatchResourceBase::BatchTask>());
   }
   {
     tsl::criticality::ScopedCriticality scoped_criticality(
         tsl::criticality::Criticality::kSheddable);
     ASSERT_EQ(tsl::criticality::GetCriticality(),
               tsl::criticality::Criticality::kSheddable);
-    batch_tasks.push_back(BatchResourceBase::BatchTask());
+    batch_tasks.push_back(std::make_unique<BatchResourceBase::BatchTask>());
   }
-  batch_tasks.push_back(BatchResourceBase::BatchTask());
-  EXPECT_EQ(batch_tasks[0].criticality(),
+  batch_tasks.push_back(std::make_unique<BatchResourceBase::BatchTask>());
+  EXPECT_EQ(batch_tasks[0]->criticality(),
             tsl::criticality::Criticality::kCriticalPlus);
-  EXPECT_EQ(batch_tasks[1].criticality(),
+  EXPECT_EQ(batch_tasks[1]->criticality(),
             tsl::criticality::Criticality::kCritical);
-  EXPECT_EQ(batch_tasks[2].criticality(),
+  EXPECT_EQ(batch_tasks[2]->criticality(),
             tsl::criticality::Criticality::kSheddablePlus);
-  EXPECT_EQ(batch_tasks[3].criticality(),
+  EXPECT_EQ(batch_tasks[3]->criticality(),
             tsl::criticality::Criticality::kSheddable);
-  EXPECT_EQ(batch_tasks[4].criticality(),
+  EXPECT_EQ(batch_tasks[4]->criticality(),
             tsl::criticality::Criticality::kCritical);
 }
 

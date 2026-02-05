@@ -107,6 +107,19 @@ TEST(TaskCriticalityTest, CriticalityDefaultsToCritical) {
   EXPECT_EQ(fake_task.criticality(), tsl::criticality::Criticality::kCritical);
 }
 
+class MockBatchTask : public BatchTask {
+ public:
+  MOCK_METHOD(void, FinishTaskImpl, (const absl::Status& status), (override));
+  MOCK_METHOD(size_t, size, (), (const, override));
+};
+
+TEST(BatchTaskTest, FinishTaskIsIdempotent) {
+  MockBatchTask task;
+  EXPECT_CALL(task, FinishTaskImpl(::testing::_)).Times(1);
+  task.FinishTask(absl::OkStatus());
+  task.FinishTask(absl::UnknownError("error"));
+}
+
 TEST(TaskQueueTest, EmptyTaskQueue) {
   TaskQueue<FakeTask> task_queue;
 
