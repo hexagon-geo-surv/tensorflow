@@ -619,11 +619,7 @@ IfrtServingExecutable::LookUpOrCreateExecutable(
     absl::Span<const DtypeAndShape> dtypes_and_shapes,
     absl::Span<const int> variable_arg_indices,
     const xla::ifrt::DeviceListRef& device_list) {
-  std::vector<tensorflow::TensorShape> input_shapes;
-  for (const auto& dtype_and_shape : dtypes_and_shapes) {
-    input_shapes.push_back(dtype_and_shape.shape);
-  }
-  Key key = {.input_shapes = std::move(input_shapes)};
+  KeyView key_view = {std::move(dtypes_and_shapes)};
 
   tsl::Promise<SharedCachedExecutableBundle> promise;
   tsl::Future<SharedCachedExecutableBundle> future;
@@ -632,7 +628,7 @@ IfrtServingExecutable::LookUpOrCreateExecutable(
   {
     absl::MutexLock lock(mutex_);
 
-    const auto it = executable_bundles_.find(key);
+    const auto it = executable_bundles_.find(key_view);
     if (it != executable_bundles_.end()) {
       return it->second;
     }
@@ -652,7 +648,14 @@ IfrtServingExecutable::LookUpOrCreateExecutable(
     std::tie(promise, future) =
         tsl::MakePromise<SharedCachedExecutableBundle>();
 
-    executable_bundles_.emplace(key, future);
+    std::vector<tensorflow::TensorShape> input_shapes;
+    input_shapes.reserve(dtypes_and_shapes.size());
+    for (const auto& dtype_and_shape : dtypes_and_shapes) {
+      input_shapes.push_back(dtype_and_shape.shape);
+    }
+    Key key = {.input_shapes = std::move(input_shapes)};
+
+    executable_bundles_.emplace(std::move(key), future);
     // Clone the module to avoid race condition between Freeze() and
     // compilation.
     module_copy = mlir::OwningOpRef<mlir::ModuleOp>(module_->clone());
