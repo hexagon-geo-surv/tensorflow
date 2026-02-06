@@ -118,17 +118,19 @@ HloPjRtGpuTestBase::HloPjRtGpuTestBase(PjRtClient* client,
           GetGlobalPjRtClientTestFactory().GetDeviceShapeRepresentationFn(
               client),
           GetGlobalPjRtClientTestFactory().GetDeviceShapeSizeFn(client),
-          GetGpuTargetConfig(client), absl::WrapUnique(client),
-          std::move(options)) {}
+          GetGpuTargetConfig(client), client->device_count(),
+          absl::WrapUnique(client), std::move(options)) {}
 
 HloPjRtGpuTestBase::HloPjRtGpuTestBase(
     DeviceShapeRepresentationFn device_shape_representation_fn,
     DeviceShapeSizeFn device_shape_size_fn, GpuTargetConfig gpu_target_config,
-    std::unique_ptr<PjRtClient> client, HloPjRtTestBaseOptions options)
+    int device_count, std::unique_ptr<PjRtClient> client,
+    HloPjRtTestBaseOptions options)
     : HloRunnerAgnosticTestBase(MakeHloRunnerPjRtAotAware(std::move(client)),
                                 std::move(device_shape_representation_fn),
                                 std::move(device_shape_size_fn),
                                 BuildOptions(std::move(options))),
+      device_count_(device_count),
       gpu_target_config_(std::move(gpu_target_config)),
       compiler_(GetGpuCompiler()) {}
 

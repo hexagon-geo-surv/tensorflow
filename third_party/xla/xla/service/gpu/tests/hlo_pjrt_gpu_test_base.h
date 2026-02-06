@@ -33,9 +33,14 @@ class HloPjRtGpuTestBase : public HloRunnerAgnosticTestBase,
  protected:
   explicit HloPjRtGpuTestBase(HloPjRtTestBaseOptions options = {});
 
+  explicit HloPjRtGpuTestBase(std::unique_ptr<PjRtClient> client)
+      : HloPjRtGpuTestBase(client.release(), HloPjRtTestBaseOptions()) {}
+
   const GpuTargetConfig& gpu_target_config() const override {
     return gpu_target_config_;
   }
+
+  int device_count() const { return device_count_; }
 
   const stream_executor::DeviceDescription& device_description()
       const override {
@@ -48,9 +53,11 @@ class HloPjRtGpuTestBase : public HloRunnerAgnosticTestBase,
   HloPjRtGpuTestBase(PjRtClient* client, HloPjRtTestBaseOptions options);
   HloPjRtGpuTestBase(DeviceShapeRepresentationFn device_shape_representation_fn,
                      DeviceShapeSizeFn device_shape_size_fn,
-                     GpuTargetConfig gpu_target_config,
+                     GpuTargetConfig gpu_target_config, int device_count,
                      std::unique_ptr<PjRtClient> client,
                      HloPjRtTestBaseOptions options);
+
+  int device_count_;
 
   GpuTargetConfig gpu_target_config_;
 
