@@ -39,25 +39,31 @@ using ::mlir::MLIRContext;
 
 class SymbolicTiledHloTest : public HloHardwareIndependentTestBase {
  public:
-  HloInstruction* ParseAndGetRoot(absl::string_view hlo_string) {
+  struct ParsedHlo {
+    HloInstruction* root;
+    std::unique_ptr<VerifiedHloModule> module;
+  };
+
+  ParsedHlo ParseAndGetRoot(absl::string_view hlo_string) {
     auto module_or = ParseAndReturnVerifiedModule(hlo_string);
     CHECK_OK(module_or);
-    module_ = std::move(module_or.value());
-    return module_->entry_computation()->root_instruction();
+    auto module = std::move(module_or.value());
+    HloInstruction* root = module->entry_computation()->root_instruction();
+    return {root, std::move(module)};
   }
 
   MLIRContext mlir_context_;
-  std::unique_ptr<VerifiedHloModule> module_;
 };
 
 TEST_F(SymbolicTiledHloTest, TestPrinting) {
-  HloInstruction* root = ParseAndGetRoot(R"(
+  auto parsed = ParseAndGetRoot(R"(
     HloModule m
     ENTRY e {
       p0 = f32[10,30] parameter(0)
       ROOT broadcast = f32[10,20,30] broadcast(p0), dimensions={0,2}
     }
   )");
+  HloInstruction* root = parsed.root;
   auto tiling_space = TilingSpace::Create(
       *HloFusionAdaptor::ForInstruction(root), &mlir_context_);
   std::optional<SymbolicTiles> tiled_operands = PropagateTileToInput(
@@ -66,6 +72,7 @@ TEST_F(SymbolicTiledHloTest, TestPrinting) {
 
   ASSERT_TRUE(tiled_operands.has_value());
   SymbolicTiledHloInstruction tiled_hlo_instruction(root, (*tiled_operands)[0]);
+
   EXPECT_THAT(tiled_hlo_instruction, MatchString(R"(
     hlo: %broadcast = f32[10,20,30]{2,1,0} broadcast(%p0), dimensions={0,2}
     tile: (tid_0, tid_1, tid_2)[ts_0, ts_1, ts_2]
@@ -73,6 +80,55 @@ TEST_F(SymbolicTiledHloTest, TestPrinting) {
          sizes [ts_0, ts_2]
          strides [1, 3]
          upper bounds [10, 30]
+  )"));
+}
+
+TEST_F(SymbolicTiledHloTest, TestReduceWithRegionPrinting) {
+  auto parsed = ParseAndGetRoot(R"(
+    HloModule m
+
+    max {
+      x = f32[] parameter(0)
+      y = f32[] parameter(1)
+      ROOT maximum = f32[] maximum(x, y)
+    }
+
+    ENTRY e {
+      p0 = f32[2,97]{1,0} parameter(0)
+      constant = f32[] constant(-inf)
+      reduce = f32[2]{0} reduce(p0, constant), dimensions={1}, to_apply=max
+      ROOT broadcast = f32[2,97]{1,0} broadcast(reduce), dimensions={0}
+    }
+  )");
+  HloInstruction* broadcast = parsed.root;
+  HloInstruction* reduce = broadcast->mutable_operand(0);
+
+  auto tiling_space_broadcast = TilingSpace::Create(
+      *HloFusionAdaptor::ForInstruction(broadcast), &mlir_context_);
+  auto broadcast_tiled = std::make_unique<SymbolicTiledHloInstruction>(
+      broadcast, GetTestSymbolicTile(*tiling_space_broadcast,
+                                     broadcast->shape().dimensions()));
+
+  auto tiling_space_reduce = TilingSpace::Create(
+      *HloFusionAdaptor::ForInstruction(reduce), &mlir_context_);
+  auto reduce_tiled = std::make_unique<SymbolicTiledHloInstruction>(
+      reduce,
+      GetTestSymbolicTile(*tiling_space_reduce, reduce->shape().dimensions()));
+
+  SymbolicTiledHloInstruction::Region region;
+  region.push_back(std::move(reduce_tiled));
+  broadcast_tiled->AddRegion(std::move(region));
+
+  EXPECT_THAT(*broadcast_tiled, MatchString(R"(
+    hlo: %broadcast = f32[2,97]{1,0} broadcast(%reduce), dimensions={0}
+    tile: (tid_0, tid_1)[ts_0, ts_1]
+      -> offsets [tid_0 * ts_0, tid_1 * ts_1]
+         sizes [ts_0, ts_1]
+         strides [1, 2]
+         upper bounds [2, 97]
+    regions {
+      #0 size: 1 -> reduce
+    }
   )"));
 }
 
