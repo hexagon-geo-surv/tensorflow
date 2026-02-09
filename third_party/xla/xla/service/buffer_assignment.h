@@ -731,6 +731,14 @@ class BufferAssigner {
     kTopological,   // Process buffers in topological order.
   };
 
+  // Algorithms that can be used for buffer assignment.
+  enum Algorithm : uint8_t {
+    kDefault,
+    kBestOfSpatialTemporal,
+    kSpatial,
+    kTemporal,
+  };
+
   // Options for BufferAssigner::Run.
   struct Options {
     // If true, allocate buffers for constant instructions.
@@ -754,6 +762,8 @@ class BufferAssigner {
     std::optional<BufferAssignment::BufferIsolationOptions> isolation_options;
     std::optional<BufferValue::Color> temp_buffer_color;
     BufferOrder buffer_order = BufferOrder::kBiggestFirst;
+
+    Algorithm buffer_assignment_algorithm = Algorithm::kDefault;
   };
 
   static Colorer DefaultColorer() {
