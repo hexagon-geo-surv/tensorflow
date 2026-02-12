@@ -227,11 +227,8 @@ absl::StatusOr<std::vector<IndexDomain>> HloShardingSpec::IndexDomains(
   if (!xla_hlo_sharding_.IsTiled()) {
     return IndexDomainsSlowPath(xla_hlo_sharding_, num_shards_, shape);
   }
-  for (const xla::OpSharding::Type subgroup_type :
-       xla_hlo_sharding_.subgroup_types()) {
-    if (subgroup_type != xla::OpSharding::REPLICATED) {
-      return IndexDomainsSlowPath(xla_hlo_sharding_, num_shards_, shape);
-    }
+  if (xla_hlo_sharding_.HasNonReplicatedSubgroup()) {
+    return IndexDomainsSlowPath(xla_hlo_sharding_, num_shards_, shape);
   }
 
   const int64_t tiled_data_rank = xla_hlo_sharding_.TiledDataRank();

@@ -344,6 +344,26 @@ class HloSharding {
     });
   }
 
+  // Returns true if the sharding has any subgroup that is not REPLICATED.
+  bool HasNonReplicatedSubgroup() const {
+    if (!IsTuple()) {
+      return HasNonReplicatedSubgroupLeaf();
+    }
+    return absl::c_any_of(tuple_elements_, [](const HloSharding& s) {
+      return s.HasNonReplicatedSubgroup();
+    });
+  }
+  bool HasNonReplicatedSubgroupLeaf() const {
+    DCHECK(!IsTuple());
+    if (UseNamedShardingLeaf()) {
+      return !named_sharding_->manual_axes().empty() ||
+             !named_sharding_->unreduced_axes().empty();
+    }
+    return absl::c_any_of(subgroup_types_, [](OpSharding::Type t) {
+      return t != OpSharding::REPLICATED;
+    });
+  }
+
   // Returns whether the sharding represents a tiled sharding where the mapping
   // between devices and tiles is represented through 'tile_assignment()'.
   bool IsTiled() const {

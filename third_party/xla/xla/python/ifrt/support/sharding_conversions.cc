@@ -178,9 +178,7 @@ absl::StatusOr<ShardingParam> ToShardingParam(const HloSharding& hlo_sharding,
           "dimensions; sharding=%s",
           rank, hlo_sharding.TiledDataRank(), hlo_sharding.ToString()));
     }
-    if (hlo_sharding.subgroup_types().size() > 1 ||
-        (hlo_sharding.subgroup_types().size() == 1 &&
-         hlo_sharding.subgroup_types()[0] != xla::OpSharding::REPLICATED)) {
+    if (hlo_sharding.HasNonReplicatedSubgroup()) {
       return absl::InvalidArgumentError(absl::StrCat(
           "Unsupported conversion to `ShardingParam` from `HloSharding` that "
           "has more than a subgroup or a subgroup that is not REPLICATED; "

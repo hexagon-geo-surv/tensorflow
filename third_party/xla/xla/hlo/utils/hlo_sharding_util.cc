@@ -1680,7 +1680,8 @@ HloSharding PartiallyReplicateTiledShardingOnDims(
   if (group_count == 1) {
     return sharding;
   }
-  if (group_count == sharding.NumTiles() && sharding.subgroup_types().empty()) {
+  if (group_count == sharding.NumTiles() &&
+      !sharding.HasNonReplicatedSubgroup()) {
     return HloSharding::Replicate(sharding.metadata());
   }
   DimensionVector dim_permutation(sharding.TiledDataRank());
@@ -1743,7 +1744,7 @@ HloSharding ReplicateAllDataDims(const HloSharding& sharding,
   if (sharding.IsManual()) {
     return sharding;
   }
-  if (sharding.subgroup_types().empty()) {
+  if (!sharding.HasNonReplicatedSubgroup()) {
     return HloSharding::Replicate(sharding.metadata());
   }
   HloSharding result =
