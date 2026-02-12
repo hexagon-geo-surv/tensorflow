@@ -63,6 +63,12 @@ class SubProcess {
   //    argv: The argument list.
   virtual void SetProgram(const string& file, const std::vector<string>& argv);
 
+  // SetDirectory()
+  //    In the child process, chdir() to this directory before
+  //    exec-ing.
+  //    Returns false if this is not supported on the current platform.
+  ABSL_MUST_USE_RESULT virtual bool SetDirectory(const string& dir);
+
   // SetExitCallback()
   //    Set a callback to be run when the process exits.
   //    It is illegal to delete the SubProcess within its exit callback.
@@ -123,6 +129,11 @@ class SubProcess {
   void FreeArgs() TF_EXCLUSIVE_LOCKS_REQUIRED(data_mu_);
   void ClosePipes() TF_EXCLUSIVE_LOCKS_REQUIRED(data_mu_);
   bool WaitInternal(int* status);
+  // Returns true if process has exited after the call, false if running.
+  // If returns true and process was running, *status is filled with the exit
+  // status.
+  // Will not block if flags is WNOHANG.
+  bool WaitOrCheckRunningInternal(int flags, int* status);
 
   // The separation between proc_mu_ and data_mu_ mutexes allows Kill() to be
   // called by a thread while another thread is inside Wait() or Communicate().
@@ -136,6 +147,7 @@ class SubProcess {
   mutable absl::Mutex data_mu_ TF_ACQUIRED_AFTER(proc_mu_);
   char* exec_path_ TF_GUARDED_BY(data_mu_);
   char** exec_argv_ TF_GUARDED_BY(data_mu_);
+  std::string chdir_ ABSL_GUARDED_BY(data_mu_);
   ChannelAction action_[kNFds] TF_GUARDED_BY(data_mu_);
   int parent_pipe_[kNFds] TF_GUARDED_BY(data_mu_);
   int child_pipe_[kNFds] TF_GUARDED_BY(data_mu_);
