@@ -285,7 +285,7 @@ absl::string_view TfrtGpuClient::platform_version() const {
 }
 
 absl::StatusOr<PjRtDevice*> TfrtGpuClient::LookupDevice(
-    PjRtGlobalDeviceId global_device_id) const {
+    GlobalDeviceId global_device_id) const {
   auto it = id_to_device_.find(global_device_id);
   if (it != id_to_device_.end()) {
     return it->second;
@@ -295,7 +295,7 @@ absl::StatusOr<PjRtDevice*> TfrtGpuClient::LookupDevice(
 }
 
 absl::StatusOr<PjRtDevice*> TfrtGpuClient::LookupAddressableDevice(
-    PjRtLocalDeviceId local_device_id) const {
+    LocalDeviceId local_device_id) const {
   for (auto* device : addressable_devices_) {
     if (local_device_id == device->local_device_id()) {
       return device;
@@ -909,7 +909,7 @@ absl::Status TfrtGpuClient::UpdateCompileOptionsInternal(
     for (int replica = 0; replica < num_replicas; ++replica) {
       for (int partition = 0; partition < num_partitions; ++partition) {
         int64_t device_id = (*device_assignment)(replica, partition);
-        PjRtGlobalDeviceId global_device_id(device_id);
+        GlobalDeviceId global_device_id(device_id);
 
         TF_ASSIGN_OR_RETURN(PjRtDevice * device,
                             LookupDevice(global_device_id));
