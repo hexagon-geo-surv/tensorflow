@@ -420,6 +420,7 @@ cc_library(
         "//tensorflow/core/common_runtime/eager:tensor_handle",
         "//tensorflow/core/framework:function_proto_cc",
         "//tensorflow/core/protobuf:for_core_protos_cc",
+        "@com_google_absl//absl/base",
         "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/log:check",
