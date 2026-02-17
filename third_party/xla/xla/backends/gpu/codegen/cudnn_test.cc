@@ -117,8 +117,8 @@ class CuDnnFusionFileCheckTest : public CuDnnFusionTest {
 
   absl::StatusOr<bool> RunCuDnnFileCheck(absl::string_view hlo,
                                          absl::string_view pattern) {
-    TF_ASSIGN_OR_RETURN(std::unique_ptr<VerifiedHloModule> module,
-                        ParseAndReturnVerifiedModule(hlo));
+    ASSIGN_OR_RETURN(std::unique_ptr<VerifiedHloModule> module,
+                     ParseAndReturnVerifiedModule(hlo));
     const std::string root_name(
         module->entry_computation()->root_instruction()->name());
     BinaryMap dnn_compiled_graphs;
@@ -127,7 +127,7 @@ class CuDnnFusionFileCheckTest : public CuDnnFusionTest {
     // Run filecheck even if CuDnnFusionCompiler failed.
     cudnn_compiler.Run(module.get()).IgnoreError();
     std::string dump;
-    TF_RETURN_IF_ERROR(tsl::ReadFileToString(
+    RETURN_IF_ERROR(tsl::ReadFileToString(
         tsl::Env::Default(),
         tsl::io::JoinPath(
             output_directory_,
@@ -221,8 +221,8 @@ ENTRY e {
     backend_config={"fusion_backend_config": {kind: "__cudnn$fusion"}}
   n = f32[32,64] fusion(f), kind=kLoop, calls=n, control-predecessors={f}
 })";
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
-                          ParseAndReturnVerifiedModule(kHloText));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                       ParseAndReturnVerifiedModule(kHloText));
   BinaryMap dnn_compiled_graphs;
   CuDnnFusionCompiler cudnn_compiler(
       *backend().default_stream_executor()->AsDnn(), dnn_compiled_graphs);
@@ -260,8 +260,8 @@ e {
     backend_config={"fusion_backend_config":{"kind":"__cudnn$fusion","cudnn_fusion_config":{"plan_id":"0"}}}
   g = f32[32,64] get-tuple-element(r), index=0
 })";
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
-                          ParseAndReturnVerifiedModule(kHloText));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                       ParseAndReturnVerifiedModule(kHloText));
   BinaryMap dnn_compiled_graphs;
   CuDnnFusionCompiler cudnn_compiler(
       *backend().default_stream_executor()->AsDnn(), dnn_compiled_graphs);
@@ -286,8 +286,8 @@ TEST_F(CuDnnFusionExecutionTest,
   if (!IsAtLeastCuDnn91()) {
     GTEST_SKIP() << "This test case requests a workspace only with cuDNN 9.1+.";
   }
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
-                          ParseAndReturnVerifiedModule(R"(
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                       ParseAndReturnVerifiedModule(R"(
 c1 {
   p0 = f32[32,96] parameter(0)
   p1 = f32[96,64] parameter(1)
@@ -933,7 +933,7 @@ fusion {
   zeros = f32[2,9,9,32] broadcast(zero), dimensions={}
   input = f32[2,9,9,17] parameter(0)
   filter = f32[32,3,3,17] parameter(1)
-  conv = f32[2,9,9,32] convolution(input, filter), window={size=3x3 pad=1_1x1_1}, dim_labels=b01f_o01i->b01f, feature_group_count=1
+  conv = f32[2,9,9,32] convolution(input, filter), window={size=3x3 pad=1_1x1_1}, dim_labels=b01f_o01i->b01f, feature_group_count=1, conv_kind=fprop
   ROOT relu = f32[2,9,9,32] maximum(zeros, conv)
 }
 
@@ -941,7 +941,7 @@ fusion {
 ENTRY Test {
   input = f32[2,9,9,17] parameter(0)
   filter = f32[32,3,3,17] parameter(1)
-  ROOT conv = f32[2,9,9,32] fusion(input, filter), kind=kCustom, calls=fusion, backend_config={"fusion_backend_config": {kind: "__cudnn$fusion", cudnn_fusion_config: {"kind":"CONV_FPROP"}}}
+  ROOT conv = f32[2,9,9,32] fusion(input, filter), kind=kCustom, calls=fusion, backend_config={"fusion_backend_config": {kind: "__cudnn$fusion"}}
 })",
                             ErrorSpec{/*aabs=*/1e-3, /*arel=*/1e-5}));
 }
@@ -957,7 +957,7 @@ fusion {
   zeros = f32[32,3,3,17] broadcast(zero), dimensions={}
   input = f32[2,9,9,17] parameter(0)
   dout = f32[2,9,9,32] parameter(1)
-  conv = f32[32,3,3,17] convolution(input, dout), window={size=9x9 pad=1_1x1_1}, dim_labels=f01b_i01o->f01b, feature_group_count=1
+  conv = f32[32,3,3,17] convolution(input, dout), window={size=9x9 pad=1_1x1_1}, dim_labels=f01b_i01o->f01b, feature_group_count=1, conv_kind=wgrad
   ROOT relu = f32[32,3,3,17] maximum(zeros, conv)
 }
 
@@ -965,7 +965,7 @@ fusion {
 ENTRY Test {
   input = f32[2,9,9,17] parameter(0)
   dout = f32[2,9,9,32] parameter(1)
-  ROOT conv = f32[32,3,3,17] fusion(input, dout), kind=kCustom, calls=fusion, backend_config={"fusion_backend_config": {kind: "__cudnn$fusion", cudnn_fusion_config: {"kind":"CONV_WGRAD"}}}
+  ROOT conv = f32[32,3,3,17] fusion(input, dout), kind=kCustom, calls=fusion, backend_config={"fusion_backend_config": {kind: "__cudnn$fusion"}}
 })",
                             ErrorSpec{/*aabs=*/1e-3, /*arel=*/1e-5}));
 }
@@ -978,7 +978,7 @@ ENTRY main {
   dout = f32[2,9,9,32] parameter(0)
   filter = f32[32,3,3,17] parameter(1)
   reverse = f32[32,3,3,17] reverse(filter), dimensions={1,2}
-  conv = f32[2,9,9,17] convolution(dout, reverse), window={size=3x3 pad=1_1x1_1}, dim_labels=b01f_i01o->b01f, feature_group_count=1
+  conv = f32[2,9,9,17] convolution(dout, reverse), window={size=3x3 pad=1_1x1_1}, dim_labels=b01f_i01o->b01f, feature_group_count=1, conv_kind=dgrad
   ROOT relu = f32[2,9,9,17] maximum(zeros, conv)
 })";
 
@@ -988,7 +988,7 @@ fusion {
   zeros = f32[2,9,9,17] broadcast(zero), dimensions={}
   dout = f32[2,9,9,32] parameter(0)
   filter = f32[32,3,3,17] parameter(1)
-  conv = f32[2,9,9,17] convolution(dout, filter), window={size=3x3 pad=1_1x1_1}, dim_labels=b01f_i01o->b01f, feature_group_count=1
+  conv = f32[2,9,9,17] convolution(dout, filter), window={size=3x3 pad=1_1x1_1}, dim_labels=b01f_i01o->b01f, feature_group_count=1, conv_kind=dgrad
   ROOT relu = f32[2,9,9,17] maximum(zeros, conv)
 }
 
@@ -996,7 +996,7 @@ fusion {
 ENTRY Test {
   dout = f32[2,9,9,32] parameter(0)
   filter = f32[32,3,3,17] parameter(1)
-  ROOT conv = f32[2,9,9,17] fusion(dout, filter), kind=kCustom, calls=fusion, backend_config={"fusion_backend_config": {kind: "__cudnn$fusion", cudnn_fusion_config: {"kind":"CONV_DGRAD"}}}
+  ROOT conv = f32[2,9,9,17] fusion(dout, filter), kind=kCustom, calls=fusion, backend_config={"fusion_backend_config": {kind: "__cudnn$fusion"}}
 })";
 
   EXPECT_TRUE(RunAndCompareTwoModules(kHlo, kHloReference,
@@ -1229,8 +1229,8 @@ ENTRY e {
     lhs_contracting_dims={2}, rhs_contracting_dims={2}
 })";
 
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
-                          ParseAndReturnVerifiedModule(hlo));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                       ParseAndReturnVerifiedModule(hlo));
   // Triton backend is disabled meaning that the compilation should fail.
   auto status = CompileToExecutable(std::move(module)).status();
 
@@ -1333,14 +1333,14 @@ TEST_F(CuDnnFusionFileCheckTest, ConvFpropGraphConvertedCorrectly) {
 fusion {
   input = f32[2,9,9,17] parameter(0)
   filter = f32[32,3,3,17] parameter(1)
-  ROOT conv = f32[2,9,9,32] convolution(input, filter), window={size=3x3 pad=1_1x1_1}, dim_labels=b01f_o01i->b01f, feature_group_count=1
+  ROOT conv = f32[2,9,9,32] convolution(input, filter), window={size=3x3 pad=1_1x1_1}, dim_labels=b01f_o01i->b01f, feature_group_count=1, conv_kind=fprop
 }
 
 
 ENTRY Test {
   input = f32[2,9,9,17] parameter(0)
   filter = f32[32,3,3,17] parameter(1)
-  ROOT conv = f32[2,9,9,32] fusion(input, filter), kind=kCustom, calls=fusion, backend_config={"fusion_backend_config": {kind: "__cudnn$fusion", cudnn_fusion_config: {"kind":"CONV_FPROP"}}}
+  ROOT conv = f32[2,9,9,32] fusion(input, filter), kind=kCustom, calls=fusion, backend_config={"fusion_backend_config": {kind: "__cudnn$fusion"}}
 })";
 
   EXPECT_TRUE(*RunCuDnnFileCheck(kHloText, R"(
