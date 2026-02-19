@@ -1725,7 +1725,6 @@ py_strict_library(
         "//tensorflow/python:no_contrib",
         "//tensorflow/python/profiler:profiler_client",
         "@pypi_keras//:pkg",
-        "@pypi_tensorboard//:pkg",
     ],
 )
 # copybara:comment_end
