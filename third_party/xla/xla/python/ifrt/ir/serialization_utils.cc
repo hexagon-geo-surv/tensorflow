@@ -29,7 +29,9 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "google/protobuf/io/zero_copy_stream_impl_lite.h"
 #include "google/protobuf/message_lite.h"
+#include "google/protobuf/util/delimited_message_util.h"
 #include "riegeli/bytes/cord_writer.h"
 #include "riegeli/messages/serialize_message.h"
 #include "stablehlo/dialect/Version.h"
@@ -174,9 +176,15 @@ absl::Status SerializeIfrtIrAtomExecutables(
 
 absl::StatusOr<std::unique_ptr<xla::ifrt::XlaDeserializeExecutableOptions>>
 CreateXlaDeserializeExecutableOptions(
-    xla::ifrt::Client* client,
-    absl::Span<const xla::ifrt::DeviceId> device_assignments,
+    xla::ifrt::Client* client, xla::ifrt::DeviceListRef device_list,
     const SerializedIfrtIrAtomExecutableMetadata& metadata) {
+  // Get the map of logical device id to device from the incoming device list.
+  absl::Span<xla::ifrt::Device* const> device_assignments =
+      device_list->devices();
+  if (device_assignments.empty()) {
+    return absl::InvalidArgumentError(
+        "Device list is empty in deserialize options");
+  }
   std::vector<Device*> atom_devices;
   for (auto logical_device_id : metadata.logical_device_ids()) {
     if (logical_device_id >= device_assignments.size()) {
@@ -185,9 +193,8 @@ CreateXlaDeserializeExecutableOptions(
                        " is out of range. Device assignments size: ",
                        device_assignments.size()));
     }
-    TF_ASSIGN_OR_RETURN(
-        Device * device,
-        client->LookupDevice(device_assignments[logical_device_id]));
+    // Remap the atom's logical device id to the incoming device list.
+    xla::ifrt::Device* device = device_assignments[logical_device_id];
     atom_devices.push_back(device);
   }
   TF_ASSIGN_OR_RETURN(DeviceListRef atom_device_list,
@@ -201,12 +208,12 @@ absl::Status DeserializeAndRegisterAtomPrograms(
     xla::ifrt::Client* client,
     const SerializedIfrtIrExecutableMetadata& metadata,
     absl::string_view serialized_executable_payload,
+    xla::ifrt::DeviceListRef device_list,
     xla::ifrt::IfrtIRCompileOptions* compile_options) {
   for (const auto& atom_meta : metadata.atom_program_executables()) {
     TF_ASSIGN_OR_RETURN(
         std::unique_ptr<xla::ifrt::XlaDeserializeExecutableOptions> options,
-        CreateXlaDeserializeExecutableOptions(
-            client, compile_options->device_assignments, atom_meta));
+        CreateXlaDeserializeExecutableOptions(client, device_list, atom_meta));
 
     absl::string_view serialized_atom_program =
         serialized_executable_payload.substr(
@@ -286,6 +293,13 @@ absl::StatusOr<DeserializedIfrtIRProgram> DeserializeIfrtIrExecutable(
         "Failed to parse SerializedIfrtIrExecutableMetadata");
   }
 
+  // Extract device list from options before it is moved to program
+  // deserialization.
+  if (!options->devices.has_value()) {
+    return absl::InvalidArgumentError(
+        "Device list is not provided in deserialize options");
+  }
+  xla::ifrt::DeviceListRef device_list = options->devices.value();
   absl::string_view serialized_executable_payload =
       serialized.substr(input_stream.ByteCount());
 
@@ -297,8 +311,16 @@ absl::StatusOr<DeserializedIfrtIRProgram> DeserializeIfrtIrExecutable(
       std::unique_ptr<xla::ifrt::IfrtIRCompileOptions> compile_options,
       xla::ifrt::IfrtIRCompileOptions::FromProto(metadata.compile_options()));
 
+  // Remap the de-serialized device assignments to the incoming deserialize
+  // options.
+  compile_options->device_assignments.clear();
+  for (auto device : device_list->devices()) {
+    compile_options->device_assignments.push_back(device->Id());
+  }
+
   TF_RETURN_IF_ERROR(DeserializeAndRegisterAtomPrograms(
-      client, metadata, serialized_executable_payload, compile_options.get()));
+      client, metadata, serialized_executable_payload, device_list,
+      compile_options.get()));
 
   return DeserializedIfrtIRProgram{std::move(program),
                                    std::move(compile_options)};
