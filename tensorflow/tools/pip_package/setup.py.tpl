@@ -123,7 +123,6 @@ REQUIRED_PACKAGES = [
     # dependencies on the release branch is updated to the stable releases (RC
     # or final). For example, 'keras-nightly ~= 2.14.0.dev' will be replaced by
     # 'keras >= 2.14.0rc0, < 2.15' on the release branch after the branch cut.
-    'tensorboard ~= 2.20.0',
     'keras >= 3.12.0',
     'numpy >= 1.26.0',
     # Starting with 3.15, only MacOS 14 and 15 are supported.
@@ -190,16 +189,6 @@ CONSOLE_SCRIPTS = [
     'tflite_convert = tensorflow.lite.python.tflite_convert:main',
     'toco = tensorflow.lite.python.tflite_convert:main',
     'saved_model_cli = tensorflow.python.tools.saved_model_cli:main',
-    (
-        'import_pb_to_tensorboard ='
-        ' tensorflow.python.tools.import_pb_to_tensorboard:main'
-    ),
-    # We need to keep the TensorBoard command, even though the console script
-    # is now declared by the tensorboard pip package. If we remove the
-    # TensorBoard command, pip will inappropriately remove it during install,
-    # even though the command is not removed, just moved to a different wheel.
-    # We exclude it anyway if building tf_nightly.
-    standard_or_nightly('tensorboard = tensorboard.main:run_main', None),
     'tf_upgrade_v2 = tensorflow.tools.compatibility.tf_upgrade_v2_main:main',
 ]
 CONSOLE_SCRIPTS = [s for s in CONSOLE_SCRIPTS if s is not None]
