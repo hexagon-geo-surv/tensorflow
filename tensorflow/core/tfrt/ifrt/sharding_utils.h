@@ -21,6 +21,7 @@ limitations under the License.
 #include <optional>
 #include <vector>
 
+#include "absl/base/attributes.h"
 #include "absl/container/inlined_vector.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -30,7 +31,7 @@ limitations under the License.
 #include "xla/python/ifrt/client.h"
 #include "xla/python/ifrt/device.h"
 #include "xla/python/ifrt/device_list.h"
-#include "xla/python/ifrt/dtype.h"
+#include "xla/python/ifrt/layout.h"
 #include "xla/shape.h"
 #include "xla/tsl/concurrency/future.h"
 #include "xla/tsl/platform/threadpool.h"
@@ -41,6 +42,21 @@ limitations under the License.
 
 namespace tensorflow {
 namespace ifrt_serving {
+
+// A handle that bundles necessary information for transferring a single input
+// tensor to devices.
+struct InputHandle {
+  // The input tensor to be transferred.
+  tensorflow::Tensor tensor;
+  // The XLA shape of the input tensor.
+  const xla::Shape* input_xla_shape;
+  // The devices to transfer the tensor to.
+  xla::ifrt::DeviceListRef device_list;
+  // The sharding of the tensor.
+  xla::HloSharding hlo_sharding;
+  // The layout of the input tensor.
+  xla::ifrt::LayoutRef xla_input_layout;
+};
 
 // A per-request H2D transfer executor. The caller should call
 // `RegisterH2DTransfer` to register tensors to be transferred, and then call
@@ -54,6 +70,7 @@ class H2DTransferExecutor {
   explicit H2DTransferExecutor(xla::ifrt::Client& ifrt_client);
   virtual ~H2DTransferExecutor() = default;
 
+  ABSL_DEPRECATED("Use ScheduledH2DTransfers instead.")
   // Registers a tensor to be transferred to devices. The H2D transfer can be
   // started in this call or in a later call of `RunH2DTransfers`.
   virtual absl::StatusOr<tsl::Future<xla::ifrt::ArrayRef>> ScheduledH2DTransfer(
@@ -64,6 +81,12 @@ class H2DTransferExecutor {
       const xla::HloSharding& hlo_sharding,
       tsl::thread::ThreadPool& thread_pool,
       xla::ifrt::LayoutRef xla_input_layout);
+
+  // Registers a list of tensors to be transferred to devices.
+  // This should be called only before `RunH2DTransfers` once.
+  virtual absl::StatusOr<tsl::Future<std::vector<xla::ifrt::ArrayRef>>>
+  ScheduledH2DTransfers(absl::Span<const InputHandle> handles,
+                        tsl::thread::ThreadPool& thread_pool);
 
   // Executes the H2D transfers for all registered tensors.
   virtual absl::Status RunH2DTransfers();
