@@ -118,7 +118,6 @@ tf_py_strict_test(
         "//tensorflow/python/ops:summary_ops_v2",
         "//tensorflow/python/platform:client_testlib",
         "//tensorflow/python/training:training_util",
-        "@pypi//tensorboard",
     ],
 )
 
