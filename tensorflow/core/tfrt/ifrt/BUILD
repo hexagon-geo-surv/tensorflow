@@ -579,6 +579,7 @@ tf_cc_test(
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/platform:ml_dtypes",
+        "@xla//xla:shape_util",
         "@xla//xla:xla_data_proto_cc",
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/python/ifrt",
@@ -586,7 +587,6 @@ tf_cc_test(
         "@xla//xla/python/pjrt_ifrt:xla_ifrt",
         "@xla//xla/tsl/concurrency:ref_count",
         "@xla//xla/tsl/platform:env",
-        "@xla//xla/tsl/platform:status_matchers",
         "@xla//xla/tsl/platform:statusor",
     ],
 )
