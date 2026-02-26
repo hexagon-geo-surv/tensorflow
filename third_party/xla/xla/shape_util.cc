@@ -36,6 +36,7 @@ limitations under the License.
 #include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/numeric/bits.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
@@ -43,6 +44,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
+#include "llvm/Support/MathExtras.h"
 #include "xla/index_util.h"
 #include "xla/layout.h"
 #include "xla/layout_util.h"
@@ -2476,6 +2478,28 @@ ShapeUtil::GetNormalizedLogicalTransposeShape(
   std::vector<const Shape*> flattened;
   FlattenTupleShape(shape, flattened);
   return flattened;
+}
+
+/*static*/ absl::InlinedVector<int64_t, 4> ShapeUtil::GreedyPowerOfTwoTiles(
+    const Shape& output_shape, int64_t num_blocks) {
+  const int64_t rank = output_shape.dimensions().size();
+  const absl::Span<const int64_t> minor_to_major =
+      LayoutUtil::MinorToMajor(output_shape);
+  absl::InlinedVector<int64_t, 4> tile_sizes(rank);
+  int64_t remaining_blocks = num_blocks;
+  // Iterate from most major to most minor to keep memory contiguous for each
+  // block.
+  for (int i = rank - 1; i >= 0; --i) {
+    const int64_t dim = minor_to_major[i];
+    const int64_t dim_size = output_shape.dimensions(dim);
+    // Largest power-of-two k <= std::min(dim_size, remaining_blocks).
+    const int64_t k = std::max(1UL, absl::bit_floor(static_cast<uint64_t>(
+                                        std::min(remaining_blocks, dim_size))));
+    tile_sizes[dim] = llvm::PowerOf2Ceil(xla::CeilOfRatio(dim_size, k));
+    const int64_t blocks_used = xla::CeilOfRatio(dim_size, tile_sizes[dim]);
+    remaining_blocks = xla::CeilOfRatio(remaining_blocks, blocks_used);
+  }
+  return tile_sizes;
 }
 
 }  // namespace xla

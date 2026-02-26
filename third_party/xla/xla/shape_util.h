@@ -24,7 +24,6 @@ limitations under the License.
 #include <optional>
 #include <ostream>
 #include <string>
-#include <tuple>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -45,6 +44,7 @@ limitations under the License.
 #include "xla/shape_util.pb.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/logging.h"  // IWYU pragma: keep
+#include "xla/util.h"
 #include "xla/xla_data.pb.h"
 
 namespace xla {
@@ -1218,6 +1218,17 @@ class ShapeUtil {
     return LayoutUtil::Minor(shape.layout(), 0) ==
            shape.dimensions().size() - 1;
   };
+
+  // Returns a tile such each dimension is a power of two and that the total
+  // number of blocks does not exceed num_blocks. Returns the tile sizes in
+  // minor to major order. It picks tiles greedily from the most major dimension
+  // to the most minor dimension. Eg:
+  // - [1024, 1024] with num_blocks = 32 returns [32, 1024]
+  // - [8192, 16] with num_blocks = 32 returns [256, 16].
+  // - [5, 1024] with num_blocks = 32 returns [2, 128].
+  // Note that it can be that the number of blocks used is less than num_blocks.
+  static absl::InlinedVector<int64_t, 4> GreedyPowerOfTwoTiles(
+      const Shape& output_shape, int64_t num_blocks);
 
  private:
   // Helper for ForEachSubshape which visits the subshapes of the given shape in

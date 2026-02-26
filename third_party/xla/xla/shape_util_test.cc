@@ -18,10 +18,12 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <tuple>
 #include <utility>
 #include <variant>
 #include <vector>
 
+#include "testing/base/public/benchmark.h"
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/algorithm/container.h"
@@ -37,8 +39,6 @@ limitations under the License.
 #include "xla/layout_util.h"
 #include "xla/shape.h"
 #include "xla/tsl/platform/env.h"
-#include "xla/tsl/platform/statusor.h"
-#include "xla/tsl/platform/test_benchmark.h"
 #include "xla/tsl/platform/threadpool.h"
 #include "xla/util.h"
 #include "xla/xla_data.pb.h"
@@ -47,7 +47,6 @@ namespace xla {
 namespace {
 
 using ::testing::ElementsAre;
-using ::testing::IsEmpty;
 
 TEST(ShapeUtilTest, GetDimensionHelperCanNegativeIndex) {
   Shape matrix = ShapeUtil::MakeShape(F32, {2, 3});
@@ -1944,6 +1943,43 @@ TEST(ShapeUtilTest, GetNormalizedLogicalTransposeShape_InvalidLayout) {
   EXPECT_FALSE(ShapeUtil::GetNormalizedLogicalTransposeShape(
                    input_shape, output_shape, dimensions, permutation)
                    .ok());
+}
+
+TEST(ShapeUtilTest, BuildConstrainedTile) {
+  // output_shape, num_blocks, expected_tile_sizes, expected_used_blocks
+  std::vector<
+      std::tuple<Shape, int64_t, absl::InlinedVector<int64_t, 4>, int64_t>>
+      test_cases = {
+          {ShapeUtil::MakeShape(F32, {1024, 1024}), 16, {64, 1024}, 16},
+          {ShapeUtil::MakeShapeWithDenseLayout(BF16, {16, 3072, 2, 8},
+                                               {1, 3, 0, 2}),
+           32,
+           {1, 4096, 1, 8},
+           32},
+          {ShapeUtil::MakeShapeWithDescendingLayout(BF16, {2, 5, 1024}),
+           32,
+           {1, 2, 256},
+           24},  // Not all blocks are used.
+      };
+  constexpr auto get_blocks_used = [](const Shape& shape,
+                                      absl::Span<const int64_t> tile_sizes) {
+    int64_t blocks_used = 1;
+    for (size_t i = 0; i < tile_sizes.size(); ++i) {
+      // Blocks used can't be fractional so we take the rounded up value.
+      blocks_used *= xla::CeilOfRatio(shape.dimensions(i), tile_sizes[i]);
+    }
+    return blocks_used;
+  };
+  for (const auto& test_case : test_cases) {
+    const auto& [output_shape, num_blocks, expected_tile_sizes,
+                 expected_used_blocks] = test_case;
+    absl::InlinedVector<int64_t, 4> tile_sizes =
+        ShapeUtil::GreedyPowerOfTwoTiles(output_shape, num_blocks);
+    SCOPED_TRACE(absl::StrCat("output_shape: ", output_shape.ToString(),
+                              " num_blocks: ", num_blocks));
+    EXPECT_THAT(tile_sizes, testing::ElementsAreArray(expected_tile_sizes));
+    EXPECT_EQ(get_blocks_used(output_shape, tile_sizes), expected_used_blocks);
+  }
 }
 
 }  // namespace
