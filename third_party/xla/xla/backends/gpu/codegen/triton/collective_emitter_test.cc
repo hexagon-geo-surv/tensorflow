@@ -14,6 +14,8 @@ limitations under the License.
 
 #include "xla/backends/gpu/codegen/triton/collective_emitter.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -29,6 +31,7 @@ limitations under the License.
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/Module.h"
 #include "mlir/IR/MLIRContext.h"
 #include "xla/backends/gpu/codegen/fusion_emitter.h"
@@ -51,6 +54,7 @@ limitations under the License.
 #include "xla/stream_executor/device_description.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/util/proto/proto_matchers.h"
+#include "xla/util.h"
 #include "xla/xla_data.pb.h"
 
 namespace xla::gpu {
@@ -306,6 +310,70 @@ INSTANTIATE_TEST_SUITE_P(
                  info.param.element_type()) +
              "__" + absl::StrJoin(info.param.dimensions(), "_");
     });
+
+struct GreedyPowerOfTwoTilesTestCase {
+  std::string test_name;
+  Shape output_shape;
+  int64_t num_blocks;
+  llvm::SmallVector<int64_t> expected_tile_sizes;
+  int64_t expected_used_blocks;
+
+  [[maybe_unused]] friend void PrintTo(
+      const GreedyPowerOfTwoTilesTestCase& test_case, std::ostream* os) {
+    *os << "{test_name: " << test_case.test_name
+        << " output_shape: " << test_case.output_shape.ToString()
+        << " num_blocks: " << test_case.num_blocks
+        << " expected_used_blocks: " << test_case.expected_used_blocks << "}";
+  }
+};
+
+class GreedyPowerOfTwoTilesTest
+    : public ::testing::TestWithParam<GreedyPowerOfTwoTilesTestCase> {};
+
+TEST_P(GreedyPowerOfTwoTilesTest, CorrectTilesGenerated) {
+  const auto& [test_name, output_shape, num_blocks, expected_tile_sizes,
+               expected_used_blocks] = GetParam();
+
+  const auto get_blocks_used = [](const Shape& shape,
+                                  llvm::ArrayRef<const int64_t> tile_sizes) {
+    int64_t blocks_used = 1;
+    for (size_t i = 0; i < tile_sizes.size(); ++i) {
+      blocks_used *= xla::CeilOfRatio(shape.dimensions(i), tile_sizes[i]);
+    }
+    return blocks_used;
+  };
+  llvm::SmallVector<int64_t, 4> tile_sizes =
+      GreedyPowerOfTwoTiles(output_shape, num_blocks);
+  EXPECT_THAT(tile_sizes, testing::ElementsAreArray(expected_tile_sizes));
+  EXPECT_EQ(get_blocks_used(output_shape, tile_sizes), expected_used_blocks);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    GreedyPowerOfTwoTilesTestSuite, GreedyPowerOfTwoTilesTest,
+    ::testing::Values(
+        GreedyPowerOfTwoTilesTestCase{
+            /* .test_name = */ "2D_Pow2",
+            /* .output_shape = */ ShapeUtil::MakeShape(F32, {1024, 1024}),
+            /* .num_blocks = */ 16,
+            /* .expected_tile_sizes = */ {64, 1024},
+            /* .expected_used_blocks = */ 16},
+        GreedyPowerOfTwoTilesTestCase{
+            /* .test_name = */ "4D_MixedLayout",
+            /* .output_shape = */
+            ShapeUtil::MakeShapeWithDenseLayout(BF16, {16, 3072, 2, 8},
+                                                {1, 3, 0, 2}),
+            /* .num_blocks = */ 32,
+            /* .expected_tile_sizes = */ {1, 4096, 1, 8},
+            /* .expected_used_blocks = */ 32},
+        GreedyPowerOfTwoTilesTestCase{
+            /* .test_name = */ "3D_PartialBlocks",
+            /* .output_shape = */
+            ShapeUtil::MakeShapeWithDescendingLayout(BF16, {2, 5, 1024}),
+            /* .num_blocks = */ 32,
+            /* .expected_tile_sizes = */ {1, 2, 256},
+            /* .expected_used_blocks = */ 24}),
+    [](const ::testing::TestParamInfo<GreedyPowerOfTwoTilesTest::ParamType>&
+           info) { return info.param.test_name; });
 
 }  // namespace
 
