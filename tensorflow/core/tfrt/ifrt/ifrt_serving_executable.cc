@@ -71,11 +71,13 @@ limitations under the License.
 #include "xla/python/ifrt/hlo/hlo_program.h"
 #include "xla/python/ifrt/host_callback.h"
 #include "xla/python/ifrt/layout.h"
+#include "xla/python/ifrt/memory.h"
 #include "xla/python/ifrt/program.h"
 #include "xla/python/ifrt/shape.h"
 #include "xla/python/ifrt/sharding.h"
 #include "xla/python/pjrt_ifrt/pjrt_host_callback.h"
 #include "xla/python/pjrt_ifrt/pjrt_layout.h"
+#include "xla/python/pjrt_ifrt/xla_sharding.h"
 #include "xla/service/computation_placer.h"
 #include "xla/service/dump.h"
 #include "xla/shape.h"
@@ -227,6 +229,26 @@ GetHostCallbackModulesAndRemoveHostFuncs(mlir::ModuleOp module) {
     func->erase();
   }
   return host_callback_modules;
+}
+
+absl::StatusOr<xla::ifrt::ShardingRef> CreateIfrtSharding(
+    xla::ifrt::Client* client, const xla::ifrt::DeviceListRef& device_list,
+    const xla::HloSharding& hlo_sharding) {
+  if (device_list->size() == 1) {
+    return xla::ifrt::SingleDeviceSharding::Create(
+        device_list->devices().front(), xla::ifrt::MemoryKind());
+  }
+  if (!hlo_sharding.IsReplicated() && hlo_sharding.IsTileMaximal()) {
+    VLOG(1) << "Single device fast path for Maximal tiled tensor";
+    int unique_device_id = hlo_sharding.GetUniqueDevice();
+    TF_ASSIGN_OR_RETURN(
+        xla::ifrt::Device * device,
+        client->LookupDevice(xla::ifrt::DeviceId(unique_device_id)));
+    return xla::ifrt::SingleDeviceSharding::Create(device,
+                                                   xla::ifrt::MemoryKind());
+  }
+  return xla::ifrt::HloSharding::Create(device_list, xla::ifrt::MemoryKind(),
+                                        hlo_sharding);
 }
 
 }  // namespace
@@ -617,10 +639,28 @@ IfrtServingExecutable::CreateExecutableSynchronously(
     TF_ASSIGN_OR_RETURN(xla::HloSharding hlo_sharding,
                         xla::HloSharding::FromProto(arg.sharding()));
     executable_bundle->arg_hlo_shardings.push_back(hlo_sharding);
+    TF_ASSIGN_OR_RETURN(
+        auto ifrt_sharding,
+        CreateIfrtSharding(ifrt_client_.get(), assigned_device_list_,
+                           hlo_sharding));
+    executable_bundle->arg_ifrt_shardings.push_back(std::move(ifrt_sharding));
     TF_ASSIGN_OR_RETURN(auto reshaped_tensor,
                         tensorflow::TensorShape::BuildTensorShape(arg.shape()));
     executable_bundle->reshaped_input_tensors.push_back(
         std::move(reshaped_tensor));
+  }
+
+  if (UsePortableExecution()) {
+    // For core selection, the device is selected at runtime. We pre-calculate
+    // the sharding for each addressable device to avoid doing it on the
+    // critical path. The map is keyed by device ID.
+    for (xla::ifrt::Device* device : ifrt_client_->addressable_devices()) {
+      TF_ASSIGN_OR_RETURN(xla::ifrt::DeviceListRef device_list,
+                          ifrt_client_->MakeDeviceList({device}));
+      executable_bundle->portable_single_device_shardings.emplace(
+          device->Id(), xla::ifrt::SingleDeviceSharding::Create(
+                            device, xla::ifrt::MemoryKind()));
+    }
   }
 
   executable_bundle->retval_hlo_shardings.reserve(
@@ -913,12 +953,19 @@ absl::StatusOr<std::vector<tensorflow::Tensor>> IfrtServingExecutable::Execute(
               : nullptr;
       const xla::Shape* xla_input_shape =
           xla_input_shapes != nullptr ? (*xla_input_shapes)[i].get() : nullptr;
+      xla::ifrt::ShardingRef ifrt_sharding = nullptr;
+      if (!UsePortableExecution()) {
+        ifrt_sharding = executable_bundle->arg_ifrt_shardings[i];
+      } else {
+        ifrt_sharding = executable_bundle->portable_single_device_shardings
+                            [device_list->devices().front()->Id()];
+      }
       TF_ASSIGN_OR_RETURN(
           tsl::Future<xla::ifrt::ArrayRef> array_ref,
           (*user_inputs_h2d_transfer_executor)
               ->ScheduledH2DTransfer(reshaped, xla_input_shape, device_list,
-                                     executable_bundle->arg_hlo_shardings[i],
-                                     thread_pool_, std::move(layout_ref)));
+                                     ifrt_sharding, thread_pool_,
+                                     std::move(layout_ref)));
       args.push_back(std::move(array_ref));
     }
   }

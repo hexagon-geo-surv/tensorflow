@@ -39,7 +39,6 @@ limitations under the License.
 #include "xla/tsl/concurrency/ref_count.h"
 #include "xla/tsl/lib/core/status_test_util.h"
 #include "xla/tsl/platform/env.h"
-#include "xla/tsl/platform/status_matchers.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/test.h"
 #include "xla/tsl/platform/threadpool.h"
@@ -132,6 +131,7 @@ TEST_P(ReshardToTensorTest, MakeHostTensorFromDeviceArrays) {
 
   auto ifrt_sharding = xla::ifrt::HloSharding::Create(
       device_list, xla::ifrt::MemoryKind(), GetParam().sharding);
+  xla::ifrt::ShardingRef ifrt_sharding_ref = std::move(ifrt_sharding);
   xla::ifrt::ArrayRef assembled_array;
 
   TF_ASSERT_OK_AND_ASSIGN(
@@ -139,7 +139,7 @@ TEST_P(ReshardToTensorTest, MakeHostTensorFromDeviceArrays) {
       client->AssembleArrayFromSingleDeviceArrays(
           split_arrays[0]->dtype(),
           ToIfrtShape(GetParam().expected_out_tensor.shape()),
-          std::move(ifrt_sharding), absl::MakeSpan(split_arrays),
+          ifrt_sharding_ref, absl::MakeSpan(split_arrays),
           xla::ifrt::ArrayCopySemantics::kAlwaysCopy,
           xla::ifrt::SingleDeviceShardSemantics::kAddressableShards));
 
@@ -404,10 +404,30 @@ TEST_P(TensorToArrayTest, MakeArrayFromTensor) {
   }
 
   TF_ASSERT_OK_AND_ASSIGN(
+      auto device_list,
+      xla::ifrt::test_util::GetDevices(client.get(), GetParam().device_ids));
+  xla::ifrt::ShardingRef sharding;
+  if (device_list->size() == 1 || (GetParam().sharding.IsTileMaximal() &&
+                                   !GetParam().sharding.IsReplicated())) {
+    int unique_device_id = 0;
+    if (GetParam().sharding.IsTileMaximal() &&
+        !GetParam().sharding.IsReplicated()) {
+      unique_device_id = GetParam().sharding.GetUniqueDevice();
+    }
+    TF_ASSERT_OK_AND_ASSIGN(
+        auto device,
+        client->LookupDevice(xla::ifrt::DeviceId(unique_device_id)));
+    sharding = xla::ifrt::SingleDeviceSharding::Create(device,
+                                                       xla::ifrt::MemoryKind());
+  } else {
+    sharding = xla::ifrt::HloSharding::Create(
+        device_list, xla::ifrt::MemoryKind(), GetParam().sharding);
+  }
+  TF_ASSERT_OK_AND_ASSIGN(
       auto assembled_array,
       MakeArrayFromTensor(*client, input_tensor,
                           absl::MakeSpan(GetParam().device_ids),
-                          GetParam().sharding, thread_pool,
+                          std::move(sharding), thread_pool,
                           /*xla_input_layout=*/ifrt_layout));
 
   if (ifrt_layout) {
@@ -719,9 +739,11 @@ TEST(ShardingUtilsTest, MismatchRank) {
       auto device_list, xla::ifrt::test_util::GetDevices(client.get(), {0, 1}));
 
   xla::HloSharding sharding = Tile({2, 1});
+  auto ifrt_sharding = xla::ifrt::ShardingRef(xla::ifrt::HloSharding::Create(
+      device_list, xla::ifrt::MemoryKind(), sharding));
 
   EXPECT_THAT(MakeArrayFromTensor(*client, input_tensor, device_list,
-                                  std::move(sharding), thread_pool,
+                                  std::move(ifrt_sharding), thread_pool,
                                   /*xla_input_layout*/ nullptr),
               absl_testing::StatusIs(
                   absl::StatusCode::kInvalidArgument,
