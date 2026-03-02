@@ -479,6 +479,11 @@ tf_xla_py_strict_test(
     size = "medium",
     srcs = ["cholesky_op_test.py"],
     disabled_backends = ["gpu_h100"],  # TODO: b/362907482 - Re-enable after fixing.
+    env = {
+        # Prevents TF from pre-allocating all GPU memory,
+        # leaving room for autotuner/cublas runtime allocations.
+        "TF_FORCE_GPU_ALLOW_GROWTH": "true",
+    },
     tags = [
         "no_pip",  # TODO(b/149738646): fix pip install so these tests run on kokoro pip
         "no_rocm",
@@ -1309,6 +1314,11 @@ tf_xla_py_strict_test(
         "cpu",
         "cpu_ondemand",
     ],
+    env = {
+        # Prevents TF from pre-allocating all GPU memory,
+        # leaving room for autotuner/cublas runtime allocations.
+        "TF_FORCE_GPU_ALLOW_GROWTH": "true",
+    },
     shard_count = 5,
     tags = [
         "no_pip",  # TODO(b/149738646): fix pip install so these tests run on kokoro pip
