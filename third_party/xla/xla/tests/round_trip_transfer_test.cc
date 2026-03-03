@@ -22,21 +22,20 @@ limitations under the License.
 
 #include "absl/status/statusor.h"
 #include "xla/array4d.h"
-#include "xla/client/local_client.h"
 #include "xla/literal.h"
-#include "xla/tests/client_library_test_base.h"
 #include "xla/tests/literal_test_util.h"
+#include "xla/tests/local_client_test_base.h"
 #include "tsl/platform/test.h"
 
 namespace xla {
 namespace {
 
-class RoundTripTransferTest : public ClientLibraryTestBase {
+class RoundTripTransferTest : public LocalClientTestBase {
  protected:
   void RoundTripTest(const Literal& original) {
     std::unique_ptr<GlobalData> data =
-        client_->TransferToServer(original).value();
-    Literal result = client_->Transfer(*data).value();
+        local_client_->TransferToServer(original).value();
+    Literal result = local_client_->Transfer(*data).value();
     EXPECT_TRUE(LiteralTestUtil::Equal(original, result));
   }
 };
