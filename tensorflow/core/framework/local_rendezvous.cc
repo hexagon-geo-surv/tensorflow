@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "tensorflow/core/framework/local_rendezvous.h"
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <utility>
@@ -163,11 +164,14 @@ absl::Status LocalRendezvous::Send(const Rendezvous::ParsedKey& key,
         ->IncrementBy(1);
   }
 
-  TF_RETURN_IF_ERROR(status());
-
   int bucket_index = key_hash % num_buckets_;
   auto& bucket = table_buckets_[bucket_index];
   bucket.mu.lock();
+
+  if (auto s = status(); !s.ok()) {
+    bucket.mu.unlock();
+    return s;
+  }
 
   auto it = bucket.table.insert({key_hash, ItemQueue()}).first;
   ItemQueue* queue = &it->second;
@@ -234,16 +238,16 @@ void LocalRendezvous::RecvAsync(const Rendezvous::ParsedKey& key,
   DVLOG(2) << "Recv " << this << " " << key_hash << " " << key.FullKey();
   tsl::core::RefCountPtr<Rendezvous> rc_keep_alive;
 
-  auto s = status();
-  if (!s.ok()) {
+  int bucket_index = key_hash % num_buckets_;
+  auto& bucket = table_buckets_[bucket_index];
+  bucket.mu.lock();
+
+  if (auto s = status(); !s.ok()) {
+    bucket.mu.unlock();
     // Rendezvous has been aborted.
     done(s, Rendezvous::Args(), recv_args, Tensor(), false);
     return;
   }
-
-  int bucket_index = key_hash % num_buckets_;
-  auto& bucket = table_buckets_[bucket_index];
-  bucket.mu.lock();
 
   auto it = bucket.table.insert({key_hash, ItemQueue()}).first;
   ItemQueue* queue = &it->second;
@@ -404,6 +408,7 @@ void LocalRendezvous::DoAbort(const absl::Status& status) {
   {
     mutex_lock l(mu_);
     status_.Update(status);
+    has_status_.store(true, std::memory_order_release);
   }
 
   // OUT_OF_RANGE implies a normal end of sequence (e.g. for tf.data),
@@ -445,6 +450,9 @@ void LocalRendezvous::DoAbort(const absl::Status& status) {
 }
 
 absl::Status LocalRendezvous::status() {
+  if (!has_status_.load(std::memory_order_acquire)) {
+    return absl::OkStatus();
+  }
   tf_shared_lock ml(mu_);
   return status_;
 }
