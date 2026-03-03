@@ -407,6 +407,7 @@ bool IsDevicelessCompilation(const Compiler::CompileOptions& options,
 absl::StatusOr<int> GetNumVisibleDevices(
     const Compiler::CompileOptions& options,
     const se::StreamExecutor* stream_exec, se::Platform::Id platform_id) {
+  //  Take a look at this
   if (IsDevicelessCompilation(options, stream_exec) &&
       options.gpu_topology.has_value()) {
     return options.gpu_topology->num_devices_per_host();
@@ -1628,14 +1629,11 @@ absl::Status GpuCompiler::OptimizeHloModule(
 
   // Run target-specific HLO optimization passes for convolution
   // canonicalization.
-  se::dnn::VersionInfo dnn_version = gpu_target_config.dnn_version_info;
-  if (stream_exec != nullptr) {
-    gpu_version = GetGpuVersion(stream_exec);
-    ASSIGN_OR_RETURN(dnn_version, GetDnnVersionInfo(stream_exec));
-  }
 
+  // CHECK(gpu_target_config.dnn_version_info != se::dnn::VersionInfo())
+  //     << "DNN version info is not set";
   RETURN_IF_ERROR(OptimizeHloConvolutionCanonicalization(
-      hlo_module, gpu_version, dnn_version,
+      hlo_module, gpu_version, gpu_target_config.dnn_version_info,
       device_description.runtime_version(), compilation_stats));
 
   RETURN_IF_ERROR(RunLayoutAssignmentPasses(
@@ -2019,6 +2017,9 @@ absl::Status GpuCompiler::OptimizeHloPostLayoutAssignment(
     se::StreamExecutor* executor) {
   if (options.gpu_topology.has_value()) {
     if (options.gpu_topology->has_gpu_target_config()) {
+      LOG(ERROR)
+          << "Using GPU target config from options"
+          << options.gpu_topology->gpu_target_config().ToProto().DebugString();
       return options.gpu_topology->gpu_target_config();
     }
   }
@@ -2034,6 +2035,8 @@ absl::Status GpuCompiler::OptimizeHloPostLayoutAssignment(
           "Failed to parse GpuTargetConfigProto");
     }
 
+    LOG(ERROR) << "Using GPU target config from file "
+               << debug_opts.xla_gpu_target_config_filename();
     return GpuTargetConfig::FromProto(gpu_target_config_proto);
   }
   if (executor) {
@@ -2050,6 +2053,8 @@ absl::Status GpuCompiler::OptimizeHloPostLayoutAssignment(
           "--xla_gpu_target_config_filename to pass in target information. "
           "The target config from StreamExecutor is inaccurate.");
     }
+    LOG(ERROR) << "Using GPU target config from executor "
+               << target_config.ToString();
     return target_config;
   }
   return absl::InternalError(
