@@ -66,7 +66,7 @@ class AutotuneCacheKey {
       const HloInstruction& instr);
 
  private:
-  friend class AutotunerUtil;
+  friend class AutotunerCache;
 
   explicit AutotuneCacheKey(absl::string_view model_str,
                             absl::string_view hlo_canonical)
