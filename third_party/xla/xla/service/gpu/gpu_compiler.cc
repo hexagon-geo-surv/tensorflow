@@ -44,7 +44,6 @@ limitations under the License.
 #include "llvm/AsmParser/Parser.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
-#include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
@@ -52,7 +51,6 @@ limitations under the License.
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
-#include "llvm/Support/Casting.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetParser/Triple.h"
@@ -118,7 +116,6 @@ limitations under the License.
 #include "xla/backends/gpu/transforms/hoist_fused_bitcasts.h"
 #include "xla/backends/gpu/transforms/layout_assignment.h"
 #include "xla/backends/gpu/transforms/move_copy_to_users.h"
-#include "xla/backends/gpu/transforms/nest_gemm_fusion.h"
 #include "xla/backends/gpu/transforms/onehot_rewriter.h"
 #include "xla/backends/gpu/transforms/ragged_all_to_all_canonicalizer.h"
 #include "xla/backends/gpu/transforms/ragged_all_to_all_decomposer.h"
@@ -313,6 +310,7 @@ limitations under the License.
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/status_macros.h"
+#include "xla/stream_executor/abi/executable_abi_version.h"
 #include "xla/stream_executor/cuda/cuda_compute_capability.h"
 #include "xla/stream_executor/device_description.h"
 #include "xla/stream_executor/device_description.pb.h"
@@ -1952,8 +1950,6 @@ absl::Status GpuCompiler::OptimizeHloPostLayoutAssignment(
   pipeline.AddPass<HoistFusedBitcasts>();
   pipeline.AddPass<ConvertTritonGemmConfig>(
       gpu_target_config.device_description, &mlir_context_);
-  pipeline.AddPass<NestGemmFusion>(gpu_target_config.device_description,
-                                   &mlir_context_);
 
   // Clean up new_tuple described above.
   pipeline.AddPass<TupleSimplifier>();
@@ -2725,6 +2721,11 @@ absl::StatusOr<std::unique_ptr<Executable>> GpuCompiler::RunBackend(
   });
 
   std::unique_ptr<GpuAliasInfo> alias_info = GetAliasInfo(gpu_device_info);
+
+  ASSIGN_OR_RETURN(stream_executor::ExecutableAbiVersion executable_abi_version,
+                   stream_executor::ExecutableAbiVersion::FromDeviceDescription(
+                       gpu_device_info));
+
   ASSIGN_OR_RETURN(
       std::unique_ptr<GpuExecutable> gpu_executable,
       GpuExecutable::Create(GpuExecutable::Params{
@@ -2752,7 +2753,8 @@ absl::StatusOr<std::unique_ptr<Executable>> GpuCompiler::RunBackend(
               ? std::move(module)
               : std::unique_ptr<HloModule>(),
           /*enable_debug_info_manager=*/embed_debug_info,
-          /*module_stats=*/std::move(module_stats)}));
+          /*module_stats=*/std::move(module_stats),
+          /*executable_abi_version=*/executable_abi_version}));
 
   if (embed_ir_in_executable) {
     std::string ir_module_string_before_opt =
@@ -3201,6 +3203,10 @@ GpuCompiler::LoadExecutableFromAotResult(
   DebugOptions debug_options = hlo_module->config().debug_options();
   std::string hlo_module_name = hlo_module->name();
 
+  ASSIGN_OR_RETURN(auto executable_abi_version,
+                   stream_executor::ExecutableAbiVersion::FromDeviceDescription(
+                       device_description));
+
   {
     tsl::profiler::TraceMe traceme("CreateGpuExecutable");
     std::unique_ptr<GpuAliasInfo> alias_info = GetAliasInfo(device_description);
@@ -3221,7 +3227,9 @@ GpuCompiler::LoadExecutableFromAotResult(
         /*debug_options=*/std::move(debug_options),
         /*device_description=*/device_description,
         /*debug_module=*/std::move(hlo_module),
-        /*enable_debug_info_manager=*/true});
+        /*enable_debug_info_manager=*/true,
+        /*module_stats=*/{},
+        /*executable_abi_version=*/executable_abi_version});
   }
 }
 
