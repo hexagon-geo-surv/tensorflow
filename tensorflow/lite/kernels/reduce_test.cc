@@ -1951,9 +1951,7 @@ TEST(ConstFloatMeanOpTest, EmptyInputButScalarOutput) {
                      {0}, false);
   ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_TRUE(m.GetOutputShape().empty());
-  auto output_data = m.GetOutput<float>();
-  EXPECT_TRUE(std::all_of(output_data.begin(), output_data.end(),
-                          [](float value) { return std::isnan(value); }));
+  EXPECT_THAT(m.GetOutput<float>(), Each(testing::IsNan()));
 }
 
 TEST(ConstAllOpTest, EmptyInputButScalarOutputKeepDim) {
