@@ -275,6 +275,86 @@ inline void BatchMatMul(const FullyConnectedParams& params,
   }
 }
 
+inline void BatchMatMulInt16xInt8(const FullyConnectedParams& params,
+                                  const RuntimeShape& lhs_shape,
+                                  const int8_t* lhs_data,
+                                  const RuntimeShape& rhs_shape,
+                                  const int16_t* rhs_data,
+                                  const RuntimeShape& output_shape,
+                                  int16_t* output_data) {
+  const RuntimeShape extended_lhs_shape =
+      RuntimeShape::ExtendedShape(5, lhs_shape);
+  const RuntimeShape extended_rhs_shape =
+      RuntimeShape::ExtendedShape(5, rhs_shape);
+
+  const int batch_dim0 = batch_matmul::broadcast_dim(
+      extended_lhs_shape.Dims(0), extended_rhs_shape.Dims(0));
+  const int batch_dim1 = batch_matmul::broadcast_dim(
+      extended_lhs_shape.Dims(1), extended_rhs_shape.Dims(1));
+  const int batch_dim2 = batch_matmul::broadcast_dim(
+      extended_lhs_shape.Dims(2), extended_rhs_shape.Dims(2));
+
+  const int lhs_ext0 = batch_matmul::extent(extended_lhs_shape, 0);
+  const int lhs_ext1 = batch_matmul::extent(extended_lhs_shape, 1);
+  const int lhs_ext2 = batch_matmul::extent(extended_lhs_shape, 2);
+  const int rhs_ext0 = batch_matmul::extent(extended_rhs_shape, 0);
+  const int rhs_ext1 = batch_matmul::extent(extended_rhs_shape, 1);
+  const int rhs_ext2 = batch_matmul::extent(extended_rhs_shape, 2);
+
+  // Set params for each matrix multiply.
+  const int lhs_rows = extended_lhs_shape.Dims(3);
+  const int rhs_cols = extended_rhs_shape.Dims(4);
+  const int accum_depth = extended_lhs_shape.Dims(4);
+
+  const int32_t input_offset = params.input_offset;
+  const int32_t filter_offset = params.weights_offset;
+  const int32_t output_offset = params.output_offset;
+  const int32_t output_multiplier = params.output_multiplier;
+  const int output_shift = params.output_shift;
+  const int32_t output_activation_min = params.quantized_activation_min;
+  const int32_t output_activation_max = params.quantized_activation_max;
+  TFLITE_DCHECK_LE(output_activation_min, output_activation_max);
+
+  for (int b0 = 0; b0 < batch_dim0; ++b0) {
+    const int8_t* lhs_ptr0 = lhs_data + (b0 * lhs_ext0);
+    const int16_t* rhs_ptr0 = rhs_data + (b0 * rhs_ext0);
+    for (int b1 = 0; b1 < batch_dim1; ++b1) {
+      const int8_t* lhs_ptr1 = lhs_ptr0 + b1 * lhs_ext1;
+      const int16_t* rhs_ptr1 = rhs_ptr0 + b1 * rhs_ext1;
+      for (int b2 = 0; b2 < batch_dim2; ++b2) {
+        const int8_t* lhs_ptr2 = lhs_ptr1 + b2 * lhs_ext2;
+        const int16_t* rhs_ptr2 = rhs_ptr1 + b2 * rhs_ext2;
+        int16_t* out_ptr = output_data + ((b0 * batch_dim1 * batch_dim2) +
+                                          b1 * batch_dim2 + b2) *
+                                             lhs_rows * rhs_cols;
+
+        for (int j = 0; j < rhs_cols; ++j) {
+          for (int i = 0; i < lhs_rows; ++i) {
+            int64_t total = 0;
+
+            for (int k = 0; k < accum_depth; ++k) {
+              int64_t lhs_val = lhs_ptr2[accum_depth * i + k];
+              int64_t rhs_val = rhs_ptr2[accum_depth * j + k];
+
+              total += (lhs_val + filter_offset) * (rhs_val + input_offset);
+            }
+
+            int32_t total_scaled = MultiplyByQuantizedMultiplier(
+                total, output_multiplier, output_shift);
+
+            total_scaled += output_offset;
+            total_scaled = std::max(total_scaled, output_activation_min);
+            total_scaled = std::min(total_scaled, output_activation_max);
+
+            const int idx = lhs_rows * j + i;
+            out_ptr[idx] = static_cast<int16_t>(total_scaled);
+          }
+        }
+      }
+    }
+  }
+}
+
 }  // namespace reference_ops
 }  // namespace tflite
 
