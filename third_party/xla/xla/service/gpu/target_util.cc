@@ -304,6 +304,9 @@ struct TargetDeviceFunction GetDeviceFunctionRoot(
     case TargetDeviceFunctionID::kCbrt: {
       return {"__nv_cbrt", "__ocml_cbrt", "_Z16__spirv_ocl_cbrt"};
     }
+    case TargetDeviceFunctionID::kRint: {
+      return {"__nv_rint", "__ocml_rint", "_Z16__spirv_ocl_rint"};
+    }
   }
 }
 }  // namespace
@@ -354,6 +357,8 @@ std::optional<TargetDeviceFunctionID> GetTargetDeviceFunctionID(HloOpcode op) {
       return TargetDeviceFunctionID::kTanh;
     case HloOpcode::kCbrt:
       return TargetDeviceFunctionID::kCbrt;
+    case HloOpcode::kRoundNearestEven:
+      return TargetDeviceFunctionID::kRint;
     default:
       break;
   }
