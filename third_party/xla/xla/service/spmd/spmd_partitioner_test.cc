@@ -3187,7 +3187,7 @@ ENTRY entry {
   %param0 = f32[12] parameter(0), sharding={devices=[4]<=[4]}
   ROOT %custom-call = (f32[12], f32[12], f32[12]) custom-call(%param0),
     custom_call_target="_SPMDInternalOp_MultiRotate",
-    backend_config="dimension=0,left_amount=1,right_amount=1",
+    backend_config="dimension=0,left_amount=1,right_amount=1,bufferize=0",
     sharding={{devices=[4]<=[4]}, {devices=[4]<=[4]}, {devices=[4]<=[4]}}
 })";
 
@@ -3240,7 +3240,7 @@ ENTRY entry {
   ROOT %custom-call = (f64[1520]{0}, f64[1520]{0}, f64[1520]{0}, f64[1520]{0}) custom-call(%param0),
     custom_call_target="_SPMDInternalOp_MultiSlice",
     sharding={{devices=[2]<=[2]}, {devices=[2]<=[2]}, {devices=[2]<=[2]}, {devices=[2]<=[2]}},
-    backend_config="dimension=0,amount=3,start_indices=[6],limit_indices=[1526],strides=[1]"
+    backend_config="dimension=0,amount=3,start_indices=[6],limit_indices=[1526],strides=[1],bufferize=0"
 })";
 
   TF_ASSERT_OK_AND_ASSIGN(auto module,
@@ -3270,7 +3270,7 @@ ENTRY entry {
   ROOT %custom-call = (f64[1520]{0}, f64[1520]{0}) custom-call(%param0),
     custom_call_target="_SPMDInternalOp_MultiSlice",
     sharding={{devices=[2]<=[2]}, {devices=[2]<=[2]}},
-    backend_config="dimension=0,amount=1,start_indices=[7],limit_indices=[1527],strides=[1]"
+    backend_config="dimension=0,amount=1,start_indices=[7],limit_indices=[1527],strides=[1],bufferize=0"
 })";
 
   TF_ASSERT_OK_AND_ASSIGN(auto module,

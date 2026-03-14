@@ -439,6 +439,11 @@ absl::Status SpmdPartitioningVisitor::HandleCustomCallSPMDInternal_MultiRotate(
       << "No dimension attribute in SPMD multi rotate op";
   int64_t dim = dim_it->second;
 
+  auto bufferize_it = attrs.find("bufferize");
+  TF_RET_CHECK(bufferize_it != attrs.end())
+      << "No bufferize attribute in SPMD multi rotate op";
+  int64_t bufferize = bufferize_it->second;
+
   auto left_amount_it = attrs.find("left_amount");
   TF_RET_CHECK(left_amount_it != attrs.end())
       << "No left_amount attribute in SPMD multi rotate op";
@@ -487,6 +492,11 @@ absl::Status SpmdPartitioningVisitor::HandleCustomCallSPMDInternal_MultiRotate(
                           /*handle_last_shard=*/true, post_halo_shard_size));
 
   auto [super_shard, shard_offset] = super_shard_and_offset;
+
+  if (bufferize) {
+    super_shard = b_.AddInstruction(HloInstruction::CreateUnary(
+        super_shard->shape(), HloOpcode::kOptimizationBarrier, super_shard));
+  }
 
   auto create_slice = [&](HloInstruction* val, int64_t start, int64_t limit) {
     Shape slice_shape = val->shape();
@@ -580,10 +590,14 @@ SpmdPartitioningVisitor::ConstructHaloExchangeSuperShard(
           }
           std::vector<int64_t> dst_idx(indices.begin(), indices.end());
           dst_idx[dim] += 1;
+          if (!handle_last_shard && dst_idx[dim] == participating_shards - 1) {
+            return;
+          }
           dst_idx[dim] %= participating_shards;
           pairs.emplace_back(device,
                              element_sharding.tile_assignment()(dst_idx));
         });
+    std::sort(pairs.begin(), pairs.end());
 
     Shape slice_shape = local_input->shape();
     slice_shape.set_dimensions(dim, right_amount);
@@ -631,9 +645,13 @@ SpmdPartitioningVisitor::ConstructHaloExchangeSuperShard(
           std::vector<int64_t> dst_idx(indices.begin(), indices.end());
           dst_idx[dim] += participating_shards - 1;
           dst_idx[dim] %= participating_shards;
+          if (!handle_last_shard && dst_idx[dim] == 0) {
+            return;
+          }
           pairs.emplace_back(device,
                              element_sharding.tile_assignment()(dst_idx));
         });
+    std::sort(pairs.begin(), pairs.end());
 
     Shape dynamic_slice_shape = local_input->shape();
     dynamic_slice_shape.set_dimensions(dim, left_amount);
@@ -776,6 +794,11 @@ absl::Status SpmdPartitioningVisitor::HandleCustomCallSPMDInternal_MultiSlice(
       << "No dimension attribute in SPMD multi slice op";
   int64_t dim = dim_it->second;
 
+  auto bufferize_it = int_attrs.find("bufferize");
+  TF_RET_CHECK(bufferize_it != int_attrs.end())
+      << "No bufferize attribute in SPMD multi slice op";
+  int64_t bufferize = bufferize_it->second;
+
   auto amount_it = int_attrs.find("amount");
   TF_RET_CHECK(amount_it != int_attrs.end())
       << "No amount attribute in SPMD multi slice op";
@@ -798,7 +821,7 @@ absl::Status SpmdPartitioningVisitor::HandleCustomCallSPMDInternal_MultiSlice(
   const HloSharding& element_sharding = hlo->sharding().tuple_elements()[0];
 
   // Check that all tuple elements have the same sharding.
-  for (size_t i = 0; i < hlo->sharding().tuple_elements().size(); ++i) {
+  for (int64_t i = 0; i < hlo->sharding().tuple_elements().size(); ++i) {
     TF_RET_CHECK(hlo->sharding().tuple_elements()[i] == element_sharding)
         << "All elements of MultiSlice output must have the same sharding.";
   }
@@ -902,6 +925,12 @@ absl::Status SpmdPartitioningVisitor::HandleCustomCallSPMDInternal_MultiSlice(
 
     shard_to_slice = b_.AddInstruction(HloInstruction::CreateDynamicSlice(
         slice_shape, super_shard, start_indices, slice_sizes));
+
+    if (bufferize) {
+      shard_to_slice = b_.AddInstruction(HloInstruction::CreateUnary(
+          shard_to_slice->shape(), HloOpcode::kOptimizationBarrier,
+          shard_to_slice));
+    }
   }
 
   std::vector<HloInstruction*> sliced_results;
