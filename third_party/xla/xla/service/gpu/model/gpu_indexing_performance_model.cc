@@ -31,6 +31,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/MathExtras.h"
 #include "xla/backends/gpu/codegen/triton/fusion.h"
 #include "xla/codegen/tiling/symbolic_tile_analysis.h"
@@ -53,8 +54,6 @@ limitations under the License.
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/stream_executor/device_description.h"
-#include "xla/tsl/platform/errors.h"
-#include "xla/tsl/platform/status.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
 
@@ -131,12 +130,13 @@ bool DoesTileFitInRegisters(int64_t tile_size,
                           device_info.registers_per_block_limit();
 }
 
-// Returns the number of times the region is executed.
+// Returns a multiplier for the given region with `region_id`.
 //
-// Most regions are only executed once, however for dot, the region is the whole
-// loop body and might be executed multiple times.
-int64_t GetRegionMultiplier(const TiledHloInstruction* tiled_hlo) {
-  int64_t multiplier = 1;
+// For Dot, it represents the reduction loop trip count.
+// For Concatenate, it represents the fractional size of the branch.
+double GetRegionMultiplier(const TiledHloInstruction* tiled_hlo,
+                           int64_t region_id) {
+  double multiplier = 1.0;
   const HloInstruction* hlo = tiled_hlo->hlo();
   if (HloPredicateIsOp<HloOpcode::kDot, HloOpcode::kScaledDot>(hlo)) {
     auto contracting_dimensions =
@@ -145,6 +145,12 @@ int64_t GetRegionMultiplier(const TiledHloInstruction* tiled_hlo) {
       multiplier *= CeilOfRatio(hlo->operand(0)->shape().dimensions(dim),
                                 tiled_hlo->operand(0)->tile_sizes()[dim]);
     }
+  } else if (HloPredicateIsOp<HloOpcode::kConcatenate>(hlo)) {
+    CHECK_LT(region_id, hlo->operand_count());
+    int64_t concat_dim = hlo->concatenate_dimension();
+    multiplier = static_cast<double>(
+                     hlo->operand(region_id)->shape().dimensions(concat_dim)) /
+                 hlo->shape().dimensions(concat_dim);
   }
   return multiplier;
 }
@@ -152,12 +158,11 @@ int64_t GetRegionMultiplier(const TiledHloInstruction* tiled_hlo) {
 // Visits all tiled HLOs in the computation, including those within regions.
 //
 // The `visitor` function is called with each `TiledHloInstruction` and a
-// `multiplier` indicating how many times the context of this instruction is
-// executed relative to the root of the computation.
+// `multiplier` relative to the root of the computation.
 void ForEachInstructionInTiledHloComputation(
     const TiledHloComputation& tiled_hlo_computation,
-    absl::FunctionRef<void(const TiledHloInstruction*, int64_t)> visitor) {
-  std::vector<std::pair<const TiledHloInstruction*, int64_t>> worklist;
+    absl::FunctionRef<void(const TiledHloInstruction*, double)> visitor) {
+  std::vector<std::pair<const TiledHloInstruction*, double>> worklist;
   for (const auto* instruction : tiled_hlo_computation.instructions()) {
     worklist.push_back({instruction, 1});
   }
@@ -168,10 +173,10 @@ void ForEachInstructionInTiledHloComputation(
 
     visitor(instruction, multiplier);
 
-    multiplier *= GetRegionMultiplier(instruction);
-    for (const auto& region : instruction->regions()) {
+    for (const auto& [i, region] : llvm::enumerate(instruction->regions())) {
+      double sub_multiplier = multiplier * GetRegionMultiplier(instruction, i);
       for (const auto& tiled_hlo : region) {
-        worklist.push_back({tiled_hlo.get(), multiplier});
+        worklist.push_back({tiled_hlo.get(), sub_multiplier});
       }
     }
   }
@@ -198,7 +203,7 @@ bool DoesComputationFitInRegisters(
   bool fits = true;
   ForEachInstructionInTiledHloComputation(
       tiled_hlo_computation,
-      [&](const TiledHloInstruction* tiled_hlo, int64_t unused_multiplier) {
+      [&](const TiledHloInstruction* tiled_hlo, double unused_multiplier) {
         if (!fits) {
           return;
         }
@@ -503,25 +508,11 @@ GpuPerformanceModelWithIndexingAnalysis::EstimateRunTimeForTiledHloComputation(
     return EstimateRunTimeData::Infinite();
   }
 
-  absl::Status computation_status = absl::OkStatus();
   ForEachInstructionInTiledHloComputation(
       tiled_hlo_computation,
-      [&](const TiledHloInstruction* tiled_hlo, int64_t multiplier) {
-        if (!computation_status.ok()) {
-          return;
-        }
-
+      [&](const TiledHloInstruction* tiled_hlo, double multiplier) {
         const HloInstruction* hlo = tiled_hlo->hlo();
         if (fusion_adaptor.ContainsInstruction(hlo)) {
-          if (hlo->opcode() == HloOpcode::kConcatenate) {
-            // TODO(b/351342921): Add propagation of the number of blocks that
-            // read or compute a tile. Concatenate is the only operation that
-            // may change that.
-            computation_status = absl::FailedPreconditionError(
-                "Concatenate is not supported by the indexing cost model.");
-            return;
-          }
-
           // Number of elements in the tile after padding.
           int64_t padded_tile_size = GetPaddedTileSize(tiled_hlo->tile_sizes());
 
@@ -572,7 +563,6 @@ GpuPerformanceModelWithIndexingAnalysis::EstimateRunTimeForTiledHloComputation(
             std::min(operand_read_info.read_bandwidth_utilization_rate,
                      effective_bandwidth_utilization_rate);
       });
-  TF_RETURN_IF_ERROR(computation_status);
 
   absl::Duration read_time = absl::ZeroDuration();
   for (const auto& [hlo, operand_read_info] : n_bytes_total_map) {
@@ -685,7 +675,7 @@ GpuPerformanceModelWithIndexingAnalysis::GetLaunchDimensionsForTiledFusion(
   int64_t largest_live_tile_size = 1;
   ForEachInstructionInTiledHloComputation(
       tiled_hlo_computation,
-      [&](const TiledHloInstruction* tiled_hlo, int64_t unused_multiplier) {
+      [&](const TiledHloInstruction* tiled_hlo, double unused_multiplier) {
         largest_live_tile_size = std::max(
             largest_live_tile_size, GetPaddedTileSize(tiled_hlo->tile_sizes()));
       });
