@@ -592,8 +592,12 @@ PartitionedHlo PartitionedHlo::ReshardNoCache(
     return ReshardWithAllToAll(target, *src_tgt_dims);
   }
 
-  if (!target.IsReplicatedOrSingleDevice() &&
-      sharding().ReplicateOnLastTileDim()) {
+  bool source_has_partial_replication =
+      sharding().UseNamedShardingLeaf()
+          ? sharding().named_sharding().HasPartialReplication()
+          : sharding().ReplicateOnLastTileDim();
+
+  if (!target.IsReplicatedOrSingleDevice() && source_has_partial_replication) {
     auto try_reshard = ReshardFromPartialReplicateWithDynamicSlice(target);
     if (try_reshard.has_value()) {
       return try_reshard.value();
@@ -604,8 +608,13 @@ PartitionedHlo PartitionedHlo::ReshardNoCache(
     }
   }
 
+  bool target_has_partial_replication =
+      target.UseNamedShardingLeaf()
+          ? target.named_sharding().HasPartialReplication()
+          : target.ReplicateOnLastTileDim();
+
   if (!sharding().IsReplicatedOrSingleDevice() &&
-      target.ReplicateOnLastTileDim()) {
+      target_has_partial_replication) {
     auto try_reshard = ReshardToPartialReplicateWithAllGather(target);
     if (try_reshard.has_value()) {
       return try_reshard.value();
@@ -1463,7 +1472,11 @@ HloInstruction* PartitionedHlo::ReplicatePartial(
 std::optional<PartitionedHlo>
 PartitionedHlo::ReshardToPartialReplicateWithAllGather(
     const HloSharding& target) const {
-  if (!target.ReplicateOnLastTileDim()) {
+  bool has_partial_replication =
+      target.UseNamedShardingLeaf()
+          ? target.named_sharding().HasPartialReplication()
+          : target.ReplicateOnLastTileDim();
+  if (!has_partial_replication) {
     return std::nullopt;
   }
   // Tiled/partial replicate to partial replicate
@@ -1529,7 +1542,11 @@ PartitionedHlo::ReshardToPartialReplicateWithAllGather(
 std::optional<PartitionedHlo>
 PartitionedHlo::ReshardFromPartialReplicateWithDynamicSlice(
     const HloSharding& target) const {
-  if (!sharding().ReplicateOnLastTileDim()) {
+  bool has_partial_replication =
+      sharding().UseNamedShardingLeaf()
+          ? sharding().named_sharding().HasPartialReplication()
+          : sharding().ReplicateOnLastTileDim();
+  if (!has_partial_replication) {
     return std::nullopt;
   }
 
@@ -1546,21 +1563,12 @@ PartitionedHlo::ReshardFromPartialReplicateWithDynamicSlice(
     return std::nullopt;
   }
   std::vector<int64_t> expand_tile_dims;
-  std::vector<int64_t> tiling_dim_factors;
   int64_t rank = hlo_->shape().dimensions().size();
-  tiling_dim_factors.reserve(target.num_dimensions());
   const auto& temp_target_sharding = target_compatible_sharding.value();
   for (int64_t dim = 0; dim < rank; dim++) {
     if (temp_target_sharding.dimension(dim) > sharding().dimension(dim)) {
       expand_tile_dims.push_back(dim);
     }
-    tiling_dim_factors.emplace_back(temp_target_sharding.dimension(dim) /
-                                    sharding().dimension(dim));
-  }
-
-  // Add another dimension in tiling_dim_factors if target is partial replicate.
-  if (target.ReplicateOnLastTileDim()) {
-    tiling_dim_factors.emplace_back(target.dimensions().back());
   }
 
   // 2. Get the padded_hlo, do right halo exchange if needed.
