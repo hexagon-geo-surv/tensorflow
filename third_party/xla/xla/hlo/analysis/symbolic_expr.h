@@ -19,6 +19,7 @@ limitations under the License.
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <ostream>
 #include <string>
 
 #include "absl/strings/string_view.h"
@@ -148,6 +149,11 @@ class SymbolicExpr {
 
   friend llvm::raw_ostream& operator<<(llvm::raw_ostream& os,
                                        const SymbolicExpr expr) {
+    os << expr.ToString();
+    return os;
+  }
+
+  friend std::ostream& operator<<(std::ostream& os, const SymbolicExpr expr) {
     os << expr.ToString();
     return os;
   }
