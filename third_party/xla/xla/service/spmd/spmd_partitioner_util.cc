@@ -673,7 +673,9 @@ SPMDCollectiveOpsCreator GetPerGroupCollectiveOpsCreator(
 
 std::optional<HloSharding> PartialReplicateReshardCompatibleSharding(
     const HloSharding& partial_sharding, const HloSharding& target_sharding) {
-  if (!partial_sharding.ReplicateOnLastTileDim()) {
+  if (!(partial_sharding.UseNamedShardingLeaf()
+            ? partial_sharding.HasPartialReplication()
+            : partial_sharding.ReplicateOnLastTileDim())) {
     return std::nullopt;
   }
   if (partial_sharding.num_devices() != target_sharding.num_devices()) {
@@ -682,6 +684,171 @@ std::optional<HloSharding> PartialReplicateReshardCompatibleSharding(
   const int64_t rank = partial_sharding.TiledDataRank();
   if (rank != target_sharding.TiledDataRank()) {
     return std::nullopt;
+  }
+
+  if (partial_sharding.UseNamedShardingLeaf()) {
+    const NamedSharding& partial_named = partial_sharding.named_sharding();
+
+    std::vector<int64_t> expand_tile_sizes;
+    expand_tile_sizes.reserve(rank);
+    for (int64_t dim = 0; dim < rank; dim++) {
+      int64_t partial_tile_size = partial_sharding.dimension(dim);
+      int64_t target_tile_size = target_sharding.dimension(dim);
+      if (target_tile_size % partial_tile_size != 0) {
+        return std::nullopt;
+      }
+      expand_tile_sizes.push_back(target_tile_size / partial_tile_size);
+    }
+
+    const std::vector<int64_t> shape_dims(
+        target_sharding.dimensions().begin(),
+        target_sharding.dimensions().begin() + rank);
+    if (hlo_sharding_util::IsSubTilingOrEqualSharding(
+            ShapeUtil::MakeShape(F32, shape_dims), target_sharding,
+            partial_sharding)) {
+      return target_sharding;
+    }
+
+    std::vector<NamedSharding::DimensionSharding> new_dim_shardings(
+        partial_named.dim_shardings().begin(),
+        partial_named.dim_shardings().end());
+
+    // Gather all explicitly allocated axes.
+    int64_t total_axes = partial_named.replicated_axes().size() +
+                         partial_named.manual_axes().size() +
+                         partial_named.unreduced_axes().size();
+    for (const auto& dim_sharding : partial_named.dim_shardings()) {
+      total_axes += dim_sharding.axes().size();
+    }
+
+    std::vector<AxisRef> used_axes;
+    used_axes.reserve(total_axes);
+    for (const auto& dim_sharding : partial_named.dim_shardings()) {
+      used_axes.insert(used_axes.end(), dim_sharding.axes().begin(),
+                       dim_sharding.axes().end());
+    }
+    used_axes.insert(used_axes.end(), partial_named.replicated_axes().begin(),
+                     partial_named.replicated_axes().end());
+    used_axes.insert(used_axes.end(), partial_named.manual_axes().begin(),
+                     partial_named.manual_axes().end());
+    used_axes.insert(used_axes.end(), partial_named.unreduced_axes().begin(),
+                     partial_named.unreduced_axes().end());
+
+    const Mesh& mesh = partial_named.mesh();
+
+    // Sort and merge adjacent sub-axes so that we can easily detect unallocated
+    // "holes".
+    SortAndMergeAxes(used_axes, mesh);
+
+    std::vector<AxisRef> implicit_repl_axes;
+
+    auto add_hole = [&](int64_t mesh_axis, int64_t pre_size,
+                        int64_t next_pre_size) {
+      int64_t size = next_pre_size / pre_size;
+      if (pre_size == 1 && size == mesh.axis_size(mesh_axis)) {
+        implicit_repl_axes.push_back(AxisRef(mesh_axis));
+      } else {
+        implicit_repl_axes.push_back(
+            AxisRef(mesh_axis, AxisRef::SubAxis{pre_size, size}));
+      }
+    };
+
+    // Sweep through the sorted used axes to identify unallocated gaps.
+    // Every unallocated gap gets chopped out as an implicit replicated axis.
+    auto used_it = used_axes.begin();
+    for (int64_t i = 0; i < mesh.axis_sizes().size(); ++i) {
+      int64_t mesh_size = mesh.axis_size(i);
+      int64_t current_pre_size = 1;
+
+      // Iterate through the used axes for the current mesh dimension `i`.
+      while (used_it != used_axes.end() && used_it->mesh_axis_index() == i) {
+        if (used_it->pre_size() > current_pre_size) {
+          // We found a gap between the current consecutive allocated block
+          // and the start of the next used axis. Record this gap as a hole.
+          add_hole(i, current_pre_size, used_it->pre_size());
+        }
+        current_pre_size = used_it->sub_axis_info()
+                               ? used_it->sub_axis_info()->next_pre_size()
+                               : mesh_size;
+        ++used_it;
+      }
+      // If there is any remaining unallocated space at the end of the mesh
+      // dimension, add it as a hole.
+      if (current_pre_size < mesh_size) {
+        add_hole(i, current_pre_size, mesh_size);
+      }
+    }
+
+    int64_t repl_idx = 0;
+    std::optional<AxisRef> remainder_axis;
+
+    for (int64_t dim = 0; dim < rank; dim++) {
+      int64_t e = expand_tile_sizes[dim];
+      if (e == 1) {
+        continue;
+      }
+      std::vector<AxisRef> new_axes;
+      int64_t current_e = 1;
+      while (current_e < e && (remainder_axis.has_value() ||
+                               repl_idx < implicit_repl_axes.size())) {
+        AxisRef axis = remainder_axis.has_value()
+                           ? *remainder_axis
+                           : implicit_repl_axes[repl_idx];
+        bool from_remainder = remainder_axis.has_value();
+
+        int64_t axis_size = axis.size(mesh);
+        // How much expansion this dimension still needs.
+        int64_t needed = e / current_e;
+
+        if (axis_size <= needed) {
+          // The entire available axis chunk is fully consumed.
+          if (needed % axis_size != 0) {
+            return std::nullopt;
+          }
+          new_axes.push_back(axis);
+          current_e *= axis_size;
+          if (from_remainder) {
+            remainder_axis = std::nullopt;
+          } else {
+            ++repl_idx;
+          }
+        } else {
+          if (axis_size % needed != 0) {
+            return std::nullopt;
+          }
+          // The current available axis chunk is larger than we need. We use
+          // sub-axis splitting to carve out only the precise fraction
+          // `needed`, pushing the unconsumed slice into `remainder_axis`
+          // for the next consumer or for cleanup.
+          new_axes.push_back(
+              AxisRef(axis.mesh_axis_index(),
+                      AxisRef::SubAxis{axis.pre_size(), needed}));
+          remainder_axis = AxisRef(
+              axis.mesh_axis_index(),
+              AxisRef::SubAxis{axis.pre_size() * needed, axis_size / needed});
+          current_e *= needed;
+          if (!from_remainder) {
+            ++repl_idx;
+          }
+        }
+      }
+
+      if (current_e != e) {
+        return std::nullopt;
+      }
+      NamedSharding::DimensionSharding extra_dim_sharding(
+          new_axes, /*is_closed=*/new_dim_shardings[dim].is_closed());
+      new_dim_shardings[dim].Append(extra_dim_sharding, mesh);
+    }
+
+    // We strictly preserve explicitly replicated axes untouched.
+    // Any remaining `implicit_repl_axes` (either full axes or `remainder_axis`
+    // slices) are safely discarded (left implicit) so the partitioner can
+    // freely reuse them later.
+    return HloSharding(
+        NamedSharding(mesh, new_dim_shardings, partial_named.replicated_axes(),
+                      partial_named.unreduced_axes(),
+                      partial_named.manual_axes(), partial_named.metadata()));
   }
 
   // A dimension is expanded when target_tile_size > partial_tile_size and
