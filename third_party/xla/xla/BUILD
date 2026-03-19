@@ -603,7 +603,10 @@ xla_cc_test(
         "//xla/hlo/testlib:test_helpers",
         "//xla/tsl/platform:statusor",
         "//xla/tsl/platform:test_main",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
+        "@llvm-project//llvm:Support",
     ],
 )
 
