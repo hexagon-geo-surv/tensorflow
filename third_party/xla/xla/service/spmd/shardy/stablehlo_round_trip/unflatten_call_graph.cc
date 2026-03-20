@@ -26,6 +26,7 @@ limitations under the License.
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/OperationSupport.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassRegistry.h"
@@ -33,6 +34,7 @@ limitations under the License.
 #include "mlir/Support/TypeID.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "shardy/dialect/sdy/ir/dialect.h"
+#include "xla/mlir_hlo/mhlo/IR/hlo_ops.h"
 #include "xla/service/spmd/shardy/constants.h"
 #include "xla/service/spmd/shardy/utils.h"
 
@@ -40,6 +42,7 @@ namespace xla {
 namespace sdy {
 namespace {
 
+using ::mlir::IRRewriter;
 using ::mlir::ModuleOp;
 using ::mlir::StringAttr;
 using ::mlir::StringRef;
@@ -64,15 +67,51 @@ FuncOp getFuncOpOrDie(StringRef funcSymName, const SymbolTable& symbolTable) {
   return funcOp;
 }
 TensorShardingPerValueAttr getFuncArgShardings(FuncOp funcOp,
-                                               const SymbolTable& symbolTable) {
+                                               const SymbolTable& symbolTable,
+                                               bool ignoreShardings) {
+  if (ignoreShardings) {
+    return TensorShardingPerValueAttr();
+  }
   return sdy::getFuncArgShardings(funcOp, symbolTable);
 }
 TensorShardingPerValueAttr getFuncResultShardings(
-    FuncOp funcOp, const SymbolTable& symbolTable) {
+    FuncOp funcOp, const SymbolTable& symbolTable, bool ignoreShardings) {
+  if (ignoreShardings) {
+    return TensorShardingPerValueAttr();
+  }
   return sdy::getFuncResultShardings(funcOp, symbolTable);
 }
+
 ManualAxesAttr getManualAxesAttr(FuncOp funcOp) {
   return funcOp->getAttrOfType<ManualAxesAttr>(kManualAxes);
+}
+
+ComputationKey getComputationKey(FuncOp funcOp, const SymbolTable& symbolTable,
+                                 bool ignoreShardings) {
+  return {getOriginalFuncName(funcOp), getManualAxesAttr(funcOp),
+          getFuncArgShardings(funcOp, symbolTable, ignoreShardings),
+          getFuncResultShardings(funcOp, symbolTable, ignoreShardings)};
+}
+
+ComputationKey getComputationKey(CallOp callOp, const SymbolTable& symbolTable,
+                                 bool ignoreShardings) {
+  return getComputationKey(getFuncOpOrDie(callOp.getCallee(), symbolTable),
+                           symbolTable, ignoreShardings);
+}
+
+llvm::SmallDenseMap<ComputationKey, FuncOp> populateFuncCache(
+    ModuleOp moduleOp, const SymbolTable& symbolTable,
+    bool dedupFunctionsFully) {
+  llvm::SmallDenseMap<ComputationKey, FuncOp> funcCache;
+  moduleOp.walk([&](CallOp callOp) {
+    FuncOp funcOp = getFuncOpOrDie(callOp.getCallee(), symbolTable);
+    ComputationKey key = getComputationKey(
+        funcOp, symbolTable, /*ignoreShardings=*/dedupFunctionsFully);
+    // Keep the attribute for the original func name as other calls to the
+    // same function would still need it to deduplicate.
+    funcCache.try_emplace(key, funcOp);
+  });
+  return funcCache;
 }
 }  // namespace
 
@@ -92,36 +131,31 @@ class UnflattenCallGraphPass
     this->dedupFunctionsFully = other.dedupFunctionsFully;
   }
 
+  // Unflattens the graph. It deduplicates functions with the same
+  // input/output shardings *and* the same origin as desribed by the
+  // 'original_func_name' attribute attached to the functions.
+  //
+  // However, when `dedupFunctionsFully` is enabled it disregards input/output
+  // shardings and deduplicates all functions on the same origin. This means
+  // it needs to pick one of the input/output shardings, and copy operations
+  // before and after some calls in order to match the input/output shardings
+  // the selected function expects. It currently picks the function arbitrarily.
+  // TODO(enver): Pick the function that has the most callers, similar to
+  // ExportNamedComputations pass.
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     SymbolTable symbolTable(moduleOp);
-    llvm::SmallDenseMap<ComputationKey, FuncOp> funcCache;
+    IRRewriter rewriter(moduleOp.getContext());
 
-    // Unflattens the graph. It deduplicates functions with the same
-    // input/output shardings *and* the same origin as desribed by the
-    // 'original_func_name' attribute attached to the functions.
-    //
-    // However, when `dedupFunctionsFully` is enabled it disregards input/output
-    // shardings and deduplicates all functions on the same origin. This means
-    // it needs to pick one of the input/output shardings, and copy operations
-    // before and after some calls in order to match the input/output shardings
-    // the selected function expects.
-    //
-    // NOTE: The part `dedupFunctionsFully` is true is not implemented yet.
+    llvm::SmallDenseMap<ComputationKey, FuncOp> funcCache =
+        populateFuncCache(moduleOp, symbolTable, dedupFunctionsFully);
     moduleOp.walk([&](CallOp callOp) {
-      FuncOp funcOp = getFuncOpOrDie(callOp.getCallee(), symbolTable);
-      StringAttr originalFuncName = getOriginalFuncName(funcOp);
-      ComputationKey key = {originalFuncName, getManualAxesAttr(funcOp),
-                            getFuncArgShardings(funcOp, symbolTable),
-                            getFuncResultShardings(funcOp, symbolTable)};
-      if (auto it = funcCache.find(key); it != funcCache.end()) {
-        FuncOp& cachedFuncOp = it->second;
-        callOp.setCallee(cachedFuncOp.getName());
-        return;
-      }
-      // Keep the attribute for the original func name as other calls to the
-      // same function would still need it to deduplicate.
-      funcCache[key] = funcOp;
+      ComputationKey key = getComputationKey(
+          callOp, symbolTable, /*ignoreShardings=*/dedupFunctionsFully);
+      FuncOp funcOp = funcCache[key];
+      callOp.setCallee(funcOp.getName());
+      maybeInsertReshardsOnFuncArguments(funcOp, callOp, symbolTable, rewriter);
+      maybeInsertReshardsOnFuncResults(funcOp, callOp, symbolTable, rewriter);
     });
 
     moduleOp.walk(
@@ -137,7 +171,7 @@ class UnflattenCallGraphPass
   }
 
   void getDependentDialects(mlir::DialectRegistry& registry) const final {
-    registry.insert<SdyDialect>();
+    registry.insert<SdyDialect, mlir::mhlo::MhloDialect>();
   }
 
   Option<bool> dedupFunctionsFully{
