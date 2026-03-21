@@ -22,6 +22,11 @@ platform(
     },
 )
 
+alias(
+    name = "cc-toolchain-x64_windows-clang-cl",
+    actual = "@local_config_cc//:cc-toolchain-x64_windows-clang-cl",
+)
+
 # Register the clang-cl platform
 platform(
     name = "x64_windows-clang-cl",
