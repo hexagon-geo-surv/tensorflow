@@ -196,6 +196,7 @@ cc_library(
     deps = [
         ":common_pjrt_client",
         ":utils",
+        "//xla/tsl/platform:statusor",
     ],
 )
 

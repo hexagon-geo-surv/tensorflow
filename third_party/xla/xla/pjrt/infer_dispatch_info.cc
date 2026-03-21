@@ -16,6 +16,7 @@ limitations under the License.
 #include "xla/pjrt/infer_dispatch_info.h"
 
 #include "xla/pjrt/utils.h"
+#include "xla/tsl/platform/statusor.h"
 
 namespace xla {
 
@@ -52,6 +53,10 @@ absl::StatusOr<CommonPjRtLoadedExecutable::DispatchInfo> InferDispatchInfo(
           std::move(addressable_device_logical_ids),
       .device_assignment = std::move(device_assignment),
   };
+  for (const auto& shape : result.parameter_device_shapes) {
+    TF_ASSIGN_OR_RETURN(int kind, client->GetMemorySpaceKindForShape(shape));
+    result.parameter_memory_space_kind_ids.push_back(kind);
+  }
   {
     absl::Span<const Shape> shapes =
         result.output_device_shape.IsTuple()

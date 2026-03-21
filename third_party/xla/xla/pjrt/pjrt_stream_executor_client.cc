@@ -1144,22 +1144,21 @@ PjRtStreamExecutorLoadedExecutable::PjRtStreamExecutorLoadedExecutable(
     std::vector<LogicalDeviceIds> addressable_device_logical_ids,
     std::vector<PjRtDevice*> addressable_devices,
     PjRtStreamExecutorClient* client, std::vector<Shape> parameter_shapes,
-    xla::Shape result_shape, std::vector<int> output_memory_space_kind_ids)
+    xla::Shape result_shape, std::vector<int> parameter_memory_space_kind_ids,
+    std::vector<int> output_memory_space_kind_ids)
     : CommonPjRtLoadedExecutable(
-          [&parameter_shapes, client]() -> std::vector<Shape> {
-            TransferManager* transfer_manager =
-                client->client()->backend().transfer_manager();
+          [&parameter_shapes]() -> std::vector<Shape> {
             if (parameter_shapes.size() == 1 && parameter_shapes[0].IsTuple()) {
               std::vector<Shape> flat_parameter_shapes;
               for (const Shape& shape : parameter_shapes[0].tuple_shapes()) {
-                flat_parameter_shapes.push_back(
-                    transfer_manager->HostShapeToDeviceShape(shape));
+                flat_parameter_shapes.push_back(shape);
               }
               return flat_parameter_shapes;
             }
             return parameter_shapes;
           }(),
-          std::move(result_shape), std::move(output_memory_space_kind_ids),
+          std::move(result_shape), std::move(parameter_memory_space_kind_ids),
+          std::move(output_memory_space_kind_ids),
           std::move(addressable_devices),
           std::move(addressable_device_logical_ids),
           std::move(device_assignment)),
@@ -2632,6 +2631,8 @@ PjRtStreamExecutorClient::LoadInternal(
                                          : nullptr);
     }
   }
+  TF_ASSIGN_OR_RETURN(PjRtMemorySpace* const default_memory_space,
+                      this->addressable_devices()[0]->default_memory_space());
   xla::Shape result_shape =
       local_executable->executable()->module().result_shape();
   std::vector<int> output_memory_space_kind_ids;
@@ -2640,8 +2641,6 @@ PjRtStreamExecutorClient::LoadInternal(
         result_shape.IsTuple() ? absl::MakeSpan(result_shape.tuple_shapes())
                                : absl::MakeSpan(&result_shape, 1);
     output_memory_space_kind_ids.reserve(shapes.size());
-    TF_ASSIGN_OR_RETURN(PjRtMemorySpace * default_memory_space,
-                        this->addressable_devices()[0]->default_memory_space());
     for (const auto& shape : shapes) {
       int kind = default_memory_space->kind_id();
       if (shape.has_layout()) {
@@ -2672,14 +2671,40 @@ PjRtStreamExecutorClient::LoadInternal(
     }
   }
 
-  TransferManager* transfer_manager = client()->backend().transfer_manager();
   ComputationLayout computation_layout =
       local_executable->executable()->compute_computation_layout();
   std::vector<Shape> parameter_shapes;
   parameter_shapes.reserve(computation_layout.parameter_count());
   for (int i = 0; i < computation_layout.parameter_count(); ++i) {
-    parameter_shapes.push_back(transfer_manager->HostShapeToDeviceShape(
-        computation_layout.parameter_shape(i)));
+    parameter_shapes.push_back(computation_layout.parameter_shape(i));
+  }
+  std::vector<int> parameter_memory_space_kind_ids;
+  {
+    absl::Span<const Shape> flat_parameter_shapes;
+    if (parameter_shapes.size() == 1 && parameter_shapes[0].IsTuple()) {
+      flat_parameter_shapes = parameter_shapes[0].tuple_shapes();
+    } else {
+      flat_parameter_shapes = parameter_shapes;
+    }
+    parameter_memory_space_kind_ids.reserve(flat_parameter_shapes.size());
+    for (const auto& shape : flat_parameter_shapes) {
+      int kind = default_memory_space->kind_id();
+      if (shape.has_layout()) {
+        switch (shape.layout().memory_space()) {
+          case Layout::kHostMemorySpace:
+            kind = PinnedHostMemorySpace::kKindId;
+            break;
+          case Layout::kGenericFastMemorySpace:
+          case Layout::kDefaultMemorySpace:
+            break;
+          default:
+            return InvalidArgument(
+                "Unexpected memory space %d in output layout",
+                shape.layout().memory_space());
+        }
+      }
+      parameter_memory_space_kind_ids.push_back(kind);
+    }
   }
   auto loaded_executable = std::make_unique<PjRtStreamExecutorLoadedExecutable>(
       std::move(local_executable), std::move(executable),
@@ -2687,6 +2712,7 @@ PjRtStreamExecutorClient::LoadInternal(
       std::move(device_assignment), std::move(input_options),
       std::move(addressable_device_logical_ids), std::move(addressable_devices),
       this, std::move(parameter_shapes), std::move(result_shape),
+      std::move(parameter_memory_space_kind_ids),
       std::move(output_memory_space_kind_ids));
   TF_RETURN_IF_ERROR(loaded_executable->SetUpDonation(
       compile_options.parameter_is_tupled_arguments));
