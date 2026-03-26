@@ -105,6 +105,23 @@ TEST(TimespanTests, NonInstantSpanIncludesSingleTimeTests) {
   EXPECT_EQ(num_stats, 9);
 }
 
+TEST(XPlaneVisitorTest, GetLineTest) {
+  XPlane plane;
+  XPlaneBuilder xplane_builder(&plane);
+  XLineBuilder xline_builder = xplane_builder.GetOrCreateLine(123);
+  xline_builder.SetName("test_line");
+
+  XPlaneVisitor xplane_visitor(&plane);
+  std::optional<XLineVisitor> line = xplane_visitor.GetLine("test_line");
+  ASSERT_TRUE(line.has_value());
+  EXPECT_EQ(line->Id(), 123);
+  EXPECT_EQ(line->Name(), "test_line");
+
+  std::optional<XLineVisitor> missing_line =
+      xplane_visitor.GetLine("non_existent");
+  EXPECT_FALSE(missing_line.has_value());
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tsl
