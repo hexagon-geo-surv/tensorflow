@@ -596,7 +596,7 @@ message StackFrameIndexProto {
 }
 
 // Serialization of HloModule.
-// Next ID: 23
+// Next ID: 24
 message HloModuleProto {
   string name = 1;
   string entry_computation_name = 2;
@@ -609,8 +609,17 @@ message HloModuleProto {
   // The host program shape (with layout) of the entry computation.
   xla.ProgramShapeProto host_program_shape = 4;
 
-  // The id of this module.
+  // The ID of this module. This field is ignored when creating an HloModule
+  // from an HloModuleProto, as a new unique ID is assigned during the session
+  // to ensure uniqueness across all modules in the session.
   int64 id = 5;
+  // If provided, this ID is assigned to the HloModule object upon creation
+  // from an HloModuleProto. The setter must ensure this ID is unique across
+  // all HloModules in the session.
+  // Behavior during dumps: we do not populate this field in HloModule
+  // text/proto dumps to avoid reusing potentially non-unique IDs during
+  // replays.
+  optional int64 user_provided_id = 23;
 
   // The schedule for this module.
   HloScheduleProto schedule = 7;
