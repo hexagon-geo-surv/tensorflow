@@ -37,6 +37,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/hlo/transforms/simplifiers/reduce_window_util.h"
+#include "xla/literal_util.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
@@ -47,6 +48,138 @@ limitations under the License.
 #include "xla/xla_data.pb.h"
 
 namespace xla {
+
+static bool IsAlreadyScalar(const HloComputation* comp) {
+  for (const HloInstruction* inst : comp->instructions()) {
+    if (inst->shape().IsTuple()) {
+      for (const Shape& subshape : inst->shape().tuple_shapes()) {
+        if (!ShapeUtil::IsScalar(subshape)) {
+          return false;
+        }
+      }
+    } else if (!ShapeUtil::IsScalar(inst->shape())) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static HloComputation* ScalarizeComputation(
+    HloComputation* comp, HloComputation* parent_for_embedded) {
+  if (IsAlreadyScalar(comp)) {
+    return comp;
+  }
+
+  absl::flat_hash_map<const HloInstruction*, HloInstruction*> replacements;
+  HloComputation::Builder builder(absl::StrCat(comp->name(), "_scalarized"));
+
+  auto get_scalar_shape = [](const Shape& shape) {
+    if (!shape.IsTuple()) {
+      return ShapeUtil::MakeScalarShape(shape.element_type());
+    }
+    std::vector<Shape> subshapes;
+    subshapes.reserve(shape.tuple_shapes().size());
+    for (const Shape& subshape : shape.tuple_shapes()) {
+      subshapes.push_back(ShapeUtil::MakeScalarShape(subshape.element_type()));
+    }
+    return ShapeUtil::MakeTupleShape(subshapes);
+  };
+
+  auto get_mapped_operands = [&](const HloInstruction* inst) {
+    std::vector<HloInstruction*> operands;
+    operands.reserve(inst->operand_count());
+    for (HloInstruction* op : inst->operands()) {
+      operands.push_back(replacements[op]);
+    }
+    return operands;
+  };
+
+  for (HloInstruction* inst : comp->MakeInstructionPostOrder()) {
+    HloInstruction* new_inst = nullptr;
+    switch (inst->opcode()) {
+      case HloOpcode::kParameter:
+        new_inst = builder.AddInstruction(HloInstruction::CreateParameter(
+            inst->parameter_number(), get_scalar_shape(inst->shape()),
+            inst->name()));
+        break;
+      case HloOpcode::kTuple:
+        new_inst = builder.AddInstruction(
+            HloInstruction::CreateTuple(get_mapped_operands(inst)));
+        break;
+      case HloOpcode::kGetTupleElement:
+        new_inst = builder.AddInstruction(HloInstruction::CreateGetTupleElement(
+            get_scalar_shape(inst->shape()), replacements[inst->operand(0)],
+            inst->tuple_index()));
+        break;
+      case HloOpcode::kConstant:
+        if (!inst->shape().IsArray()) {
+          return nullptr;
+        }
+        if (ShapeUtil::IsScalar(inst->shape())) {
+          new_inst = builder.AddInstruction(
+              HloInstruction::CreateConstant(inst->literal().Clone()));
+        } else if (inst->literal().IsAllFirst()) {
+          new_inst = builder.AddInstruction(HloInstruction::CreateConstant(
+              LiteralUtil::GetFirstScalarLiteral(inst->literal())));
+        } else {
+          return nullptr;
+        }
+        break;
+      case HloOpcode::kBroadcast:
+        if (!ShapeUtil::IsScalar(inst->operand(0)->shape())) {
+          return nullptr;
+        }
+        new_inst = replacements[inst->operand(0)];
+        break;
+      case HloOpcode::kReshape:
+        if (inst->operand(0)->shape().element_type() !=
+            inst->shape().element_type()) {
+          return nullptr;
+        }
+        new_inst = replacements[inst->operand(0)];
+        break;
+      default:
+        if (!inst->IsElementwise()) {
+          return nullptr;
+        }
+        new_inst = builder.AddInstruction(inst->CloneWithNewOperands(
+            get_scalar_shape(inst->shape()), get_mapped_operands(inst)));
+        break;
+    }
+    replacements[inst] = new_inst;
+  }
+  return parent_for_embedded->parent()->AddEmbeddedComputation(
+      builder.Build(replacements[comp->root_instruction()]));
+}
+
+static HloInstruction* GetScalarInitValue(HloInstruction* init,
+                                          HloComputation* parent) {
+  while (init->opcode() == HloOpcode::kBroadcast ||
+         init->opcode() == HloOpcode::kReshape ||
+         init->opcode() == HloOpcode::kBitcast) {
+    if (init->opcode() == HloOpcode::kBitcast &&
+        init->shape().element_type() !=
+            init->operand(0)->shape().element_type()) {
+      return nullptr;
+    }
+    if (init->opcode() == HloOpcode::kBroadcast &&
+        ShapeUtil::IsScalar(init->operand(0)->shape())) {
+      return init->mutable_operand(0);
+    }
+    init = init->mutable_operand(0);
+  }
+  if (init->opcode() != HloOpcode::kConstant) {
+    return nullptr;
+  }
+  if (ShapeUtil::IsScalar(init->shape())) {
+    return init;
+  }
+  if (!init->literal().IsAllFirst()) {
+    return nullptr;
+  }
+  return parent->AddInstruction(HloInstruction::CreateConstant(
+      LiteralUtil::GetFirstScalarLiteral(init->literal())));
+}
 
 static size_t FlattenShapeIndex(const ShapeIndex& shape_index) {
   if (shape_index.empty()) {
@@ -527,15 +660,28 @@ absl::StatusOr<bool> ReduceWindowRewriter::TryOptimizeAssociativeScan(
   HloComputation* parent = scan->parent();
   std::vector<HloInstruction*> sources(scan->inputs().begin(),
                                        scan->inputs().end());
-  std::vector<HloInstruction*> inits(scan->inits().begin(),
-                                     scan->inits().end());
+  std::vector<HloInstruction*> inits;
+  inits.reserve(scan->inits().size());
+  for (HloInstruction* init : scan->inits()) {
+    HloInstruction* scalar_init = GetScalarInitValue(init, parent);
+    if (!scalar_init) {
+      return false;
+    }
+    inits.push_back(scalar_init);
+  }
 
   int64_t num_carries = scan->num_carries();
   int64_t num_outputs = scan->shape().IsTuple()
                             ? scan->shape().tuple_shapes().size() - num_carries
                             : 1 - num_carries;
 
-  HloComputation* scan_to_apply = scan->to_apply();
+  HloComputation* scan_to_apply_scalar =
+      ScalarizeComputation(scan->to_apply(), parent);
+  if (!scan_to_apply_scalar) {
+    return false;
+  }
+  HloComputation* scan_to_apply = scan_to_apply_scalar;
+
   HloComputation::Builder builder(
       absl::StrCat(scan_to_apply->name(), "_rw_wrapper"));
   int64_t num_inputs = sources.size();
