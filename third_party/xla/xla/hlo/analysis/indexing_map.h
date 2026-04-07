@@ -74,15 +74,9 @@ class RangeEvaluator {
 
   // Checks whether an `SymbolicExpr` always describes a non-negative value.
   bool IsAlwaysPositiveOrZero(SymbolicExpr expr);
-  // TODO: b/446856820 - Remove once fully migrated to SymbolicMap.
-  ABSL_DEPRECATED("Use IsAlwaysPositiveOrZero(SymbolicExpr) instead")
-  bool IsAlwaysPositiveOrZero(mlir::AffineExpr expr);
 
   // Computes the range of expression using its subexpression ranges.
   Interval ComputeExpressionRange(SymbolicExpr expr);
-  // TODO: b/446856820 - Remove once fully migrated to SymbolicMap.
-  ABSL_DEPRECATED("Use ComputeExpressionRange(SymbolicExpr) instead")
-  Interval ComputeExpressionRange(mlir::AffineExpr expr);
 
   // Return MLIR context.
   mlir::MLIRContext* GetMLIRContext() const { return mlir_context_; }
@@ -179,18 +173,6 @@ class IndexingMap {
   // Return MLIRContext.
   mlir::MLIRContext* GetMLIRContext() const;
 
-  // Returns the affine map.
-  // TODO: b/446856820 - Remove once all the users are migrated to SymbolicMap.
-  ABSL_DEPRECATED("Use GetSymbolicMap() instead")
-  mlir::AffineMap GetAffineMap() const {
-    // To avoid recomputing affine_map_ is a cached conversion from
-    // symbolic_map_ that gets invalidated when the symbolic_map_ changes.
-    if (!affine_map_) {
-      affine_map_ = SymbolicMapToAffineMap(GetSymbolicMap());
-    }
-    return affine_map_;
-  }
-
   // Returns the symbolic map.
   const SymbolicMap& GetSymbolicMap() const& { return symbolic_map_; }
   // Return the symbolic map by value (moving it out of the temporary
@@ -233,12 +215,6 @@ class IndexingMap {
   std::vector<Interval> GetSymbolBounds() const;
   int64_t GetSymbolCount() const { return symbolic_map_.GetNumSymbols(); }
 
-  // TODO: b/446856820 - Remove this method once we fully migrate to
-  // SymbolicMap and rename the GetSymbolicConstraints to GetConstraints.
-  // Getters for affine expression constraints.
-  ABSL_DEPRECATED("Use GetSymbolicConstraints() instead")
-  llvm::MapVector<mlir::AffineExpr, Interval> GetConstraints() const;
-
   // Getters for symbolic expression constraints.
   const llvm::MapVector<SymbolicExpr, Interval>& GetSymbolicConstraints()
       const {
@@ -258,12 +234,6 @@ class IndexingMap {
 
   // Evaluates the constraints at a given point and returns `true` if all
   // constraints are satisfied.
-  // Deprecated. TODO: b/446856820 - Remove once fully migrated to SymbolicMap.
-  ABSL_DEPRECATED("Use the overload with SymbolicExpr arguments instead")
-  bool ConstraintsSatisfied(
-      llvm::ArrayRef<mlir::AffineExpr> dim_const_exprs,
-      llvm::ArrayRef<mlir::AffineExpr> symbol_const_exprs) const;
-
   bool ConstraintsSatisfied(
       llvm::ArrayRef<SymbolicExpr> dim_const_exprs,
       llvm::ArrayRef<SymbolicExpr> symbol_const_exprs) const;
@@ -352,7 +322,6 @@ class IndexingMap {
   bool VerifyConstraintIntervals();
 
   SymbolicMap symbolic_map_;
-  mutable mlir::AffineMap affine_map_;
 
   // A dimension variable represents a dimension of a tensor or a GPU grid.
   // Dimension variables correspond to the dimensions of the `symbolic_map_`.
