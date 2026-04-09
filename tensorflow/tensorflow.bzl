@@ -3007,16 +3007,26 @@ _local_exec_transition = transition(
 )
 
 def _local_genrule_impl(ctx):
+    exec_tool = ctx.executable.exec_tool_cross if ctx.executable.exec_tool_cross else ctx.executable.exec_tool_local
+    exec_tool_target = ctx.attr.exec_tool_cross if ctx.attr.exec_tool_cross else ctx.attr.exec_tool_local
+    if type(exec_tool_target) == "list":
+        exec_tool_target = exec_tool_target[0]
+
+    # Expand "$@" to the output file path, similar to how genrule does it.
+    arguments = ctx.attr.arguments.replace('"$@"', '"{}"'.format(ctx.outputs.out.path)).replace("$@", '"{}"'.format(ctx.outputs.out.path))
+
+    # Disable venv for the python tool when executed locally via run_shell.
+    env = dict(ctx.configuration.default_shell_env)
+    env["BAZEL_NO_VENV"] = "1"
+
     ctx.actions.run_shell(
-        mnemonic = "TensorflowLocalGenrule",
         outputs = [ctx.outputs.out],
-        inputs = [f for t in ctx.attr.srcs for f in t.files.to_list()],
-        tools = [ctx.executable.exec_tool],
-        arguments = [f.path for t in ctx.attr.srcs for f in t.files.to_list()] +
-                    [ctx.outputs.out.path],
-        command = "%s %s" % (ctx.executable.exec_tool.path, ctx.attr.arguments),
-        execution_requirements = {"no-remote-exec": ""},
-        use_default_shell_env = True,
+        inputs = ctx.files.srcs,
+        tools = [exec_tool_target[DefaultInfo].files_to_run],
+        arguments = [exec_tool.path, arguments],
+        command = "$1 $2",
+        mnemonic = "LocalGenrule",
+        env = env,
     )
 
 # A genrule that executes locally and forces the tool it runs to be built locally.
@@ -3030,9 +3040,14 @@ _local_genrule_internal = rule(
     implementation = _local_genrule_impl,
     attrs = {
         "out": attr.output(),
-        "exec_tool": attr.label(
+        "exec_tool_local": attr.label(
             executable = True,
             cfg = _local_exec_transition,
+            allow_files = True,
+        ),
+        "exec_tool_cross": attr.label(
+            executable = True,
+            cfg = "exec",
             allow_files = True,
         ),
         "arguments": attr.string(),
@@ -3044,10 +3059,18 @@ _local_genrule_internal = rule(
 )
 
 # Wrap the rule in a macro so we can pass in exec_compatible_with.
-def _local_genrule(**kwargs):
+def _local_genrule(exec_tool, **kwargs):
     tags = kwargs.pop("tags", [])
     tags = tags + ["no-remote-exec"]
     _local_genrule_internal(
+        exec_tool_local = select({
+            clean_dep("//tensorflow:linux_arm64_cross_compile"): None,
+            "//conditions:default": exec_tool,
+        }),
+        exec_tool_cross = select({
+            clean_dep("//tensorflow:linux_arm64_cross_compile"): exec_tool,
+            "//conditions:default": None,
+        }),
         tags = tags,
         **kwargs
     )
