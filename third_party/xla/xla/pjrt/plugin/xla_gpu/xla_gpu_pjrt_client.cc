@@ -28,7 +28,7 @@ namespace xla {
 absl::StatusOr<std::unique_ptr<PjRtClient>> GetXlaPjrtGpuClient(
     GpuClientOptions options) {
   if (options.use_tfrt_gpu_client) {
-    return GetTfrtGpuClient(options);
+    options.use_async_dispatch = true;
   }
   return GetStreamExecutorGpuClient(options);
 }
