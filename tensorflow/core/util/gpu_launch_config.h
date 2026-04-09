@@ -21,6 +21,7 @@ limitations under the License.
 #include <algorithm>
 
 #include "absl/base/casts.h"
+#include "Eigen/Core"  // from @eigen_archive
 #include "unsupported/Eigen/CXX11/Tensor"  // from @eigen_archive
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/platform/logging.h"
@@ -106,7 +107,12 @@ https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/util/gpu_ke
 
 namespace tensorflow {
 
-inline int DivUp(int a, int b) { return (a + b - 1) / b; }
+using Eigen::numext::div_ceil;
+
+[[deprecated("Use Eigen::numext::div_ceil instead.")]]
+inline int DivUp(int a, int b) {
+  return div_ceil(a, b);
+}
 
 struct GpuLaunchConfig {
   // Logical number of thread that works on the elements. If each logical
@@ -134,7 +140,7 @@ inline GpuLaunchConfig GetGpuLaunchConfig(int work_element_count,
       virtual_thread_count);
   const int thread_per_block = std::min(1024, d.maxGpuThreadsPerBlock());
   const int block_count =
-      std::min(DivUp(physical_thread_count, thread_per_block),
+      std::min(div_ceil(physical_thread_count, thread_per_block),
                d.getNumGpuMultiProcessors());
 
   config.virtual_thread_count = virtual_thread_count;
@@ -175,7 +181,7 @@ GpuLaunchConfig GetGpuLaunchConfig(int work_element_count,
 #endif
 
   block_count =
-      std::min(block_count, DivUp(work_element_count, thread_per_block));
+      std::min(block_count, div_ceil(work_element_count, thread_per_block));
 
   config.virtual_thread_count = work_element_count;
   config.thread_per_block = thread_per_block;
@@ -206,7 +212,7 @@ GpuLaunchConfig GetGpuLaunchConfigFixedBlockSize(
   CHECK_EQ(err, hipSuccess);
 #endif
   block_count = std::min(block_count * d.getNumGpuMultiProcessors(),
-                         DivUp(work_element_count, fixed_block_size));
+                         div_ceil(work_element_count, fixed_block_size));
 
   config.virtual_thread_count = work_element_count;
   config.thread_per_block = fixed_block_size;
@@ -244,7 +250,7 @@ inline Gpu2DLaunchConfig GetGpu2DLaunchConfig(int xdim, int ydim,
   config.virtual_thread_count = dim3(xdim, ydim, 1);
   config.thread_per_block = dim3(block_cols, block_rows, 1);
 
-  int grid_x = std::min(DivUp(xdim, block_cols), max_blocks);
+  int grid_x = std::min(div_ceil(xdim, block_cols), max_blocks);
 
   config.block_count = dim3(
       grid_x, std::min(max_blocks / grid_x, std::max(ydim / block_rows, 1)), 1);
@@ -325,7 +331,7 @@ Gpu3DLaunchConfig GetGpu3DLaunchConfig(int xdim, int ydim, int zdim,
   const int physical_thread_count =
       d.getNumGpuMultiProcessors() * d.maxGpuThreadsPerMultiProcessor();
   thread_per_block = std::min(1024, d.maxGpuThreadsPerBlock());
-  block_count = std::min(DivUp(physical_thread_count, thread_per_block),
+  block_count = std::min(div_ceil(physical_thread_count, thread_per_block),
                          d.getNumGpuMultiProcessors());
 #endif
 
@@ -336,11 +342,11 @@ Gpu3DLaunchConfig GetGpu3DLaunchConfig(int xdim, int ydim, int zdim,
       std::min({zdim, std::max(thread_per_block / (threadsx * threadsy), 1),
                 zthreadlimit});
 
-  int blocksx = std::min({block_count, DivUp(xdim, threadsx), xgridlimit});
+  int blocksx = std::min({block_count, div_ceil(xdim, threadsx), xgridlimit});
   int blocksy = std::min(
-      {DivUp(block_count, blocksx), DivUp(ydim, threadsy), ygridlimit});
-  int blocksz = std::min({DivUp(block_count, (blocksx * blocksy)),
-                          DivUp(zdim, threadsz), zgridlimit});
+      {div_ceil(block_count, blocksx), div_ceil(ydim, threadsy), ygridlimit});
+  int blocksz = std::min({div_ceil(block_count, (blocksx * blocksy)),
+                          div_ceil(zdim, threadsz), zgridlimit});
 
   config.virtual_thread_count = dim3(xdim, ydim, zdim);
   config.thread_per_block = dim3(threadsx, threadsy, threadsz);
