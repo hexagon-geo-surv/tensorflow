@@ -31,10 +31,12 @@ limitations under the License.
 #include "absl/types/span.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/MLIRContext.h"
 #include "xla/codegen/tiling/experimental/reshape_analysis.h"
 #include "xla/codegen/tiling/experimental/tile.h"
 #include "xla/codegen/tiling/experimental/tiling_space.h"
+#include "xla/hlo/analysis/indexing_analysis.h"
 #include "xla/hlo/analysis/symbolic_expr.h"
 #include "xla/hlo/analysis/symbolic_map.h"
 #include "xla/hlo/ir/hlo_casting_utils.h"
@@ -501,9 +503,8 @@ Tiles PropagateTileToOutputForReduceOp(const HloReduceInstruction& reduce,
 
 bool IsSupportedReshape(const std::vector<MinimalReshape>& reshapes) {
   return absl::c_all_of(reshapes, [](const MinimalReshape& minimal_reshape) {
-    return minimal_reshape.category == MinimalReshapeCategory::kIdentity ||
-           minimal_reshape.category == MinimalReshapeCategory::kIncreaseRank ||
-           minimal_reshape.category == MinimalReshapeCategory::kDecreaseRank;
+    return minimal_reshape.category != MinimalReshapeCategory::kExpandShape &&
+           minimal_reshape.category != MinimalReshapeCategory::kGeneric;
   });
 }
 
@@ -520,33 +521,111 @@ int64_t GetFirstNonTrivialDimId(const Shape& shape,
   return range.count == 0 ? -1 : range.start;
 }
 
-void PropagateTileThroughMinimalReshape(
-    const MinimalReshape& minimal_reshape, const Tile& source_tile,
+// Checks source tile to see if kCollapseShape is supported.
+//
+// We consider a kCollapseShape reshape is supported if there is at most one
+// dimension that is partially tiled. Specifically:
+// - Only one dimension is truly "tiled" (size > 1).
+// - Any dimensions inner to the tiled dimension are fully covered (s_i = d_i)
+// - Any dimensions outer to the tiled dimension are size 1 (s_i = 1)
+// And for now to simplify the analysis, we restrict:
+// - All dimensions except the innermost have stride 1.
+// Example: for [3, 4] -> [12] we support:
+// - ts_0 = 1, or
+// - ts_1 = 4 (i.e., we take full rows)
+bool IsSupportedCollapseShape(absl::Span<const DimTile> source_tiles,
+                              absl::Span<const int64_t> source_dims) {
+  auto IsStride1 = [](const DimTile& dt) {
+    return dt.stride.GetType() == SymbolicExprType::kConstant &&
+           dt.stride.GetValue() == 1;
+  };
+  auto IsSize1 = [](const DimTile& dt) {
+    return dt.size.GetType() == SymbolicExprType::kConstant &&
+           dt.size.GetValue() == 1;
+  };
+  auto IsFull = [](const DimTile& dt, int64_t dim) {
+    return dt.size.GetType() == SymbolicExprType::kConstant &&
+           dt.size.GetValue() == dim;
+  };
+
+  // All dimensions except the innermost must have stride 1.
+  int num_dims = static_cast<int>(source_tiles.size());
+  if (!absl::c_all_of(source_tiles.subspan(0, num_dims - 1), IsStride1)) {
+    return false;
+  }
+  // Find the first dimension that is not size 1.
+  int i = 0;
+  while (i < num_dims && IsSize1(source_tiles[i])) {
+    ++i;
+  }
+  // Find the last dimension that is not fully covered.
+  int j = num_dims - 1;
+  while (j >= 0 && IsFull(source_tiles[j], source_dims[j])) {
+    --j;
+  }
+  // All dimensions before i are size 1 and all dimensions after j are full.
+  // If i >= j, then only index k=i=j potentially partially tiled.
+  return i >= j;
+}
+
+bool PropagateTileThroughMinimalReshape(
+    mlir::MLIRContext* mlir_context, const MinimalReshape& minimal_reshape,
     const Shape& source_shape, const Shape& target_shape,
-    SmallVector<DimTile>& target_dim_tiles) {
+    const Tile& source_tile, llvm::SmallVector<DimTile>& target_dim_tiles) {
+  const DimensionRange& source_range = minimal_reshape.input_dim_ids;
+  const DimensionRange& target_range = minimal_reshape.output_dim_ids;
+
   switch (minimal_reshape.category) {
     // 1-to-1 mapping of the "significant" dimensions (size > 1).
     case MinimalReshapeCategory::kIdentity:
     case MinimalReshapeCategory::kIncreaseRank:
     case MinimalReshapeCategory::kDecreaseRank: {
-      int64_t source_id =
-          GetFirstNonTrivialDimId(source_shape, minimal_reshape.input_dim_ids);
-      int64_t target_id =
-          GetFirstNonTrivialDimId(target_shape, minimal_reshape.output_dim_ids);
-
-      if (target_id != -1 && source_id != -1) {
+      int64_t source_id = GetFirstNonTrivialDimId(source_shape, source_range);
+      int64_t target_id = GetFirstNonTrivialDimId(target_shape, target_range);
+      if (source_id != -1 && target_id != -1) {
         target_dim_tiles[target_id] = source_tile.dim_tiles()[source_id];
       }
-      break;
+      return true;
     }
-    // 1-to-n or n-to-1 mapping of the "significant" dimensions (size > 1).
+    // n-to-1 mapping of the "significant" dimensions (size > 1).
+    case MinimalReshapeCategory::kCollapseShape: {
+      int64_t target_id = target_range.start;
+      auto source_dims = source_shape.dimensions().subspan(source_range.start,
+                                                           source_range.count);
+      auto source_tiles = llvm::ArrayRef(source_tile.dim_tiles())
+                              .slice(source_range.start, source_range.count);
+
+      if (!IsSupportedCollapseShape(source_tiles, source_dims)) {
+        return false;
+      }
+
+      llvm::SmallVector<SymbolicExpr> offsets, upper_bounds_inclusive;
+      SymbolicExpr total_tile_elements =
+          CreateSymbolicConstant(1, mlir_context);
+      for (auto [dt, dim] : llvm::zip(source_tiles, source_dims)) {
+        offsets.push_back(dt.offset);
+        total_tile_elements = total_tile_elements * dt.size;
+        // Compute the last valid element that each dimension allows to touch.
+        upper_bounds_inclusive.push_back(
+            (dt.offset + (dt.size - 1) * dt.stride).min(dt.upper_bound - 1));
+      }
+
+      target_dim_tiles[target_id].offset =
+          LinearizeShape(source_dims, offsets, mlir_context);
+      // Due to IsSupportedCollapseShape, the linear stride of the collapsed
+      // dimension is simply the stride of the innermost dimension.
+      target_dim_tiles[target_id].stride = source_tiles.back().stride;
+      target_dim_tiles[target_id].size = total_tile_elements;
+      target_dim_tiles[target_id].upper_bound =
+          LinearizeShape(source_dims, upper_bounds_inclusive, mlir_context) + 1;
+
+      return true;
+    }
+    // 1-to-n mapping of the "significant" dimensions (size > 1).
     case MinimalReshapeCategory::kExpandShape:
-    case MinimalReshapeCategory::kCollapseShape:
     // m-to-n mapping of the "significant" dimensions (size > 1).
     case MinimalReshapeCategory::kGeneric:
-      LOG(FATAL) << "Unsupported minimal reshape "
-                 << static_cast<int>(minimal_reshape.category)
-                 << " should have been caught by IsSupportedReshape().";
+      return false;
   }
 }
 
@@ -562,18 +641,27 @@ std::optional<Tiles> PropagateTileThroughReshape(const Tile& source_tile,
 
   SmallVector<DimTile> target_dim_tiles;
   target_dim_tiles.reserve(target_shape.dimensions().size());
+  const TilingSpace& tiling_space = source_tile.tiling_space();
+  mlir::MLIRContext* mlir_context = tiling_space.mlir_context();
   for (int64_t i = 0; i < target_shape.dimensions().size(); ++i) {
     target_dim_tiles.push_back(
-        GetFullDimTile(target_shape.dimensions(i), source_tile.mlir_context()));
+        GetFullDimTile(target_shape.dimensions(i), mlir_context));
   }
 
   for (const auto& minimal_reshape : reshapes) {
-    PropagateTileThroughMinimalReshape(minimal_reshape, source_tile,
-                                       source_shape, target_shape,
-                                       target_dim_tiles);
+    if (!PropagateTileThroughMinimalReshape(mlir_context, minimal_reshape,
+                                            source_shape, target_shape,
+                                            source_tile, target_dim_tiles)) {
+      VLOG(2) << "Unsupported minimal reshape (category "
+              << static_cast<int>(minimal_reshape.category)
+              << "): " << source_shape.ToString() << " -> "
+              << target_shape.ToString() << " with source tile "
+              << source_tile.ToString();
+      return std::nullopt;
+    }
   }
 
-  return {Tiles{Tile(source_tile.tiling_space(), std::move(target_dim_tiles))}};
+  return {Tiles{Tile(tiling_space, std::move(target_dim_tiles))}};
 }
 
 std::optional<Tiles> PropagateTileToInputForReshapeOp(const HloInstruction& hlo,

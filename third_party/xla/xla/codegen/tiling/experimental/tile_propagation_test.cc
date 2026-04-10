@@ -15,10 +15,12 @@ limitations under the License.
 
 #include "xla/codegen/tiling/experimental/tile_propagation.h"
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -68,7 +70,9 @@ class TilePropagationTest : public HloHardwareIndependentTestBase {
 struct ReshapeTestCase {
   std::string name;
   std::string hlo;
-  std::string expected_input;
+  std::string expected_output;
+  std::vector<int64_t> input_tile_sizes;
+  std::vector<int64_t> input_tile_strides;
 };
 
 class ReshapeTilePropagationTest
@@ -79,17 +83,28 @@ TEST_P(ReshapeTilePropagationTest, PropagateReshape) {
   const auto& param = GetParam();
   HloInstruction* root = ParseAndGetRoot(param.hlo);
   auto tiling_space = TilingSpace::Create(
-      *HloFusionAdaptor::ForInstruction(root), &mlir_context_);
+      *HloFusionAdaptor::ForInstruction(root->operand(0)), &mlir_context_);
 
-  // Test PropagateTileToInput.
-  std::optional<Tiles> input_tiles = PropagateTileToInput(
-      *tiling_space, *root,
-      GetTestTile(*tiling_space, root->shape().dimensions()), 0);
-  if (param.expected_input.empty()) {
-    EXPECT_EQ(input_tiles, std::nullopt);
+  // Test PropagateTileToOutput.
+  if (!param.input_tile_sizes.empty()) {
+    tiling_space->AssignTileSizes(param.input_tile_sizes);
+  }
+  SmallVector<DimTile> input_dim_tiles =
+      llvm::to_vector(tiling_space->tiled_roots()[0].dim_tiles());
+  bool has_strides = input_dim_tiles.size() == param.input_tile_strides.size();
+  for (int i = 0; i < input_dim_tiles.size(); ++i) {
+    input_dim_tiles[i].stride = CreateSymbolicConstant(
+        has_strides ? param.input_tile_strides[i] : i + 1, &mlir_context_);
+  }
+  Tile input_tile = Tile(*tiling_space, std::move(input_dim_tiles));
+  std::optional<Tiles> output_tiles =
+      PropagateTileToOutput(*tiling_space, *root, input_tile, 0);
+
+  if (param.expected_output.empty()) {
+    EXPECT_EQ(output_tiles, std::nullopt);
   } else {
-    ASSERT_TRUE(input_tiles.has_value());
-    EXPECT_THAT(*input_tiles, MatchToString(param.expected_input));
+    ASSERT_TRUE(output_tiles.has_value());
+    EXPECT_THAT(*output_tiles, MatchToString(param.expected_output));
   }
 }
 
@@ -121,11 +136,11 @@ INSTANTIATE_TEST_SUITE_P(
     }
   )",
          R"(
-    0) (tid_0, tid_1, tid_2)
-      -> offsets [tid_1 * ts_1]
-         sizes [ts_1]
-         strides [2]
-         upper bounds [10]
+    0) (tid_0)
+      -> offsets [0, tid_0 * ts_0, 0]
+         sizes [1, ts_0, 1]
+         strides [1, 1, 1]
+         upper bounds [1, 10, 1]
   )"},
         {"DecreaseRank",
          R"(
@@ -136,12 +151,21 @@ INSTANTIATE_TEST_SUITE_P(
     }
   )",
          R"(
-    0) (tid_0)
-      -> offsets [0, tid_0 * ts_0, 0]
-         sizes [1, ts_0, 1]
-         strides [1, 1, 1]
-         upper bounds [1, 10, 1]
+    0) (tid_0, tid_1, tid_2)
+      -> offsets [tid_1 * ts_1]
+         sizes [ts_1]
+         strides [2]
+         upper bounds [10]
   )"},
+        {"Generic",
+         R"(
+    HloModule m
+    ENTRY e {
+      p0 = f32[2, 5, 7] parameter(0)
+      ROOT r = f32[7, 5, 2] reshape(p0)
+    }
+  )",
+         ""},
         {"SupportedMultiSegment",
          R"(
     HloModule m
@@ -152,12 +176,12 @@ INSTANTIATE_TEST_SUITE_P(
   )",
          R"(
     0) (tid_0, tid_1, tid_2)
-      -> offsets [tid_1 * ts_1, 0, tid_2 * ts_2]
-         sizes [ts_1, 1, ts_2]
-         strides [2, 1, 3]
-         upper bounds [12, 1, 8]
+      -> offsets [0, tid_0 * ts_0, tid_2 * ts_2]
+         sizes [1, ts_0, ts_2]
+         strides [1, 1, 3]
+         upper bounds [1, 12, 8]
   )"},
-        {"UnsupportedMultiSegment",
+        {"MultiSegment",
          R"(
     HloModule m
     ENTRY e {
@@ -175,7 +199,11 @@ INSTANTIATE_TEST_SUITE_P(
     }
   )",
          ""},
-        {"CollapseShape",
+        // Example (tid_0, tid_1) -> (offset, upper bound):
+        // (0, 0) -> (0,  3), (0, 1) -> ( 3,  4)
+        // (1, 0) -> (4,  7), (1, 1) -> ( 7,  8)
+        // (2, 0) -> (8, 11), (2, 1) -> (11, 12)
+        {"CollapseShapeCase1_Stride1_LastDimPartialTiled",
          R"(
     HloModule m
     ENTRY e {
@@ -183,16 +211,53 @@ INSTANTIATE_TEST_SUITE_P(
       ROOT r = f32[12] reshape(p0)
     }
   )",
-         ""},
-        {"Generic",
+         R"(
+    0) (tid_0, tid_1)
+      -> offsets [tid_0 * 4 + tid_1 * 3]
+         sizes [3]
+         strides [1]
+         upper bounds [min(tid_0 * 1, 2) * 4 + min(tid_1 * 3 + 2, 3) + 1]
+  )",
+         {1, 3},
+         {1, 1}},
+        {"CollapseShapeCase2_Stride1_LastDimFullTiled",
          R"(
     HloModule m
     ENTRY e {
-      p0 = f32[2, 5, 7] parameter(0)
-      ROOT r = f32[7, 5, 2] reshape(p0)
+      p0 = f32[3, 4] parameter(0)
+      ROOT r = f32[12] reshape(p0)
     }
   )",
-         ""},
+         R"(
+    0) (tid_0, tid_1)
+      -> offsets [tid_0 * 8 + tid_1 * 4]
+         sizes [8]
+         strides [1]
+         upper bounds [min(tid_0 * 2 + 1, 2) * 4 + min(tid_1 * 4 + 3, 3) + 1]
+  )",
+         {2, 4},
+         {1, 1}},
+        {"CollapseShapeCase3_StrideNot1_LastDimPartialTiled",
+         R"(
+    HloModule m
+    ENTRY e {
+      p0 = f32[3, 4] parameter(0)
+      ROOT r = f32[12] reshape(p0)
+    }
+  )",
+         // Example (tid_0, tid_1) -> (offset, upper bound):
+         // (0, 0) -> (0,  4), (0, 1) -> ( 3,  4)
+         // (1, 0) -> (4,  8), (1, 1) -> ( 7,  8)
+         // (2, 0) -> (8, 12), (2, 1) -> (11, 12)
+         R"(
+    0) (tid_0, tid_1)
+      -> offsets [tid_0 * 4 + tid_1 * 3]
+         sizes [3]
+         strides [2]
+         upper bounds [min(tid_0 * 1, 2) * 4 + min(tid_1 * 3 + 4, 3) + 1]
+  )",
+         {1, 3},
+         {1, 2}},
     }),
     [](const ::testing::TestParamInfo<ReshapeTilePropagationTest::ParamType>&
            info) { return info.param.name; });
@@ -334,7 +399,6 @@ TEST_F(TilePropagationTest, CanPropagateToOutputOfBroadcastOp) {
             sizes [ts_0, 32, ts_1]
             strides [1, 1, 2]
             upper bounds [10, 20, 30]
-
   )")));
 }
 
