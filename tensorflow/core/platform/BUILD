@@ -226,9 +226,8 @@ cc_library(
     name = "casts",
     hdrs = ["casts.h"],
     deps = [
-        ":platform",
         "@tsl//tsl/platform:casts",
-    ] + tf_platform_deps("casts"),
+    ],
 )
 
 cc_library(
