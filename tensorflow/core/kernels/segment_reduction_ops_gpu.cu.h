@@ -870,7 +870,7 @@ struct UnsortedSegmentFunctor<GPUDevice, T, Index, InitialValueF, ReductionF> {
         DisableSegmentReductionOpDeterminismExceptions();
     OP_REQUIRES(
         ctx, determinism_requirement_met,
-        errors::Unimplemented(
+        absl::UnimplementedError(
             "Deterministic GPU implementation of unsorted segment reduction op"
             " not available."));
 
