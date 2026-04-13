@@ -16,7 +16,10 @@ limitations under the License.
 #ifndef XLA_BACKENDS_GPU_TRANSFORMS_ESTIMATE_CUB_SCRATCH_SIZE_H_
 #define XLA_BACKENDS_GPU_TRANSFORMS_ESTIMATE_CUB_SCRATCH_SIZE_H_
 
+#include <cstdint>
+#include <optional>
 #include <string>
+#include <utility>
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
@@ -26,17 +29,33 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/pass/hlo_pass_interface.h"
+#include "xla/shape.h"
+#include "xla/stream_executor/semantic_version.h"
 
 namespace xla::gpu {
 
 // Updates the scratch size of CUB sort and scan custom calls to match the
-// actual scratch size. For sort, invokes the FFI instantiate handler to compute
-// the scratch size and changes the custom call target to the FFI handler name
+// actual scratch size.
+//
+// For sort, it either invokes the FFI instantiate handler
+// to compute the scratch size (requires a device) or, in deviceless mode,
+// looks up the scratch size from a bundled lookup table.
+//
+// It also changes the custom call target to the FFI handler name
 // (xla.gpu.ext.cub_sort_keys or xla.gpu.ext.cub_sort_pairs).
 class EstimateCubScratchSize : public HloModulePass {
  public:
-  explicit EstimateCubScratchSize(std::string platform_name)
-      : platform_name_(platform_name) {}
+  struct DevicelessOptions {
+    std::string device_name;
+    stream_executor::SemanticVersion cub_version;
+  };
+
+  // If `deviceless_options` is provided, the pass will runs in deviceless mode.
+  explicit EstimateCubScratchSize(
+      std::string platform_name,
+      std::optional<DevicelessOptions> deviceless_options = std::nullopt)
+      : platform_name_(std::move(platform_name)),
+        deviceless_options_(std::move(deviceless_options)) {}
 
   absl::string_view name() const override {
     return "estimate-cub-scratch-size";
@@ -52,7 +71,17 @@ class EstimateCubScratchSize : public HloModulePass {
       const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
  private:
+  absl::StatusOr<int64_t> CalculateDevicelessScratchSize(
+      HloCustomCallInstruction* custom_call, const Shape& key_shape,
+      bool is_pairs, int64_t num_items, int64_t batch_size);
+
+  absl::StatusOr<int64_t> CalculateScratchSpaceWithDevice(
+      HloCustomCallInstruction* custom_call, absl::string_view ffi_target,
+      const Shape& key_shape, bool is_pairs, int64_t num_items,
+      int64_t batch_size);
+
   std::string platform_name_;
+  std::optional<DevicelessOptions> deviceless_options_;
 };
 
 }  // namespace xla::gpu

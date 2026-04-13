@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xla/backends/gpu/transforms/estimate_cub_scratch_size.h"
 
+#include <optional>
 #include <string>
 
 #include <gmock/gmock.h>
@@ -24,7 +25,6 @@ limitations under the License.
 #include "xla/stream_executor/platform.h"
 #include "xla/tests/hlo_pjrt_interpreter_reference_mixin.h"
 #include "xla/tests/hlo_pjrt_test_base.h"
-#include "xla/tsl/platform/statusor.h"
 #include "xla/xla_data.pb.h"
 
 namespace xla::gpu {

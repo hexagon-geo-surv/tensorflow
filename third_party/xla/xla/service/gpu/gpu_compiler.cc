@@ -616,16 +616,12 @@ absl::Status RunSPMDPasses(
     const AlgebraicSimplifierOptions& layout_insensitive_algsimp_opts,
     int64_t max_windowed_einsum_iteration,
     CompilationStats* compilation_stats) {
-
   const int64_t num_partitions = hlo_module->config().num_partitions();
   if (num_partitions > 1 && hlo_module->config().use_spmd_partitioning()) {
     HloPassPipeline spmd_pipeline("spmd-partitioner", compilation_stats);
-    AddSPMDPasses(
-        hlo_module, layout_insensitive_algsimp_opts,
-        gpu_target_config.device_description.gpu_compute_capability(),
-        spmd_pipeline,
-        std::nullopt,
-        max_windowed_einsum_iteration);
+    AddSPMDPasses(hlo_module, layout_insensitive_algsimp_opts,
+                  gpu_target_config.device_description.gpu_compute_capability(),
+                  spmd_pipeline, std::nullopt, max_windowed_einsum_iteration);
     return spmd_pipeline.Run(hlo_module, {HloInstruction::kMainExecutionThread})
         .status();
   } else {
@@ -1929,6 +1925,8 @@ absl::Status GpuCompiler::OptimizeHloPostLayoutAssignment(
     // annotations, this pass will add the annotations.
     pipeline.AddPass<SubByteNormalization>(
         SubByteNormalization::SET_ELEMENT_SIZE);
+    // TODO: b/502873525 - Enable deviceless EstimateCubScratchSize after
+    // testing.
     pipeline.AddPass<EstimateCubScratchSize>(gpu_target_config.platform_name);
     RETURN_IF_ERROR(
         pipeline.Run(hlo_module, {HloInstruction::kMainExecutionThread})

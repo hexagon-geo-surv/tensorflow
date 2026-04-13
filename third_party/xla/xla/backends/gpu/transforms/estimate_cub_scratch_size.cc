@@ -15,20 +15,21 @@ limitations under the License.
 
 #include "xla/backends/gpu/transforms/estimate_cub_scratch_size.h"
 
-#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "xla/tsl/platform/status_macros.h"
+#include "xla/backends/gpu/libraries/cub/cub_scratch_size_deviceless_lookup.h"
 #include "xla/ffi/api/c_api.h"
 #include "xla/ffi/call_frame.h"
 #include "xla/ffi/execution_state.h"
@@ -66,28 +67,41 @@ static absl::StatusOr<int64_t> InvokeInstantiateHandlerAndGetScratchSize(
   return *scratch_size_ptr;
 }
 
-absl::Status EstimateCubScratchSize::RunOnSortInstruction(
-    HloCustomCallInstruction* custom_call) {
-  CHECK_EQ(custom_call->custom_call_target(),
-           kCubDeviceRadixSortUnassignedScratchSizeTarget);
+absl::StatusOr<int64_t> EstimateCubScratchSize::CalculateDevicelessScratchSize(
+    HloCustomCallInstruction* custom_call, const Shape& key_shape,
+    bool is_pairs, int64_t num_items, int64_t batch_size) {
+  ASSIGN_OR_RETURN(const CubScratchSizeDevicelessLookup& registry,
+                   CubScratchSizeDevicelessLookup::GetInstance());
 
-  const Shape& key_shape = custom_call->operand(0)->shape();
-  bool is_pairs = custom_call->operand_count() == 2;
+  int32_t key_type_size =
+      ShapeUtil::ByteSizeOfPrimitiveType(key_shape.element_type());
+  std::optional<int32_t> value_type_size;
+  if (is_pairs) {
+    value_type_size = ShapeUtil::ByteSizeOfPrimitiveType(
+        custom_call->operand(1)->shape().element_type());
+  }
 
-  // Read sort direction from SortOptions backend config.
-  ASSIGN_OR_RETURN(SortOptions sort_options,
-                   custom_call->backend_config<SortOptions>());
+  std::optional<int64_t> lookup_result = registry.Lookup(
+      deviceless_options_->cub_version, deviceless_options_->device_name,
+      key_type_size, value_type_size, num_items, batch_size);
 
-  // Determine FFI handler target name.
-  absl::string_view ffi_target =
-      is_pairs ? kCubDeviceRadixSortPairsTarget : kCubDeviceRadixSortKeysTarget;
+  if (!lookup_result) {
+    return absl::NotFoundError(absl::StrFormat(
+        "No CUB scratch size entry found for version=%s, device=%s, "
+        "key_size=%d, num_items=%d",
+        deviceless_options_->cub_version.ToString(),
+        deviceless_options_->device_name, key_type_size, num_items));
+  }
+  return *lookup_result;
+}
 
+absl::StatusOr<int64_t> EstimateCubScratchSize::CalculateScratchSpaceWithDevice(
+    HloCustomCallInstruction* custom_call, absl::string_view ffi_target,
+    const Shape& key_shape, bool is_pairs, int64_t num_items,
+    int64_t batch_size) {
   // Look up the registered FFI handler.
   ASSIGN_OR_RETURN(ffi::HandlerRegistration registration,
                    ffi::FindHandler(ffi_target, platform_name_));
-
-  int64_t num_items = Product(key_shape.dimensions());
-  int64_t batch_size = num_items / key_shape.dimensions().back();
 
   ffi::CallFrameBuilder::AttributesBuilder attrs;
   attrs.Insert("descending", false);
@@ -135,9 +149,39 @@ absl::Status EstimateCubScratchSize::RunOnSortInstruction(
   // Add attributes matching the MLIR backend config.
   builder.AddAttributes(attrs.Build());
 
-  ASSIGN_OR_RETURN(
-      int64_t scratch_size,
-      InvokeInstantiateHandlerAndGetScratchSize(registration, builder.Build()));
+  return InvokeInstantiateHandlerAndGetScratchSize(registration,
+                                                   builder.Build());
+}
+
+absl::Status EstimateCubScratchSize::RunOnSortInstruction(
+    HloCustomCallInstruction* custom_call) {
+  CHECK_EQ(custom_call->custom_call_target(),
+           kCubDeviceRadixSortUnassignedScratchSizeTarget);
+
+  const Shape& key_shape = custom_call->operand(0)->shape();
+  bool is_pairs = custom_call->operand_count() == 2;
+
+  // Read sort direction from SortOptions backend config.
+  ASSIGN_OR_RETURN(SortOptions sort_options,
+                   custom_call->backend_config<SortOptions>());
+
+  // Determine FFI handler target name.
+  absl::string_view ffi_target =
+      is_pairs ? kCubDeviceRadixSortPairsTarget : kCubDeviceRadixSortKeysTarget;
+
+  int64_t num_items = Product(key_shape.dimensions());
+  int64_t batch_size = num_items / key_shape.dimensions().back();
+
+  int64_t scratch_size;
+  if (deviceless_options_.has_value()) {
+    ASSIGN_OR_RETURN(scratch_size, CalculateDevicelessScratchSize(
+                                       custom_call, key_shape, is_pairs,
+                                       num_items, batch_size));
+  } else {
+    ASSIGN_OR_RETURN(scratch_size, CalculateScratchSpaceWithDevice(
+                                       custom_call, ffi_target, key_shape,
+                                       is_pairs, num_items, batch_size));
+  }
 
   // Create the FFI custom call with correct scratch size and MLIR dict
   // backend config for the FFI handler attributes.
