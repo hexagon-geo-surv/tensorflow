@@ -109,66 +109,25 @@ class SinkVariableAsNamedArrayPass
       return signalPassFailure();
     }
 
+    // Collect calls to avoid invalidating iterators during deletion.
     // Rewrite ifrt call: variable tensors are sunk as attribute.
     // The runtime guarantees the binding of corresponding loaded ifrt array
     // based on attributes.
-    mlir::WalkResult ifrt_call_walk_result =
-        module.walk([&](mlir::TF::IfrtCallOp call) {
-          IfrtArgConfigList ifrt_call_argument_configs;
+    llvm::SmallVector<mlir::TF::IfrtCallOp, 4> ifrt_calls;
+    llvm::SmallVector<mlir::TF::AsyncIfrtCallOp, 4> async_ifrt_calls;
+    module.walk([&](mlir::TF::IfrtCallOp op) { ifrt_calls.push_back(op); });
+    module.walk(
+        [&](mlir::TF::AsyncIfrtCallOp op) { async_ifrt_calls.push_back(op); });
 
-          if (mlir::failed(BuildIfrtCallArgumentConfig(
-                  call, ifrt_call_argument_configs))) {
-            return mlir::WalkResult::interrupt();
-          }
-
-          if (!call.getVariableArgIndicesAttr().empty()) {
-            call->emitError()
-                << "Expect empty " << call.getVariableArgIndicesAttrName().str()
-                << " attributes, but got "
-                << call.getVariableArgIndicesAttr().size() << " elements";
-            return mlir::WalkResult::interrupt();
-          }
-          if (call->getOpOperands().size() !=
-              ifrt_call_argument_configs.size()) {
-            call->emitError()
-                << "IfrtCallOp got " << call->getOpOperands().size()
-                << " operands, but expects "
-                << ifrt_call_argument_configs.size();
-            return mlir::WalkResult::interrupt();
-          }
-
-          llvm::SmallVector<int> variable_arg_indices;
-          llvm::SmallVector<mlir::Value> updated_args;
-
-          for (const auto& [arg_idx, arg] :
-               llvm::enumerate(ifrt_call_argument_configs)) {
-            if (arg.is_variable) {
-              variable_arg_indices.push_back(arg_idx);
-              // Variable use the key from IfrtLoadVariable.
-              updated_args.push_back(
-                  read_to_load[arg.read_variable_op].getArrayKey());
-            } else {
-              // non variable
-              updated_args.push_back(call->getOperand(arg_idx));
-            }
-          }
-
-          builder.setInsertionPointAfter(call);
-          auto updated_ifrt_call = mlir::TF::IfrtCallOp::create(
-              builder, call->getLoc(), call.getResultTypes(), updated_args);
-
-          updated_ifrt_call->setAttrs(call->getAttrs());
-          // Update variable_arg_indices attribute.
-          updated_ifrt_call.setVariableArgIndicesAttr(
-              builder.getI32ArrayAttr(variable_arg_indices));
-
-          call.replaceAllUsesWith(updated_ifrt_call);
-          call.erase();
-          return mlir::WalkResult::advance();
-        });
-
-    if (ifrt_call_walk_result.wasInterrupted()) {
-      return signalPassFailure();
+    for (auto call : ifrt_calls) {
+      if (mlir::failed(ProcessIfrtCall(call, builder, read_to_load))) {
+        return signalPassFailure();
+      }
+    }
+    for (auto call : async_ifrt_calls) {
+      if (mlir::failed(ProcessIfrtCall(call, builder, read_to_load))) {
+        return signalPassFailure();
+      }
     }
 
     // Remove all ReadVariableOp after replacing the CPU usage of
@@ -192,8 +151,66 @@ class SinkVariableAsNamedArrayPass
   };
   using IfrtArgConfigList = llvm::SmallVector<IfrtArgConfig>;
 
-  // Build argument configuration map of a IfrtCallOp.
-  mlir::LogicalResult BuildIfrtCallArgumentConfig(mlir::TF::IfrtCallOp call,
+  template <typename OpT>
+  mlir::LogicalResult ProcessIfrtCall(
+      OpT call, mlir::OpBuilder& builder,
+      llvm::SmallDenseMap<mlir::TF::ReadVariableOp,
+                          mlir::TF::IfrtLoadVariableOp>& read_to_load) {
+    IfrtArgConfigList ifrt_call_argument_configs;
+
+    if (mlir::failed(BuildIfrtCallArgumentConfig(call.getOperation(),
+                                                 ifrt_call_argument_configs))) {
+      return mlir::failure();
+    }
+
+    if (!call.getVariableArgIndicesAttr().empty()) {
+      call->emitError() << "Expect empty "
+                        << call.getVariableArgIndicesAttrName().str()
+                        << " attributes, but got "
+                        << call.getVariableArgIndicesAttr().size()
+                        << " elements";
+      return mlir::failure();
+    }
+    if (call->getOpOperands().size() != ifrt_call_argument_configs.size()) {
+      call->emitError() << "Op got " << call->getOpOperands().size()
+                        << " operands, but expects "
+                        << ifrt_call_argument_configs.size();
+      return mlir::failure();
+    }
+
+    llvm::SmallVector<int> variable_arg_indices;
+    llvm::SmallVector<mlir::Value> updated_args;
+
+    for (const auto& [arg_idx, arg] :
+         llvm::enumerate(ifrt_call_argument_configs)) {
+      if (arg.is_variable) {
+        variable_arg_indices.push_back(arg_idx);
+        auto it = read_to_load.find(arg.read_variable_op);
+        if (it == read_to_load.end()) {
+          call->emitError() << "ReadVariableOp not found in read_to_load map.";
+          return mlir::failure();
+        }
+        updated_args.push_back(it->second.getArrayKey());
+      } else {
+        updated_args.push_back(call->getOperand(arg_idx));
+      }
+    }
+
+    builder.setInsertionPointAfter(call);
+    auto updated_ifrt_call = OpT::create(builder, call->getLoc(),
+                                         call.getResultTypes(), updated_args);
+
+    updated_ifrt_call->setAttrs(call->getAttrs());
+    updated_ifrt_call.setVariableArgIndicesAttr(
+        builder.getI32ArrayAttr(variable_arg_indices));
+
+    call.replaceAllUsesWith(updated_ifrt_call.getResults());
+    call.erase();
+    return mlir::success();
+  }
+
+  // Build argument configuration map of an IFRT call.
+  mlir::LogicalResult BuildIfrtCallArgumentConfig(mlir::Operation* call,
                                                   IfrtArgConfigList& args) {
     for (const auto& [arg_idx, input] : llvm::enumerate(call->getOperands())) {
       // Assuming the nested function calls are inlined.
