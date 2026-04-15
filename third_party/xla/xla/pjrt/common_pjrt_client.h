@@ -311,6 +311,24 @@ class CommonPjRtClient : public PjRtClient {
       Future<std::string> serialized_descriptor,
       PjRtBuffer::RemoteSendCallback on_done);
 
+  absl::StatusOr<std::vector<std::unique_ptr<PjRtBuffer>>>
+  MakeCrossHostReceiveBuffers(absl::Span<const Shape> shapes,
+                              PjRtDevice* device,
+                              PjRtCrossHostRecvNotifier notifier) override;
+
+  // Similar to PjRtClient::MakeCrossHostReceiveBuffers, but uses PjRtRawBuffer
+  // instead of PjRtBuffer.
+  // Takes raw buffers and a notifier, and returns a vector of definition events
+  // that will be fulfilled once the receive operation is complete.
+  virtual absl::StatusOr<std::vector<PjRtDeviceEventRef>>
+  CrossHostReceiveBuffersInto(
+      absl::Span<const tsl::RCReference<PjRtRawBuffer>> buffers,
+      PjRtCrossHostRecvNotifier notifier,
+      std::vector<tsl::RCReference<tsl::AsyncValue>> transfer_dependency_avs) {
+    return absl::UnimplementedError(
+        "CrossHostReceiveBuffersInto is not implemented.");
+  }
+
   static absl::Status PrepareArguments(
       const ExecuteOptions& options,
       absl::Span<PjRtBuffer* const> argument_handles,
