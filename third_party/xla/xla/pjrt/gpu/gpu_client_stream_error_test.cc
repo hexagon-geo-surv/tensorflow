@@ -46,6 +46,7 @@ namespace {
 using ::absl_testing::StatusIs;
 using ::testing::AllOf;
 using ::testing::HasSubstr;
+using ::testing::status::StatusHasGenericPayload;
 
 absl::StatusOr<std::unique_ptr<xla::PjRtLoadedExecutable>> CompileExecutable(
     absl::string_view program, xla::PjRtClient& client,
@@ -134,9 +135,31 @@ TEST_P(PjRtGpuClientStreamErrorTest, AbortsOnStreamError) {
   auto result = result_buffers[0]->ToLiteral().Await();
   // Execution should both exit with an error and not hang.
   EXPECT_THAT(result,
-              StatusIs(absl::StatusCode::kInternal,
-                       AllOf(HasSubstr("CUDA_ERROR_ILLEGAL_ADDRESS"),
-                             HasSubstr("executable_name: illegal_access"))));
+              AllOf(StatusIs(absl::StatusCode::kInternal,
+                             HasSubstr("CUDA_ERROR_ILLEGAL_ADDRESS")),
+                    StatusHasGenericPayload("executable_name",
+                                            HasSubstr("illegal_access"))));
+}
+
+TEST_P(PjRtGpuClientStreamErrorTest, OOMIncludesContext) {
+  static constexpr absl::string_view kHugeProgram = R"(
+    HloModule huge_alloc
+    ENTRY main {
+      ROOT %iota = f32[100000000000] iota(), iota_dimension=0
+    })";
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<xla::PjRtLoadedExecutable> executable,
+                          CompileExecutable(kHugeProgram, *client_));
+  ExecuteOptions opts;
+  auto async_result = executable->Execute(/*argument_handles=*/{{}}, opts);
+  ASSERT_OK(async_result.status());
+  ASSERT_EQ(async_result->size(), 1);
+  const auto& result_buffers = (*async_result)[0];
+  ASSERT_EQ(result_buffers.size(), 1);
+  auto result = result_buffers[0]->ToLiteral().Await();
+  EXPECT_THAT(result, AllOf(StatusIs(absl::StatusCode::kResourceExhausted),
+                            StatusHasGenericPayload("executable_name",
+                                                    HasSubstr("huge_alloc"))));
 }
 
 }  // namespace
