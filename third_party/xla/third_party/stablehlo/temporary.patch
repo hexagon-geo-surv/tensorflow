@@ -83,6 +83,49 @@ diff --ruN a/stablehlo/stablehlo/tests/transforms/stablehlo_aggressive_simplific
  }
  
  // -----
+diff --ruN a/stablehlo/stablehlo/transforms/VhloLegalizeToStablehlo.cpp b/stablehlo/stablehlo/transforms/VhloLegalizeToStablehlo.cpp
+--- stablehlo/stablehlo/transforms/VhloLegalizeToStablehlo.cpp
++++ stablehlo/stablehlo/transforms/VhloLegalizeToStablehlo.cpp
+@@ -25,6 +25,7 @@
+ #include "llvm/Support/Debug.h"
+ #include "llvm/Support/ErrorHandling.h"
+ #include "mlir/Dialect/Func/IR/FuncOps.h"
++#include "mlir/IR/AttrTypeSubElements.h"
+ #include "mlir/IR/Attributes.h"
+ #include "mlir/IR/BuiltinAttributes.h"
+ #include "mlir/IR/BuiltinOps.h"
+@@ -1158,10 +1159,27 @@
+   }
+ 
+   void runOnOperation() override {
+-    // Upgraded VHLO should always be convertible to StableHLO.
+-    // Arbitrary VHLO might not be convertible if it uses deprecated features
+-    // which are no longer available in StableHLO.
+-    if (failed(applyPartialConversion(getOperation(), *target, patterns))) {
++    // Upgraded VHLO types should always be convertible to StableHLO.
++    if (1) {
++      mlir::AttrTypeReplacer replacer;
++      replacer.addReplacement([&](Type type) -> std::optional<Type> {
++        Type newType = converter.convertType(type);
++        if (newType && newType != type) return newType;
++        return std::nullopt;
++      });
++      // Only types are updated here, as attribute creation with StableHLO types
++      // would trigger VHLO assertion. This is used to avoid need for signature
++      // conversion.
++      replacer.recursivelyReplaceElementsIn(getOperation(),
++                                            /*replaceAttrs=*/false,
++                                            /*replaceLocs=*/false,
++                                            /*replaceTypes=*/true);
++    }
++
++    ConversionConfig config;
++    config.allowPatternRollback = false;
++    if (failed(applyPartialConversion(getOperation(), *target, patterns,
++                                      config))) {
+       return signalPassFailure();
+     }
+ 
 diff --ruN a/stablehlo/stablehlo/transforms/VhloToVersion.cpp b/stablehlo/stablehlo/transforms/VhloToVersion.cpp
 --- stablehlo/stablehlo/transforms/VhloToVersion.cpp
 +++ stablehlo/stablehlo/transforms/VhloToVersion.cpp
