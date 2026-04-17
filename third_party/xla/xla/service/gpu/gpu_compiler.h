@@ -25,6 +25,7 @@ limitations under the License.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
 #include "llvm/IR/Module.h"
 #include "mlir/IR/MLIRContext.h"
 #include "xla/autotune_results.pb.h"
@@ -316,6 +317,9 @@ class GpuCompiler : public LLVMCompiler {
   // A MLIR context that can be used by pre-codegen passes. For codegen, we will
   // need to have a context with more dialects registered.
   mlir::MLIRContext mlir_context_;
+
+  // Mutex to invoke user_*_optimization_hook callbacks from single thread.
+  absl::Mutex user_hooks_m_;
 };
 
 }  // namespace gpu

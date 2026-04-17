@@ -32,6 +32,7 @@ limitations under the License.
 #include "xla/future.h"
 #include "xla/service/gpu/launch_dimensions.h"
 #include "xla/stream_executor/device_description.h"
+#include "xla/tsl/platform/threadpool.h"
 
 namespace xla::gpu {
 
@@ -52,10 +53,12 @@ class CubinCustomKernelCompiler : public KernelCompiler {
  public:
   CubinCustomKernelCompiler(LlvmIrCompiler compiler,
                             const se::DeviceDescription& gpu_device_info,
-                            const DebugOptions& debug_options)
+                            const DebugOptions& debug_options,
+                            tsl::thread::ThreadPool* thread_pool = nullptr)
       : compiler_(std::move(compiler)),
         device_info_(gpu_device_info),
-        debug_options_(debug_options) {}
+        debug_options_(debug_options),
+        thread_pool_(thread_pool) {}
 
   xla::Future<std::unique_ptr<Thunk>> Compile(
       Thunk::ThunkInfo thunk_info, LlvmKernelSource kernel_source,
@@ -64,9 +67,16 @@ class CubinCustomKernelCompiler : public KernelCompiler {
       const LaunchDimensions& launch_dimensions) override;
 
  private:
+  absl::StatusOr<std::unique_ptr<Thunk>> CompileImpl(
+      Thunk::ThunkInfo thunk_info, LlvmKernelSource kernel_source,
+      const std::string& sanitized_kernel_name,
+      const emitters::KernelArguments& kernel_arguments,
+      const LaunchDimensions& launch_dimensions);
+
   LlvmIrCompiler compiler_;
   const se::DeviceDescription device_info_;
   const DebugOptions debug_options_;
+  tsl::thread::ThreadPool* thread_pool_;
 };
 
 }  // namespace xla::gpu
