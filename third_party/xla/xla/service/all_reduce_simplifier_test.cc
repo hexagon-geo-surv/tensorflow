@@ -367,5 +367,29 @@ test {
               GmockMatch(m::Parameter(0)));
 }
 
+TEST_F(AllReduceSimplifierTest, AsyncAllGatherSameInputOutputShape) {
+  const char* kModuleStr = R"(
+HloModule m
+
+async_all_gather {
+  p0 = f32[8,16] parameter(0)
+  ROOT all-gather = f32[8,16] all-gather(p0), dimensions={0},
+    replica_groups={{0},{1},{2},{3},{4},{5},{6},{7}}
+}
+
+ENTRY test {
+  p = f32[8,16] parameter(0)
+  async-start = ((f32[8,16]), f32[8,16], u32[]) async-start(p), calls=async_all_gather
+  ROOT async-done = f32[8,16] async-done(async-start), calls=async_all_gather
+}
+)";
+  TF_ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(
+                                           kModuleStr, /*replica_count=*/8));
+  AllReduceSimplifier simplifier;
+  EXPECT_TRUE(simplifier.Run(module.get()).value());
+  EXPECT_THAT(module->entry_computation()->root_instruction(),
+              GmockMatch(m::Parameter(0)));
+}
+
 }  // namespace
 }  // namespace xla

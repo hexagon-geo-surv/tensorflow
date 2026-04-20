@@ -525,6 +525,47 @@ ENTRY %entrycomp (p: bf16[]) -> (f32[]) {
   CompareReplicaGroups(replica_groups_before, replica_groups_after);
 }
 
+TEST_F(ArCrsCombinerTest, AsyncArNotCombined) {
+  const char* module_str = R"(
+HloModule foobar
+
+%sum.bf16 (a: bf16[], b: bf16[]) -> bf16[] {
+  %a = bf16[] parameter(0)
+  %b = bf16[] parameter(1)
+  ROOT %add = bf16[] add(%a, %b)
+}
+
+%sum.f32 (x: f32[], y: f32[]) -> f32[] {
+  %x = f32[] parameter(0)
+  %y = f32[] parameter(1)
+  ROOT %add = f32[] add(%x, %y)
+}
+
+ENTRY %entrycomp (p: bf16[]) -> (f32[]) {
+  %p = bf16[] parameter(0)
+  %all-reduce-start.1 = bf16[]
+      all-reduce-start(%p),
+      replica_groups={{0},{1}},
+      channel_id=1,
+      to_apply=%sum.bf16
+  %all-reduce-done.1 = bf16[] all-reduce-done(%all-reduce-start.1)
+  %convert.1 = f32[] convert(%all-reduce-done.1)
+  %all-reduce.1 = f32[]
+      all-reduce(%convert.1),
+      replica_groups={{0,1}},
+      to_apply=%sum.f32
+  ROOT %tuple = (f32[]) tuple(%all-reduce.1)
+}
+)";
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<HloModule> module,
+      ParseAndReturnVerifiedModule(module_str, /*replica_count=*/2));
+  ArCrsCombiner combiner(/*num_spatial_partitions=*/2, true);
+  auto changed = combiner.Run(module.get()).value();
+  EXPECT_FALSE(changed);
+}
+
 TEST_F(ArCrsCombinerTest, RewriteArBitcastCrs) {
   const char* module_str = R"(
 HloModule foobar
