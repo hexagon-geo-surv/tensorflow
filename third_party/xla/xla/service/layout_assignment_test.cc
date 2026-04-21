@@ -2350,5 +2350,261 @@ TEST_F(LayoutAssignmentTest, BufferChainLayoutInconsistentConstrains) {
                   "Seen buffers while buffers aren't allowed in this context"));
 }
 
+TEST_F(LayoutAssignmentTest, ScanLayoutAssignment) {
+  Shape f32vec100 = ShapeUtil::MakeShape(F32, {100});
+  Shape f32scalar = ShapeUtil::MakeShape(F32, {});
+
+  auto builder = HloComputation::Builder(TestName());
+  auto input = builder.AddInstruction(
+      HloInstruction::CreateParameter(0, f32vec100, "input"));
+  auto init = builder.AddInstruction(
+      HloInstruction::CreateConstant(LiteralUtil::CreateR0<float>(0.0f)));
+
+  auto scan_builder = HloComputation::Builder("scan_add");
+  auto scan_param0 = scan_builder.AddInstruction(
+      HloInstruction::CreateParameter(0, f32scalar, "x"));
+  auto scan_param1 = scan_builder.AddInstruction(
+      HloInstruction::CreateParameter(1, f32scalar, "y"));
+  auto add = scan_builder.AddInstruction(HloInstruction::CreateBinary(
+      f32scalar, HloOpcode::kAdd, scan_param0, scan_param1));
+  scan_builder.AddInstruction(HloInstruction::CreateTuple({add, add}));
+
+  auto module = CreateNewVerifiedModule();
+  auto scan_computation = module->AddEmbeddedComputation(scan_builder.Build());
+
+  Shape tuple_shape = ShapeUtil::MakeTupleShape({f32vec100, f32scalar});
+  auto scan = builder.AddInstruction(HloInstruction::CreateScan(
+      tuple_shape, {input}, {init}, scan_computation, /*scan_dimension=*/0,
+      /*is_reverse=*/false));
+  module->AddEntryComputation(builder.Build());
+
+  ComputationLayout computation_layout = module->entry_computation_layout();
+  EXPECT_IS_OK(AssignLayoutsAndVerifyHlo(module.get(), &computation_layout));
+
+  // Verify that the scan layout is applied to the root of the sub-computation.
+  EXPECT_TRUE(LayoutUtil::HasLayout(scan->shape()));
+  EXPECT_TRUE(
+      LayoutUtil::HasLayout(scan_computation->root_instruction()->shape()));
+}
+
+TEST_F(LayoutAssignmentTest, ScanLayoutAssignment2D) {
+  Shape f32_matrix =
+      ShapeUtil::MakeShapeWithDenseLayout(F32, {100, 200}, {1, 0});
+  Shape f32_vector = ShapeUtil::MakeShapeWithDenseLayout(F32, {200}, {0});
+
+  auto builder = HloComputation::Builder(TestName());
+  auto input = builder.AddInstruction(
+      HloInstruction::CreateParameter(0, f32_matrix, "input"));
+  std::vector<float> zeros(200, 0.0f);
+  auto init = builder.AddInstruction(
+      HloInstruction::CreateConstant(LiteralUtil::CreateR1<float>(zeros)));
+
+  auto scan_builder = HloComputation::Builder("scan_add");
+  auto scan_param0 = scan_builder.AddInstruction(
+      HloInstruction::CreateParameter(0, f32_vector, "x"));
+  auto scan_param1 = scan_builder.AddInstruction(
+      HloInstruction::CreateParameter(1, f32_vector, "y"));
+  auto add = scan_builder.AddInstruction(HloInstruction::CreateBinary(
+      f32_vector, HloOpcode::kAdd, scan_param0, scan_param1));
+  scan_builder.AddInstruction(HloInstruction::CreateTuple({add, add}));
+
+  auto module = CreateNewVerifiedModule();
+  auto scan_computation = module->AddEmbeddedComputation(scan_builder.Build());
+
+  Shape tuple_shape = ShapeUtil::MakeTupleShape({f32_matrix, f32_vector});
+  auto scan = builder.AddInstruction(HloInstruction::CreateScan(
+      tuple_shape, {input}, {init}, scan_computation, /*scan_dimension=*/0,
+      /*is_reverse=*/false));
+  module->AddEntryComputation(builder.Build());
+
+  // Force a specific output layout to test constraint propagation
+  *module->mutable_entry_computation_layout()->mutable_result_layout() =
+      ShapeLayout(ShapeUtil::MakeTupleShape(
+          {ShapeUtil::MakeShapeWithDenseLayout(F32, {100, 200}, {0, 1}),
+           ShapeUtil::MakeShapeWithDenseLayout(F32, {200}, {0})}));
+
+  ComputationLayout* computation_layout =
+      module->mutable_entry_computation_layout();
+  EXPECT_IS_OK(AssignLayoutsAndVerifyHlo(module.get(), computation_layout));
+
+  EXPECT_TRUE(LayoutUtil::HasLayout(scan->shape()));
+  EXPECT_TRUE(
+      LayoutUtil::HasLayout(scan_computation->root_instruction()->shape()));
+  EXPECT_TRUE(LayoutUtil::HasLayout(
+      scan_computation->parameter_instruction(0)->shape()));
+  EXPECT_TRUE(LayoutUtil::HasLayout(
+      scan_computation->parameter_instruction(1)->shape()));
+}
+
+TEST_F(LayoutAssignmentTest, ScanLayoutAssignment3D) {
+  Shape f32_3d = ShapeUtil::MakeShape(F32, {30, 40, 50});
+  Shape f32_2d = ShapeUtil::MakeShape(F32, {30, 50});
+
+  auto builder = HloComputation::Builder(TestName());
+  auto input = builder.AddInstruction(
+      HloInstruction::CreateParameter(0, f32_3d, "input"));
+  auto init_base = builder.AddInstruction(
+      HloInstruction::CreateConstant(LiteralUtil::CreateR0<float>(0.0f)));
+  auto init = builder.AddInstruction(
+      HloInstruction::CreateBroadcast(f32_2d, init_base, {}));
+
+  auto scan_builder = HloComputation::Builder("scan_add");
+  auto scan_param0 = scan_builder.AddInstruction(
+      HloInstruction::CreateParameter(0, f32_2d, "x"));
+  auto scan_param1 = scan_builder.AddInstruction(
+      HloInstruction::CreateParameter(1, f32_2d, "y"));
+  auto add = scan_builder.AddInstruction(HloInstruction::CreateBinary(
+      f32_2d, HloOpcode::kAdd, scan_param0, scan_param1));
+  scan_builder.AddInstruction(HloInstruction::CreateTuple({add, add}));
+
+  auto module = CreateNewVerifiedModule();
+  auto scan_computation = module->AddEmbeddedComputation(scan_builder.Build());
+
+  Shape tuple_shape = ShapeUtil::MakeTupleShape({f32_3d, f32_2d});
+  auto scan = builder.AddInstruction(HloInstruction::CreateScan(
+      tuple_shape, {input}, {init}, scan_computation, /*scan_dimension=*/1,
+      /*is_reverse=*/false));
+  module->AddEntryComputation(builder.Build());
+
+  // Force a specific output layout to test constraint propagation
+  *module->mutable_entry_computation_layout()->mutable_result_layout() =
+      ShapeLayout(ShapeUtil::MakeTupleShape(
+          {ShapeUtil::MakeShapeWithDenseLayout(F32, {30, 40, 50}, {0, 2, 1}),
+           ShapeUtil::MakeShapeWithDenseLayout(F32, {30, 50}, {0, 1})}));
+
+  ComputationLayout* computation_layout =
+      module->mutable_entry_computation_layout();
+  EXPECT_IS_OK(AssignLayoutsAndVerifyHlo(module.get(), computation_layout));
+
+  EXPECT_TRUE(LayoutUtil::HasLayout(scan->shape()));
+  EXPECT_TRUE(
+      LayoutUtil::HasLayout(scan_computation->root_instruction()->shape()));
+  EXPECT_TRUE(LayoutUtil::HasLayout(
+      scan_computation->parameter_instruction(0)->shape()));
+  EXPECT_TRUE(LayoutUtil::HasLayout(
+      scan_computation->parameter_instruction(1)->shape()));
+}
+
+TEST_F(LayoutAssignmentTest, ScanLayoutAssignmentVariadic) {
+  Shape f32_matrix =
+      ShapeUtil::MakeShapeWithDenseLayout(F32, {100, 200}, {1, 0});
+  Shape f32_vector = ShapeUtil::MakeShapeWithDenseLayout(F32, {200}, {0});
+
+  auto builder = HloComputation::Builder(TestName());
+  auto input1 = builder.AddInstruction(
+      HloInstruction::CreateParameter(0, f32_matrix, "input1"));
+  auto input2 = builder.AddInstruction(
+      HloInstruction::CreateParameter(1, f32_matrix, "input2"));
+
+  std::vector<float> zeros(200, 0.0f);
+  auto init1 = builder.AddInstruction(
+      HloInstruction::CreateConstant(LiteralUtil::CreateR1<float>(zeros)));
+  auto init2 = builder.AddInstruction(
+      HloInstruction::CreateConstant(LiteralUtil::CreateR1<float>(zeros)));
+
+  auto scan_builder = HloComputation::Builder("scan_add");
+  auto scan_param0 = scan_builder.AddInstruction(
+      HloInstruction::CreateParameter(0, f32_vector, "x1"));
+  auto scan_param1 = scan_builder.AddInstruction(
+      HloInstruction::CreateParameter(1, f32_vector, "x2"));
+  auto scan_param2 = scan_builder.AddInstruction(
+      HloInstruction::CreateParameter(2, f32_vector, "y1"));
+  auto scan_param3 = scan_builder.AddInstruction(
+      HloInstruction::CreateParameter(3, f32_vector, "y2"));
+
+  auto add1 = scan_builder.AddInstruction(HloInstruction::CreateBinary(
+      f32_vector, HloOpcode::kAdd, scan_param0, scan_param2));
+  auto add2 = scan_builder.AddInstruction(HloInstruction::CreateBinary(
+      f32_vector, HloOpcode::kAdd, scan_param1, scan_param3));
+  scan_builder.AddInstruction(
+      HloInstruction::CreateTuple({add1, add2, add1, add2}));
+
+  auto module = CreateNewVerifiedModule();
+  auto scan_computation = module->AddEmbeddedComputation(scan_builder.Build());
+
+  Shape tuple_shape = ShapeUtil::MakeTupleShape(
+      {f32_matrix, f32_matrix, f32_vector, f32_vector});
+  auto scan = builder.AddInstruction(
+      HloInstruction::CreateScan(tuple_shape, {input1, input2}, {init1, init2},
+                                 scan_computation, /*scan_dimension=*/0,
+                                 /*is_reverse=*/false));
+  module->AddEntryComputation(builder.Build());
+
+  // Force different layouts on the outputs to ensure the carry and inputs are
+  // propagated independently
+  *module->mutable_entry_computation_layout()->mutable_result_layout() =
+      ShapeLayout(ShapeUtil::MakeTupleShape(
+          {ShapeUtil::MakeShapeWithDenseLayout(F32, {100, 200}, {0, 1}),
+           ShapeUtil::MakeShapeWithDenseLayout(F32, {100, 200}, {1, 0}),
+           ShapeUtil::MakeShapeWithDenseLayout(F32, {200}, {0}),
+           ShapeUtil::MakeShapeWithDenseLayout(F32, {200}, {0})}));
+
+  ComputationLayout* computation_layout =
+      module->mutable_entry_computation_layout();
+  EXPECT_IS_OK(AssignLayoutsAndVerifyHlo(module.get(), computation_layout));
+
+  EXPECT_TRUE(LayoutUtil::HasLayout(scan->shape()));
+  EXPECT_TRUE(
+      LayoutUtil::HasLayout(scan_computation->root_instruction()->shape()));
+}
+
+TEST_F(LayoutAssignmentTest, ScanLayoutAssignmentDisagreeingCarry) {
+  Shape f32_3d =
+      ShapeUtil::MakeShapeWithDenseLayout(F32, {30, 40, 50}, {0, 2, 1});
+  Shape f32_2d = ShapeUtil::MakeShapeWithDenseLayout(F32, {30, 50}, {1, 0});
+
+  auto builder = HloComputation::Builder(TestName());
+  auto input = builder.AddInstruction(
+      HloInstruction::CreateParameter(0, f32_3d, "input"));
+  auto init = builder.AddInstruction(
+      HloInstruction::CreateParameter(1, f32_2d, "init"));
+
+  auto scan_builder = HloComputation::Builder("scan_add");
+  auto scan_param0 =
+      scan_builder.AddInstruction(HloInstruction::CreateParameter(
+          0, ShapeUtil::MakeShape(F32, {30, 50}), "x"));
+  auto scan_param1 =
+      scan_builder.AddInstruction(HloInstruction::CreateParameter(
+          1, ShapeUtil::MakeShape(F32, {30, 50}), "y"));
+  auto add1 = scan_builder.AddInstruction(
+      HloInstruction::CreateBinary(ShapeUtil::MakeShape(F32, {30, 50}),
+                                   HloOpcode::kAdd, scan_param0, scan_param1));
+  auto add2 = scan_builder.AddInstruction(
+      HloInstruction::CreateBinary(ShapeUtil::MakeShape(F32, {30, 50}),
+                                   HloOpcode::kAdd, scan_param0, scan_param1));
+  scan_builder.AddInstruction(HloInstruction::CreateTuple({add1, add2}));
+
+  auto module = CreateNewVerifiedModule();
+  auto scan_computation = module->AddEmbeddedComputation(scan_builder.Build());
+
+  Shape tuple_shape = ShapeUtil::MakeTupleShape({f32_3d, f32_2d});
+  builder.AddInstruction(HloInstruction::CreateScan(
+      tuple_shape, {input}, {init}, scan_computation, /*scan_dimension=*/1,
+      /*is_reverse=*/false));
+  module->AddEntryComputation(builder.Build());
+
+  *module->mutable_entry_computation_layout()->mutable_result_layout() =
+      ShapeLayout(ShapeUtil::MakeTupleShape(
+          {ShapeUtil::MakeShapeWithDenseLayout(F32, {30, 40, 50}, {0, 2, 1}),
+           ShapeUtil::MakeShapeWithDenseLayout(F32, {30, 50}, {1, 0})}));
+
+  ComputationLayout* computation_layout =
+      module->mutable_entry_computation_layout();
+  EXPECT_IS_OK(AssignLayoutsAndVerifyHlo(module.get(), computation_layout));
+
+  EXPECT_EQ(
+      scan_computation->root_instruction()->shape().tuple_shapes(0).layout(),
+      ShapeUtil::MakeShapeWithDenseLayout(F32, {30, 50}, {0, 1}).layout());
+  EXPECT_EQ(
+      scan_computation->root_instruction()->shape().tuple_shapes(1).layout(),
+      ShapeUtil::MakeShapeWithDenseLayout(F32, {30, 50}, {1, 0}).layout());
+  EXPECT_EQ(
+      scan_computation->parameter_instruction(0)->shape().layout(),
+      ShapeUtil::MakeShapeWithDenseLayout(F32, {30, 50}, {0, 1}).layout());
+  EXPECT_EQ(
+      scan_computation->parameter_instruction(1)->shape().layout(),
+      ShapeUtil::MakeShapeWithDenseLayout(F32, {30, 50}, {1, 0}).layout());
+}
+
 }  // namespace
 }  // namespace xla

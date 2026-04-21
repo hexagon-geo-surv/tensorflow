@@ -840,6 +840,70 @@ absl::Status LayoutAssignment::AddMandatoryConstraints(
           SetOperandLayout(body_layout.result_shape(), instruction, 0));
       TF_RETURN_IF_ERROR(
           SetInstructionLayout(body_layout.result_shape(), instruction));
+    } else if (instruction->opcode() == HloOpcode::kScan &&
+               computation_layouts_.find(instruction->to_apply()) !=
+                   computation_layouts_.end()) {
+      auto scan_instr = Cast<const HloScanInstruction>(instruction);
+      HloComputation* scan_comp = instruction->to_apply();
+      ComputationLayoutConstraint* scan_constraint =
+          mutable_computation_constraints(scan_comp)
+              ->mutable_computation_constraint();
+      ComputationLayout scan_layout = scan_constraint->computation_layout();
+
+      int64_t num_carries = scan_instr->num_carries();
+      int64_t num_inputs = instruction->operand_count() - num_carries;
+
+      for (int i = 0; i < instruction->operand_count(); ++i) {
+        if (LayoutUtil::HasLayout(instruction->operand(i)->shape())) {
+          if (i < num_inputs) {
+            Shape x_shape = ShapeUtil::DeleteDimension(
+                scan_instr->scan_dimension(), instruction->operand(i)->shape());
+            *scan_layout.mutable_parameter_layout(i) = ShapeLayout(x_shape);
+          } else {
+            *scan_layout.mutable_parameter_layout(i) =
+                ShapeLayout(instruction->operand(i)->shape());
+          }
+        }
+      }
+
+      const Shape& root_shape = scan_layout.result_layout().shape();
+      int64_t num_outputs = root_shape.IsTuple()
+                                ? root_shape.tuple_shapes_size() - num_carries
+                                : 1 - num_carries;
+
+      if (scan_layout.result_layout().shape().IsTuple()) {
+        for (int i = 0; i < num_outputs; ++i) {
+          scan_layout.mutable_result_layout()->ResetLayout(
+              scan_layout.parameter_layout(i).layout(), {i});
+        }
+        for (int i = 0; i < num_carries; ++i) {
+          scan_layout.mutable_result_layout()->ResetLayout(
+              scan_layout.parameter_layout(num_inputs + i).layout(),
+              {num_outputs + i});
+        }
+      } else {
+        if (num_carries > 0) {
+          *scan_layout.mutable_result_layout() =
+              scan_layout.parameter_layout(num_inputs);
+        } else {
+          *scan_layout.mutable_result_layout() =
+              scan_layout.parameter_layout(0);
+        }
+      }
+
+      scan_constraint->ResetComputationLayout(
+          scan_layout, current_priority_ + kNumberOfPropagationRounds,
+          /*prop_result_layout=*/true,
+          /*prop_parameter_layout=*/true);
+
+      for (int i = 0; i < instruction->operand_count(); ++i) {
+        TF_RETURN_IF_ERROR(SetOperandLayout(instruction->operand(i)->shape(),
+                                            instruction, i,
+                                            /*mandatory=*/true, /*dfs=*/true));
+      }
+      TF_RETURN_IF_ERROR(SetInstructionLayout(instruction->shape(), instruction,
+                                              /*mandatory=*/true,
+                                              /*dfs=*/true));
     } else if (instruction->opcode() == HloOpcode::kConditional &&
                computation_layouts_.find(instruction->branch_computation(0)) !=
                    computation_layouts_.end()) {
@@ -1782,6 +1846,31 @@ absl::Status LayoutAssignment::PropagateOperandConstraint(
     TF_RETURN_IF_ERROR(
         SetBufferLayout(operand_constraint.shape_layout().layout(), *buffer,
                         /*mandatory=*/true, /*dfs=*/true));
+  }
+
+  if (user->opcode() == HloOpcode::kScan) {
+    auto scan_instr = Cast<const HloScanInstruction>(user);
+    int64_t num_carries = scan_instr->num_carries();
+    int64_t num_inputs = user->operand_count() - num_carries;
+    int64_t operand_no = operand_constraint.operand_no();
+
+    Layout param_layout = operand_constraint.shape_layout().layout();
+    if (operand_no < num_inputs) {
+      Shape operand_shape = user->operand(operand_no)->shape();
+      *operand_shape.mutable_layout() = param_layout;
+      param_layout = ShapeUtil::DeleteDimension(scan_instr->scan_dimension(),
+                                                operand_shape)
+                         .layout();
+    }
+
+    HloComputation* to_apply = user->to_apply();
+    HloInstruction* param = to_apply->parameter_instruction(operand_no);
+    TF_ASSIGN_OR_RETURN(
+        const LogicalBuffer* buffer,
+        points_to_analysis_->GetBufferDefinedAt(param, /*index=*/{}));
+    TF_RETURN_IF_ERROR(SetBufferLayout(param_layout, *buffer,
+                                       /*mandatory=*/true, /*dfs=*/true,
+                                       operand_constraint.priority()));
   }
 
   if (InstructionCanChangeLayoutInstance(user) && !user->shape().IsArray() &&
