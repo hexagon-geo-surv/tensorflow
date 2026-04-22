@@ -1368,7 +1368,8 @@ absl::Status ShapeVerifier::HandleScan(HloInstruction* scan) {
       }
       expected_param_shape.DeleteDimension(scan_dim);
     }
-    if (!ShapesSame(param_shape, expected_param_shape)) {
+    if (!ShapesSame(param_shape, expected_param_shape,
+                    Shape::Equal().IgnoreLayout())) {
       return Internal(
           "Shapes of operand %d and to_apply computation parameter are "
           "inconsistent",
@@ -1380,7 +1381,7 @@ absl::Status ShapeVerifier::HandleScan(HloInstruction* scan) {
   for (int64_t i = 0; i < num_carries; ++i) {
     const Shape& param_shape = parameter_shapes[i + num_inputs];
     const Shape& root_shape = root_shapes[i + num_outputs];
-    if (!ShapesSame(param_shape, root_shape)) {
+    if (!ShapesSame(param_shape, root_shape, Shape::Equal().IgnoreLayout())) {
       return Internal(
           "Shapes of parameter %d and root in to_apply computation are "
           "inconsistent",

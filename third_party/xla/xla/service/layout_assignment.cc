@@ -840,6 +840,21 @@ absl::Status LayoutAssignment::AddMandatoryConstraints(
           SetOperandLayout(body_layout.result_shape(), instruction, 0));
       TF_RETURN_IF_ERROR(
           SetInstructionLayout(body_layout.result_shape(), instruction));
+    } else if (instruction->opcode() == HloOpcode::kScan) {
+      auto scan_instr = Cast<const HloScanInstruction>(instruction);
+      CHECK_EQ(scan_instr->is_associative(), TRI_STATE_TRUE);
+      // For associative scan, we don't assign
+      // layouts to the computation because the
+      // computation is not materialized.
+
+      for (int i = 0; i < instruction->operand_count(); ++i) {
+        TF_RETURN_IF_ERROR(SetOperandLayout(instruction->operand(i)->shape(),
+                                            instruction, i,
+                                            /*mandatory=*/true, /*dfs=*/true));
+      }
+      TF_RETURN_IF_ERROR(SetInstructionLayout(instruction->shape(), instruction,
+                                              /*mandatory=*/true,
+                                              /*dfs=*/true));
     } else if (instruction->opcode() == HloOpcode::kConditional &&
                computation_layouts_.find(instruction->branch_computation(0)) !=
                    computation_layouts_.end()) {
