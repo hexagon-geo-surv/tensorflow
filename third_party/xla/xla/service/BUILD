@@ -5,6 +5,7 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@local_config_cuda//cuda:build_defs.bzl", "if_cuda")
 load("@local_config_rocm//rocm:build_defs.bzl", "if_rocm", "if_rocm_is_configured")
 load("@local_config_sycl//sycl:build_defs.bzl", "if_sycl", "if_sycl_is_configured")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load(
     "//xla:xla.default.bzl",
     "xla_cc_binary",
@@ -6752,5 +6753,49 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_library(
+    name = "axl_transform",
+    srcs = ["axl_transform.cc"],
+    hdrs = ["axl_transform.h"],
+    deps = [
+        ":hlo_verifier",
+        "//xla/hlo/ir:hlo",
+        "//xla/hlo/pass:hlo_pass",
+        "//xla/tsl/platform:logging",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/synchronization",
+    ],
+)
+
+xla_cc_test(
+    name = "axl_transform_test",
+    srcs = ["axl_transform_test.cc"],
+    deps = [
+        ":axl_transform",
+        ":hlo_cse",
+        ":hlo_proto_cc",
+        "//xla/hlo/ir:hlo",
+        "//xla/hlo/parser:hlo_parser",
+        "//xla/hlo/pass:hlo_pass_pipeline",
+        "//xla/hlo/transforms/simplifiers:algebraic_simplifier",
+        "//xla/hlo/transforms/simplifiers:hlo_memory_scheduler",
+        "//xla/pjrt/c:pjrt_c_api_axl_transform_extension_hdrs",
+        "//xla/pjrt/c:pjrt_c_api_axl_transform_internal",
+        "//xla/pjrt/c:pjrt_c_api_hdrs",
+        "//xla/tsl/lib/core:status_test_util",
+        "//xla/tsl/lib/strings:proto_serialization",
+        "//xla/tsl/platform:statusor",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest_main",
     ],
 )

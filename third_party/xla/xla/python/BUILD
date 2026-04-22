@@ -1,3 +1,4 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@xla//third_party/rules_python/python:py_test.bzl", "py_test")
 load("//xla:pytype.bzl", "pytype_strict_binary", "pytype_strict_library")
 load(
@@ -725,4 +726,24 @@ cc_library(
     hdrs = ["version.h"],
     compatible_with = [],
     visibility = internal_visibility([":friends"]),
+)
+
+tsl_pybind_extension(
+    name = "axl_transform",
+    srcs = ["axl_transform_py.cc"],
+    deps = [
+        "//xla/service:axl_transform",
+        "@nanobind",
+    ],
+)
+
+py_test(
+    name = "axl_transform_test",
+    srcs = ["axl_transform_test.py"],
+    deps = [
+        ":axl_transform",
+        ":xla_extension",
+        "//third_party/py/numpy",
+        "@absl_py//absl/testing:absltest",
+    ] + xla_py_test_deps(),
 )
