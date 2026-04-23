@@ -650,38 +650,177 @@ ttir::InputPrecision InferDotPrecision(
                                        : ttir::InputPrecision::IEEE;
 }
 
+bool IsDotHasOneContractingDimension(stablehlo::DotGeneralOp op) {
+  const auto& dims = op.getDotDimensionNumbers();
+  return dims.getLhsContractingDimensions().size() == 1 &&
+         dims.getRhsContractingDimensions().size() == 1;
+}
+
+bool IsDotOperandsRank2(Value lhs, Value rhs) {
+  auto lhs_type = mlir::cast<ShapedType>(lhs.getType());
+  auto rhs_type = mlir::cast<ShapedType>(rhs.getType());
+  return lhs_type.getRank() == 2 && rhs_type.getRank() == 2;
+}
+
+bool IsDotCanonical(stablehlo::DotGeneralOp op) {
+  const auto& dims = op.getDotDimensionNumbers();
+  return IsDotHasOneContractingDimension(op) &&
+         IsDotOperandsRank2(op.getLhs(), op.getRhs()) &&
+         dims.getLhsBatchingDimensions().empty() &&
+         dims.getRhsBatchingDimensions().empty() &&
+         dims.getLhsContractingDimensions()[0] == 1 &&
+         dims.getRhsContractingDimensions()[0] == 0;
+}
+
+LogicalResult GetDotFusedAddUnit(stablehlo::DotGeneralOp op,
+                                 mlir::PatternRewriter& rewriter,
+                                 mlir::Operation*& add_op, Value& accumulator) {
+  const Location op_loc = op->getLoc();
+  if (!op->hasOneUse()) {
+    return rewriter.notifyMatchFailure(
+        op_loc,
+        "Dot op must have exactly one user in order to be lowered to triton.");
+  }
+
+  add_op = *op->getUsers().begin();
+  if (!mlir::isa<mlir::arith::AddFOp, mlir::arith::AddIOp>(add_op)) {
+    return rewriter.notifyMatchFailure(
+        op_loc,
+        "Dot op must be consumed by an AddOp to be convertible to triton dot.");
+  }
+
+  accumulator = add_op->getOperand(0) == op.getResult() ? add_op->getOperand(1)
+                                                        : add_op->getOperand(0);
+  return mlir::success();
+}
+
+LogicalResult CanonicalDotGeneral(stablehlo::DotGeneralOp op,
+                                  mlir::PatternRewriter& rewriter,
+                                  stablehlo::DotGeneralOp& canonical_dot) {
+  const Location op_loc = op->getLoc();
+  if (IsDotCanonical(op)) {
+    return rewriter.notifyMatchFailure(op_loc,
+                                       "Dot op is already canonicalized.");
+  }
+
+  if (!IsDotHasOneContractingDimension(op)) {
+    return rewriter.notifyMatchFailure(
+        op_loc, "Dot op must have exactly one contracting dimension.");
+  }
+
+  mlir::ImplicitLocOpBuilder builder(op_loc, rewriter);
+  const auto& dims = op.getDotDimensionNumbers();
+
+  auto lhs = mlir::cast<::xla::xtile::TensorValue>(op.getLhs());
+  int64_t lhs_contracting_dim = dims.getLhsContractingDimensions()[0];
+  auto lhs_canonical_or = ::xla::xtile::CanonicalizeDotOperand(
+      builder, lhs, lhs_contracting_dim, ::xla::xtile::DotOperandSide::kLhs);
+  if (!lhs_canonical_or.ok()) {
+    return rewriter.notifyMatchFailure(op_loc, "Failed to canonicalize LHS.");
+  }
+  auto lhs_canonical = lhs_canonical_or.value();
+
+  auto rhs = mlir::cast<::xla::xtile::TensorValue>(op.getRhs());
+  int64_t rhs_contracting_dim = dims.getRhsContractingDimensions()[0];
+  auto rhs_canonical_or = ::xla::xtile::CanonicalizeDotOperand(
+      builder, rhs, rhs_contracting_dim, ::xla::xtile::DotOperandSide::kRhs);
+  if (!rhs_canonical_or.ok()) {
+    return rewriter.notifyMatchFailure(op_loc, "Failed to canonicalize RHS.");
+  }
+  auto rhs_canonical = rhs_canonical_or.value();
+
+  if (!IsDotOperandsRank2(lhs_canonical, rhs_canonical)) {
+    return rewriter.notifyMatchFailure(op_loc,
+                                       "Failed to squeeze dot operands to 2D.");
+  }
+
+  auto result_type = mlir::cast<ShapedType>(op.getType());
+  auto new_result_type = RankedTensorType::get(
+      {mlir::cast<ShapedType>(lhs_canonical.getType()).getShape()[0],
+       mlir::cast<ShapedType>(rhs_canonical.getType()).getShape()[1]},
+      result_type.getElementType());
+
+  auto new_dims = stablehlo::DotDimensionNumbersAttr::get(rewriter.getContext(),
+                                                          {}, {}, {1}, {0});
+
+  canonical_dot = builder.create<stablehlo::DotGeneralOp>(
+      new_result_type, lhs_canonical, rhs_canonical, new_dims,
+      op.getPrecisionConfigAttr(), op.getAlgorithmAttr());
+  return mlir::success();
+}
+
+LogicalResult CanonicalizeDotFusedAdd(stablehlo::DotGeneralOp new_dot,
+                                      mlir::Operation* add_op, Value acc,
+                                      mlir::PatternRewriter& rewriter) {
+  auto new_result_type = mlir::cast<ShapedType>(new_dot.getType());
+  const Location op_loc = add_op->getLoc();
+
+  mlir::ImplicitLocOpBuilder builder(op_loc, rewriter);
+
+  auto acc_canonical_or = ::xla::xtile::EmitTiledReshape(
+      builder, new_result_type.getShape(),
+      mlir::cast<::xla::xtile::TensorValue>(acc));
+  if (!acc_canonical_or.ok()) {
+    return rewriter.notifyMatchFailure(op_loc,
+                                       "Failed to canonicalize accumulator.");
+  }
+  auto acc_canonical = acc_canonical_or.value();
+
+  Value new_add;
+  if (mlir::isa<mlir::IntegerType>(new_result_type.getElementType())) {
+    new_add = builder.create<mlir::arith::AddIOp>(new_result_type, new_dot,
+                                                  acc_canonical);
+  } else {
+    new_add = builder.create<mlir::arith::AddFOp>(new_result_type, new_dot,
+                                                  acc_canonical);
+  }
+
+  auto result_shape =
+      mlir::cast<ShapedType>(add_op->getResult(0).getType()).getShape();
+  auto reshape_or = ::xla::xtile::EmitTiledReshape(
+      builder, result_shape, mlir::cast<::xla::xtile::TensorValue>(new_add));
+  if (!reshape_or.ok()) {
+    return rewriter.notifyMatchFailure(op_loc, "Failed to reshape result.");
+  }
+
+  rewriter.replaceOp(add_op, *reshape_or);
+  return mlir::success();
+}
+
 LogicalResult RewriteDotGeneralToTritonDot(mlir::PatternRewriter& rewriter,
                                            stablehlo::DotGeneralOp op,
                                            mlir::Operation* add_op,
                                            Value accumulator,
                                            bool warp_specialization_allowed) {
-  auto dot_algorithm = op.getAlgorithm();
+  const Location op_loc = op->getLoc();
+  if (!IsDotCanonical(op)) {
+    return rewriter.notifyMatchFailure(op_loc, "Dot must be canonicalized.");
+  }
 
-  auto hlo_algorithm_or_status =
+  auto dot_algorithm = op.getAlgorithm();
+  auto hlo_algorithm_or =
       dot_algorithm.has_value()
           ? ::xla::ConvertDotAlgorithm(dot_algorithm.value())
           : ::xla::PrecisionConfig::ALG_UNSET;
-
-  if (!hlo_algorithm_or_status.ok()) {
+  if (!hlo_algorithm_or.ok()) {
     return rewriter.notifyMatchFailure(
-        op->getLoc(),
-        "Dot op must have algorithm set to be converted to "
-        "triton dot.");
+        op_loc,
+        "Dot op must have algorithm set to be converted to triton dot.");
   }
+  auto hlo_algorithm = hlo_algorithm_or.value();
 
-  auto hlo_algorithm = hlo_algorithm_or_status.value();
-  auto algorithm_emitter_or_status = GetAlgorithmEmitter(hlo_algorithm);
-
-  if (!algorithm_emitter_or_status.ok()) {
+  auto algorithm_emitter_or = GetAlgorithmEmitter(hlo_algorithm);
+  if (!algorithm_emitter_or.ok()) {
     return rewriter.notifyMatchFailure(
-        op->getLoc(),
-        absl::StrCat("Algorithm emitter not found with error: ",
-                     algorithm_emitter_or_status.status().message()));
+        op_loc, absl::StrCat("Algorithm emitter not found with error: ",
+                             algorithm_emitter_or.status().message()));
   }
+  auto algorithm_emitter = algorithm_emitter_or.value();
 
-  auto algorithm_emitter = algorithm_emitter_or_status.value();
-
-  mlir::ImplicitLocOpBuilder builder(op->getLoc(), rewriter);
+  mlir::ImplicitLocOpBuilder builder(op_loc, rewriter);
+  // Set the insertion point to the AddOp to ensure that all operands dominate
+  // the new hardware instruction.
+  builder.setInsertionPoint(add_op);
 
   ::xla::xtile::DotOperands dot_operands{op.getLhs(), op.getRhs(), accumulator};
 
@@ -698,31 +837,50 @@ LogicalResult RewriteDotGeneralToTritonDot(mlir::PatternRewriter& rewriter,
 
   TritonPrecisionSpec triton_precision_spec{hlo_algorithm,
                                             InferDotPrecision(precision_spec)};
-
-  auto triton_dot_op_or_result =
+  auto triton_dot_op_or =
       algorithm_emitter(builder, dot_operands, triton_precision_spec);
-
-  if (!triton_dot_op_or_result.ok()) {
+  if (!triton_dot_op_or.ok()) {
     return rewriter.notifyMatchFailure(
-        op->getLoc(), absl::StrCat("Algorithm emitter failed with error: ",
-                                   triton_dot_op_or_result.status().message()));
+        op_loc, absl::StrCat("Algorithm emitter failed with error: ",
+                             triton_dot_op_or.status().message()));
   }
+  auto triton_dot_op = triton_dot_op_or.value();
 
   if (warp_specialization_allowed) {
-    if (auto for_op = mlir::dyn_cast<scf::ForOp>(op->getParentOp())) {
-      for_op->setAttr("tt.warp_specialize", rewriter.getBoolAttr(true));
+    if (auto for_op = op->getParentOfType<scf::ForOp>()) {
+      for_op->setAttr("tt.warp_specialize", builder.getBoolAttr(true));
     }
   }
 
-  auto triton_dot_op = triton_dot_op_or_result.value();
-
-  rewriter.replaceAllOpUsesWith(add_op, op.getResult());
-  rewriter.replaceOp(op, triton_dot_op);
+  rewriter.replaceOp(add_op, triton_dot_op);
 
   return mlir::success();
 }
 
 }  // namespace
+
+class CanonicalizeDotGeneral
+    : public mlir::OpRewritePattern<stablehlo::DotGeneralOp> {
+ public:
+  using OpRewritePattern::OpRewritePattern;
+
+  mlir::LogicalResult matchAndRewrite(
+      stablehlo::DotGeneralOp op,
+      mlir::PatternRewriter& rewriter) const override {
+    stablehlo::DotGeneralOp new_dot;
+    if (mlir::failed(CanonicalDotGeneral(op, rewriter, new_dot))) {
+      return mlir::failure();
+    }
+
+    mlir::Operation* add_op;
+    Value acc;
+    if (mlir::failed(GetDotFusedAddUnit(op, rewriter, add_op, acc))) {
+      return mlir::failure();
+    }
+
+    return CanonicalizeDotFusedAdd(new_dot, add_op, acc, rewriter);
+  }
+};
 
 class LowerDotGeneral : public mlir::OpRewritePattern<stablehlo::DotGeneralOp> {
  public:
@@ -734,28 +892,11 @@ class LowerDotGeneral : public mlir::OpRewritePattern<stablehlo::DotGeneralOp> {
   mlir::LogicalResult matchAndRewrite(
       stablehlo::DotGeneralOp op,
       mlir::PatternRewriter& rewriter) const override {
-    if (std::distance(op->getUsers().begin(), op->getUsers().end()) != 1) {
-      return rewriter.notifyMatchFailure(
-          op->getLoc(),
-          "Dot op must have exactly one user in order to be lowered to "
-          "triton.");
+    mlir::Operation* add_op;
+    Value accumulator;
+    if (mlir::failed(GetDotFusedAddUnit(op, rewriter, add_op, accumulator))) {
+      return mlir::failure();
     }
-
-    mlir::Operation* add_op = dyn_cast<arith::AddFOp>(*op->getUsers().begin());
-    if (!add_op) {
-      add_op = dyn_cast<arith::AddIOp>(*op->getUsers().begin());
-    }
-
-    if (!add_op) {
-      return rewriter.notifyMatchFailure(
-          op->getLoc(),
-          "Dot op must be consumed by an AddOp in order to be convertible to "
-          "triton dot.");
-    }
-
-    // Accumulator is the operand of add that is not the dot operation.
-    auto accumulator = add_op->getOperand(1) == op ? add_op->getOperand(0)
-                                                   : add_op->getOperand(1);
 
     if (mlir::failed(RewriteDotGeneralToTritonDot(
             rewriter, op, add_op, accumulator, warp_specialization_allowed_))) {
@@ -789,6 +930,7 @@ class StableHLOLowerToTritonPass
     mlir::RewritePatternSet patterns(mlir_context);
     patterns.add<LowerTranspose, LowerIotaToMakeRange, LowerBroadcastInDim,
                  LowerReduce, LowerReshape, LowerAllReduce>(mlir_context);
+    patterns.add<CanonicalizeDotGeneral>(mlir_context);
     patterns.add<LowerDotGeneral>(mlir_context, warp_specialization_allowed_);
 
     if (mlir::failed(
