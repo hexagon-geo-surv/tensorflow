@@ -1,0 +1,23 @@
+This patch prevents an undefined behavior crash when inferring trivial layout conversions with cast.
+Remove once upstreamed.
+
+--- a/lib/Dialect/TritonGPU/IR/Ops.cpp
++++ b/lib/Dialect/TritonGPU/IR/Ops.cpp
+@@ -63,10 +63,15 @@
+   auto dstType = op.getType();
+   auto srcEncoding = srcType.getEncoding();
+   auto dstEncoding = dstType.getEncoding();
+-  return cast<DialectInferLayoutInterface>(&srcEncoding.getDialect())
+-      ->verifyLayoutsAreEqual(srcType.getShape(), srcEncoding, dstEncoding, {})
++  if (!srcEncoding || !dstEncoding)
++    return false;
++  auto interface = dyn_cast<DialectInferLayoutInterface>(&srcEncoding.getDialect());
++  if (!interface)
++    return false;
++  return interface->verifyLayoutsAreEqual(srcType.getShape(), srcEncoding, dstEncoding, {})
+       .succeeded();
+ }
++
+ 
+ } // namespace
+ 
