@@ -666,6 +666,7 @@ TEST_F(AutotunerTest, DumpLogsToFile) {
 
   std::vector<std::unique_ptr<BackendConfig>> configs;
   configs.push_back(GetTestConfig("test_config_1"));
+  configs.push_back(GetTestConfig("test_config_failure"));
   configs.push_back(GetTestConfig("test_config_2"));
 
   auto backend = std::make_unique<MockCodegenBackend>();
@@ -674,6 +675,7 @@ TEST_F(AutotunerTest, DumpLogsToFile) {
       .WillOnce(Return(std::move(configs)));
   EXPECT_CALL(*backend, Compile(_, _))
       .WillOnce(Return(std::unique_ptr<Executable>()))
+      .WillOnce(Return(absl::InternalError("failed to compile")))
       .WillOnce(Return(std::unique_ptr<Executable>()));
   EXPECT_CALL(*backend, ApplyConfig(_, ConfigMatcher("test_config_2")))
       .Times(1)
@@ -707,6 +709,16 @@ TEST_F(AutotunerTest, DumpLogsToFile) {
   AutotuningLogs expected_logs;
   AutotuningLog* log = expected_logs.add_logs();
   log->mutable_instr()->PackFrom(dummy_instr->ToProto());
+  AutotuneResult* result_failure = log->add_results();
+  result_failure->mutable_other()->set_name("mock_backend");
+  *result_failure->mutable_other()->mutable_config() =
+      *GetTestConfig("test_config_failure");
+  *result_failure->mutable_run_time() = ToDurationProto(absl::ZeroDuration());
+  AutotuneResult::FailureResult* failure_proto =
+      result_failure->mutable_failure();
+  failure_proto->set_kind(AutotuneResult::DISQUALIFIED);
+  failure_proto->set_msg("INTERNAL: Compilation failed: failed to compile");
+
   AutotuneResult* result_1 = log->add_results();
   result_1->mutable_other()->set_name("mock_backend");
   *result_1->mutable_other()->mutable_config() =
