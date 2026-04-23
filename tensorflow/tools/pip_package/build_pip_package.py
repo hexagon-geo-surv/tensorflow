@@ -13,15 +13,12 @@
 # limitations under the License.
 """Tool to rearrange files and build the wheel.
 
-In a nutshell this script does:
-1) Takes lists of paths to .h/.py/.so/etc files.
-2) Creates a temporary directory.
-3) Copies files from #1 to #2 with some exceptions and corrections.
-4) A wheel is created from the files in the temp directory.
-
-Most of the corrections are related to tsl/xla vendoring:
-These files used to be a part of source code but were moved to an external repo.
-To not break the TF API, we pretend that it's still part of the it.
+In a nutshell this script does: 1) Takes lists of paths to .h/.py/.so/etc files.
+2) Creates a temporary directory. 3) Copies files from #1 to #2 with some
+exceptions and corrections. 4) A wheel is created from the files in the temp
+directory. Most of the corrections are related to tsl/xla vendoring: These files
+used to be a part of source code but were moved to an external repo. To not
+break the TF API, we pretend that it's still part of the it.
 """
 
 import argparse
@@ -31,7 +28,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-
 from tensorflow.tools.pip_package.utils.utils import copy_file
 from tensorflow.tools.pip_package.utils.utils import create_init_files
 from tensorflow.tools.pip_package.utils.utils import is_macos
@@ -116,6 +112,8 @@ def prepare_headers(headers: list[str], srcs_dir: str) -> None:
     srcs_dir: target directory where headers are copied to.
   """
   path_to_exclude = [
+      # Bazel generates _virtual_includes directories for cc_library targets,
+      # which are not needed in the pip package.
       "cuda_cccl/_virtual_includes",
       "cuda_cublas/_virtual_includes",
       "cuda_cudart/_virtual_includes",
@@ -130,6 +128,7 @@ def prepare_headers(headers: list[str], srcs_dir: str) -> None:
       "cuda_nvjitlink/_virtual_includes",
       "cuda_nvml/_virtual_includes",
       "cuda_nvrtc/_virtual_includes",
+      "cuda_nvrtc_builtins/_virtual_includes",
       "cuda_nvtx/_virtual_includes",
       get_repo_path("pypi"),
       get_repo_path("jsoncpp_git") + "src",
@@ -147,7 +146,6 @@ def prepare_headers(headers: list[str], srcs_dir: str) -> None:
       get_repo_path("riegeli") + "riegeli",
       get_repo_path("XNNPACK") + "src/",
   ]
-
   path_to_replace = {
       get_repo_path("com_google_absl"): "",
       get_repo_path("eigen_archive"): "",
@@ -156,21 +154,17 @@ def prepare_headers(headers: list[str], srcs_dir: str) -> None:
       get_repo_path("xla"): "tensorflow/compiler",
       get_repo_path("tsl"): "tensorflow",
   }
-
   for file in headers:
     if file.endswith("cc.inc"):
       continue
-
     if any(i in file for i in path_to_exclude):
       continue
-
     for path, val in path_to_replace.items():
       if path in file:
         copy_file(file, os.path.join(srcs_dir, val), path)
         break
     else:
       copy_file(file, srcs_dir)
-
   cuda_src_path = os.path.join(
       srcs_dir, get_repo_path("local_config_cuda") + "cuda"
   )
@@ -217,7 +211,6 @@ def prepare_headers(headers: list[str], srcs_dir: str) -> None:
       srcs_dir, get_repo_path("cuda_nvrtc"), "third_party/gpus/cuda"
   )
   _copy_cuda_tree(srcs_dir, get_repo_path("cuda_nvtx"), "third_party/gpus/cuda")
-
   shutil.copytree(
       os.path.join(srcs_dir, "tensorflow/compiler/xla"),
       os.path.join(srcs_dir, "xla"),
@@ -245,12 +238,10 @@ def prepare_srcs(
       get_repo_path("xla"): "tensorflow/compiler",
       get_repo_path("tsl"): "tensorflow",
   }
-
   deps_mapping_dict = {}
   for deps_destination in deps_destinations:
     with open(deps_destination, "r") as deps_destination_file:
       deps_mapping_dict.update(json.load(deps_destination_file))
-
   for file in deps:
     for path, val in path_to_replace.items():
       if path in file:
@@ -281,7 +272,6 @@ def prepare_aot(aot: list[str], srcs_dir: str) -> None:
       copy_file(file, srcs_dir, get_repo_path("xla"))
     else:
       copy_file(file, srcs_dir)
-
   shutil.move(
       os.path.join(
           srcs_dir, "tensorflow/tools/pip_package/xla_build/CMakeLists.txt"
@@ -311,10 +301,8 @@ def prepare_wheel_srcs(
   prepare_headers(headers, os.path.join(srcs_dir, "tensorflow/include"))
   prepare_srcs(srcs, dests, srcs_dir)
   prepare_aot(aot, os.path.join(srcs_dir, "tensorflow/xla_aot_runtime_src"))
-
   # Every directory that contains a .py file gets an empty __init__.py file.
   create_init_files(os.path.join(srcs_dir, "tensorflow"))
-
   # move MANIFEST and THIRD_PARTY_NOTICES to the root
   shutil.move(
       os.path.join(srcs_dir, "tensorflow/tools/pip_package/MANIFEST.in"),
@@ -326,13 +314,10 @@ def prepare_wheel_srcs(
       ),
       os.path.join(srcs_dir, "tensorflow/THIRD_PARTY_NOTICES.txt"),
   )
-
   update_xla_tsl_imports(os.path.join(srcs_dir, "tensorflow"))
-
   # Means the wheel is built with pywrap rules
   if dests:
     return
-
   if not is_windows():
     rename_libtensorflow(os.path.join(srcs_dir, "tensorflow"), version)
   if not is_macos() and not is_windows():
@@ -374,20 +359,21 @@ def patch_so(srcs_dir: str) -> None:
       ): "$ORIGIN/../../../../python",
   }
   for file, path in to_patch.items():
+    file_path = os.path.join(srcs_dir, file)
+    if not os.path.exists(file_path):
+      continue
     rpath = (
-        subprocess.check_output(
-            ["patchelf", "--print-rpath", "{}/{}".format(srcs_dir, file)]
-        )
+        subprocess.check_output(["patchelf", "--print-rpath", file_path])
         .decode()
         .strip()
     )
     new_rpath = rpath + ":" + path
     subprocess.run(
-        ["patchelf", "--set-rpath", new_rpath, "{}/{}".format(srcs_dir, file)],
+        ["patchelf", "--set-rpath", new_rpath, file_path],
         check=True,
     )
     subprocess.run(
-        ["patchelf", "--shrink-rpath", "{}/{}".format(srcs_dir, file)],
+        ["patchelf", "--shrink-rpath", file_path],
         check=True,
     )
 
@@ -396,8 +382,8 @@ def rename_libtensorflow(srcs_dir: str, version: str):
   """Update libtensorflow_cc file name.
 
   Bazel sets full TF version in name but libtensorflow_cc must contain only
-  major. Update accordingly to the platform:
-  e.g. libtensorflow_cc.so.2.15.0 -> libtensorflow_cc.2
+  major. Update accordingly to the platform: e.g. libtensorflow_cc.so.2.15.0 ->
+  libtensorflow_cc.2
 
   Args:
     srcs_dir: target directory with files.
@@ -454,17 +440,14 @@ def build_wheel(
     env["HOMEPATH"] = "C:"
   # project_name is needed by setup.py.
   env["project_name"] = project_name
-
   if collab == "True":
     env["collaborator_build"] = True
-
   # Note: (Required for rules_python >= 1.7.0)
   # Modern rules_python no longer exports PYTHONPATH to subprocesses by default
   # for stricter hermeticity (see release 1.7.0). We must explicitly propagate
   # the current sys.path so spawned child processes can resolve external
   # dependencies.
   env["PYTHONPATH"] = os.pathsep.join([os.path.abspath(p) for p in sys.path])
-
   subprocess.run(
       [
           sys.executable,

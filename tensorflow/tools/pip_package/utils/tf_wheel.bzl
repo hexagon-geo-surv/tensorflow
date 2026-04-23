@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Rule to build custom wheel.
-
 It parses prvoided inputs and then calls `build_pip_package_py` binary with following args:
 1) `--project-name` - name to be passed to setup.py file. It will define name of the wheel.
 Should be set via --repo_env=WHEEL_NAME=tensorflow_cpu.
@@ -44,7 +43,6 @@ def get_canonical_repo_name(apparent_repo_name):
     """Returns the canonical repo name for the given apparent repo name seen by the module this bzl file belongs to."""
     if not apparent_repo_name.startswith("@"):
         apparent_repo_name = "@" + apparent_repo_name
-
     return Label(apparent_repo_name).workspace_name
 
 def _get_wheel_platform_name(platform_name, platform_tag):
@@ -90,7 +88,6 @@ def _tf_wheel_impl(ctx):
              " If you absolutely need to add CUDA dependencies, provide" +
              " `--@local_config_cuda//cuda:override_include_cuda_libs=true`.")
     executable = ctx.executable.wheel_binary
-
     full_wheel_version = (TF_VERSION + TF_WHEEL_VERSION_SUFFIX)
     full_wheel_name = _get_full_wheel_name(
         platform_name = ctx.attr.platform_name,
@@ -112,15 +109,12 @@ def _tf_wheel_impl(ctx):
     args.add("--collab", str(WHEEL_COLLAB))
     args.add("--output-name", wheel_dir)
     args.add("--version", TF_VERSION)
-
     headers = ctx.files.headers[:]
     for f in headers:
         args.add("--headers=%s" % (f.path))
-
     xla_aot = ctx.files.xla_aot_compiled[:]
     for f in xla_aot:
         args.add("--xla_aot=%s" % (f.path))
-
     srcs = []
     for src in ctx.attr.source_files:
         for f in src.files.to_list():
@@ -129,14 +123,11 @@ def _tf_wheel_impl(ctx):
                 args.add("--dests=%s" % (f.path))
             else:
                 args.add("--srcs=%s" % (f.path))
-
     args.set_param_file_format("flag_per_line")
     args.use_param_file("@%s", use_always = False)
-
     env = {}
     for repo in ctx.attr.external_repos:
         env[repo.upper().replace("-", "_").replace("/", "_") + "_CANONICAL_REPO_NAME"] = get_canonical_repo_name(repo)
-
     ctx.actions.run(
         mnemonic = "TFWheel",
         arguments = [args],
@@ -169,4 +160,4 @@ tf_wheel = rule(
 )
 
 def tf_wheel_dep():
-    return ["@pypi//{}".format(WHEEL_NAME)]
+    return "@pypi_{}//:whl".format(WHEEL_NAME)
