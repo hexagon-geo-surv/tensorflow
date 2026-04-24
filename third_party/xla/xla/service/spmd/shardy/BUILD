@@ -100,6 +100,7 @@ xla_cc_test(
     srcs = ["utils_test.cc"],
     deps = [
         ":utils",
+        "@com_google_absl//absl/status:status_matchers",
         "@com_google_googletest//:gtest_main",
         "@llvm-project//llvm:Support",
     ],
