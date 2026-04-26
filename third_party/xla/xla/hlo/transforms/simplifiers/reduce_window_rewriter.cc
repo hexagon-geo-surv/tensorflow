@@ -808,14 +808,208 @@ absl::StatusOr<bool> ReduceWindowRewriter::TryOptimizeAssociativeScan(
   return true;
 }
 
+absl::StatusOr<bool> ReduceWindowRewriter::TryRewriteCumSumAsScan(
+    HloReduceWindowInstruction* reduce_window) {
+  // Mirror the scan-shape detection in TryOptimizeCumSumOrProd so we lift
+  // the same set of reduce-windows that path would have decomposed.
+  const Shape& operand_shape = reduce_window->inputs().front()->shape();
+  const int64_t rank = operand_shape.dimensions().size();
+  const Window& window = reduce_window->window();
+  std::vector<int64_t> non_trivial_window_dimensions =
+      reduce_window->non_trivial_window_dimensions();
+
+  if (non_trivial_window_dimensions.size() != 1) {
+    return false;
+  }
+  const int64_t scan_dim = non_trivial_window_dimensions.front();
+  const int64_t scan_length = operand_shape.dimensions(scan_dim);
+
+  // Length-1 (or shorter than base) scans don't benefit; let
+  // TryOptimizeCumSumOrProd / Replace1DReduceWindowWithReshape handle them.
+  if (scan_length <= 1) {
+    return false;
+  }
+
+  // Variadic reduce-window with a non-tuple-rooted reducer cannot be
+  // expressed as a single kScan. Bail out (matches the existing guard in
+  // TryOptimizeCumSumOrProd).
+  if (reduce_window->to_apply()->root_instruction()->shape().IsTuple() &&
+      reduce_window->to_apply()->root_instruction()->opcode() !=
+          HloOpcode::kTuple) {
+    return false;
+  }
+
+  const WindowDimension& scan_window_dim = window.dimensions(scan_dim);
+  const bool forward_scan = (scan_window_dim.padding_low() == scan_length - 1 ||
+                             scan_window_dim.padding_low() == scan_length) &&
+                            scan_window_dim.padding_high() == 0;
+  const bool reverse_scan =
+      (scan_window_dim.padding_high() == scan_length - 1 ||
+       scan_window_dim.padding_high() == scan_length) &&
+      scan_window_dim.padding_low() == 0;
+  if (scan_window_dim.stride() != 1 || scan_window_dim.size() != scan_length ||
+      (!forward_scan && !reverse_scan) || scan_window_dim.window_reversal() ||
+      scan_window_dim.base_dilation() != 1 ||
+      scan_window_dim.window_dilation() != 1) {
+    return false;
+  }
+  const bool is_exclusive =
+      forward_scan ? (scan_window_dim.padding_low() == scan_length)
+                   : (scan_window_dim.padding_high() == scan_length);
+
+  HloComputation* parent = reduce_window->parent();
+  HloModule* module = parent->parent();
+  const int64_t num_inputs = reduce_window->input_count();
+
+  // kScan takes scalar init values matching the to_apply parameters.
+  // Reduce-window allows broadcasted-scalar inits, so peel them down.
+  std::vector<HloInstruction*> scalar_inits;
+  scalar_inits.reserve(num_inputs);
+  for (HloInstruction* init : reduce_window->init_values()) {
+    absl::StatusOr<HloInstruction*> scalar = GetScalarInitValue(init, parent);
+    if (!scalar.ok()) {
+      // Init isn't a uniform scalar; can't represent as kScan.
+      return false;
+    }
+    scalar_inits.push_back(*scalar);
+  }
+
+  // Build a wrapper computation around `to_apply` that fits the scan
+  // calling convention:
+  //   reduce-window combiner: (acc..., val...)        -> tuple(new_acc...)
+  //   scan combiner:          (input..., carry...)    -> tuple(out...,
+  //   new_carry...)
+  // For an associative reducer we have new_acc == out == new_carry, so the
+  // wrapper just calls the user's reducer and emits the result twice.
+  HloComputation* reducer = reduce_window->to_apply();
+  HloComputation::Builder builder(
+      absl::StrCat(reducer->name(), "_scan_wrapper"));
+  std::vector<HloInstruction*> input_params;
+  std::vector<HloInstruction*> carry_params;
+  input_params.reserve(num_inputs);
+  carry_params.reserve(num_inputs);
+  for (int64_t i = 0; i < num_inputs; ++i) {
+    input_params.push_back(
+        builder.AddInstruction(HloInstruction::CreateParameter(
+            i, scalar_inits[i]->shape(), absl::StrCat("input_", i))));
+  }
+  for (int64_t i = 0; i < num_inputs; ++i) {
+    carry_params.push_back(
+        builder.AddInstruction(HloInstruction::CreateParameter(
+            num_inputs + i, scalar_inits[i]->shape(),
+            absl::StrCat("carry_", i))));
+  }
+  // Reduce-window combiner parameter order is (acc..., val...). For the
+  // scan combiner here we treat the carry as the accumulator.
+  std::vector<HloInstruction*> call_operands;
+  call_operands.reserve(2 * num_inputs);
+  for (HloInstruction* c : carry_params) call_operands.push_back(c);
+  for (HloInstruction* v : input_params) call_operands.push_back(v);
+  HloInstruction* call = builder.AddInstruction(HloInstruction::CreateCall(
+      reducer->root_instruction()->shape(), call_operands, reducer));
+
+  // Emit a tuple of (outputs..., new_carries...). For an associative reducer
+  // both are the same value, so we GTE the call result and use each twice.
+  std::vector<HloInstruction*> wrapper_results;
+  wrapper_results.reserve(2 * num_inputs);
+  if (call->shape().IsTuple()) {
+    // Variadic combiner path.
+    std::vector<HloInstruction*> per_output;
+    per_output.reserve(num_inputs);
+    for (int64_t i = 0; i < num_inputs; ++i) {
+      per_output.push_back(builder.AddInstruction(
+          HloInstruction::CreateGetTupleElement(call, i)));
+    }
+    for (HloInstruction* p : per_output) wrapper_results.push_back(p);
+    for (HloInstruction* p : per_output) wrapper_results.push_back(p);
+  } else {
+    // Single-input combiner: result is a scalar; use it for both the output
+    // slot and the carry slot.
+    wrapper_results.push_back(call);
+    wrapper_results.push_back(call);
+  }
+  builder.AddInstruction(HloInstruction::CreateTuple(wrapper_results));
+  HloComputation* scan_to_apply =
+      module->AddEmbeddedComputation(builder.Build());
+
+  // For exclusive cumsum, the reduce-window output is N+1 elements long on
+  // the scan axis (vs. N for inclusive). kScan is inclusive-only, so emulate
+  // exclusive by padding the operand by 1 with the init value on the leading
+  // edge (forward) or trailing edge (reverse) and running an inclusive scan.
+  // The resulting scan has length N+1, exactly matching the original
+  // reduce-window output, so no slice is needed.
+  std::vector<HloInstruction*> scan_inputs(reduce_window->inputs().begin(),
+                                           reduce_window->inputs().end());
+  if (is_exclusive) {
+    PaddingConfig padding_config = MakeNoPaddingConfig(rank);
+    if (forward_scan) {
+      padding_config.mutable_dimensions(scan_dim)->set_edge_padding_low(1);
+    } else {
+      padding_config.mutable_dimensions(scan_dim)->set_edge_padding_high(1);
+    }
+    for (int64_t i = 0; i < num_inputs; ++i) {
+      Shape padded_shape = scan_inputs[i]->shape();
+      padded_shape.set_dimensions(scan_dim,
+                                  padded_shape.dimensions(scan_dim) + 1);
+      UpdateLayout(&padded_shape);
+      scan_inputs[i] = parent->AddInstruction(HloInstruction::CreatePad(
+          padded_shape, scan_inputs[i], scalar_inits[i], padding_config));
+    }
+  }
+
+  // Construct the kScan op. Output shape is a tuple of (outputs..., carries...)
+  // matching the wrapper's tuple shape, with each output the same shape as
+  // the corresponding (post-pad) input and each carry the scalar init shape.
+  std::vector<Shape> scan_output_shapes;
+  scan_output_shapes.reserve(2 * num_inputs);
+  for (int64_t i = 0; i < num_inputs; ++i) {
+    scan_output_shapes.push_back(scan_inputs[i]->shape());
+  }
+  for (int64_t i = 0; i < num_inputs; ++i) {
+    scan_output_shapes.push_back(scalar_inits[i]->shape());
+  }
+  Shape scan_shape = ShapeUtil::MakeTupleShape(scan_output_shapes);
+
+  HloInstruction* scan = parent->AddInstruction(HloInstruction::CreateScan(
+      scan_shape, scan_inputs, scalar_inits, scan_to_apply, scan_dim,
+      /*is_reverse=*/reverse_scan, TRI_STATE_TRUE));
+
+  // Pull out the outputs (we don't need the carries).
+  std::vector<HloInstruction*> scan_outputs;
+  scan_outputs.reserve(num_inputs);
+  for (int64_t i = 0; i < num_inputs; ++i) {
+    HloInstruction* out =
+        parent->AddInstruction(HloInstruction::CreateGetTupleElement(scan, i));
+    scan_outputs.push_back(out);
+  }
+
+  HloInstruction* replacement;
+  if (reduce_window->shape().IsTuple()) {
+    replacement =
+        parent->AddInstruction(HloInstruction::CreateTuple(scan_outputs));
+  } else {
+    CHECK_EQ(scan_outputs.size(), 1);
+    replacement = scan_outputs[0];
+  }
+  TF_RETURN_IF_ERROR(reduce_window->ReplaceAllUsesWith(replacement));
+  TF_RETURN_IF_ERROR(parent->RemoveInstruction(reduce_window));
+  return true;
+}
+
 absl::StatusOr<bool> ReduceWindowRewriter::RunImpl(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
+  const bool decompose_assoc_scan = DecomposeAssociativeScan();
+  const bool rewrite_cumsum_as_scan = RewriteCumSumAsScan();
   for (const auto& computation : module->computations(execution_threads)) {
     for (HloInstruction* instruction :
          computation->MakeInstructionPostOrder()) {
       if (auto* scan = DynCast<HloScanInstruction>(instruction)) {
+        if (!decompose_assoc_scan) {
+          // Backend has a native scan emitter; leave kScan alone.
+          continue;
+        }
         auto result = TryOptimizeAssociativeScan(scan);
         TF_RETURN_IF_ERROR(result.status());
         if (*result) {
@@ -826,6 +1020,17 @@ absl::StatusOr<bool> ReduceWindowRewriter::RunImpl(
 
       if (auto* reduce_window =
               DynCast<HloReduceWindowInstruction>(instruction)) {
+        // First, opportunistically lift scan-shaped reduce-windows to kScan
+        // when the subclass requests it. The resulting kScan is left alone
+        // here (DecomposeAssociativeScan() will be false in that mode).
+        if (rewrite_cumsum_as_scan) {
+          auto rewrite_result = TryRewriteCumSumAsScan(reduce_window);
+          TF_RETURN_IF_ERROR(rewrite_result.status());
+          if (*rewrite_result) {
+            changed = true;
+            continue;
+          }
+        }
         auto result = TryOptimizeCumSumOrProd(reduce_window);
         TF_RETURN_IF_ERROR(result.status());
         if (*result) {

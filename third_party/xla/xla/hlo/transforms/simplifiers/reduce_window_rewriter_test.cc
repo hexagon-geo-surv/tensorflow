@@ -382,5 +382,171 @@ ENTRY entry (arg: f32[128]) -> f32[128] {
   CheckReduceWindowRewrite(hlo, std::nullopt);
 }
 
+// ----------------------------------------------------------------------------
+// Coverage for the new RewriteCumSumAsScan / DecomposeAssociativeScan hooks.
+// Using a subclass that flips both: scan-shaped reduce-window is upgraded to
+// kScan, and kScan is left alone (the path TPU uses with the native
+// ScanEmitter enabled).
+// ----------------------------------------------------------------------------
+
+class ScanPreservingReduceWindowRewriter : public ReduceWindowRewriter {
+ public:
+  explicit ScanPreservingReduceWindowRewriter(int64_t base_length)
+      : ReduceWindowRewriter(base_length) {}
+
+ protected:
+  bool RewriteCumSumAsScan() const override { return true; }
+  bool DecomposeAssociativeScan() const override { return false; }
+};
+
+class ReduceWindowRewriterScanUpgradeTest
+    : public HloHardwareIndependentTestBase {
+ public:
+  void CheckRewrite(absl::string_view hlo,
+                    std::optional<absl::string_view> expected) {
+    RunAndFilecheckHloRewrite(hlo, ScanPreservingReduceWindowRewriter{128},
+                              expected);
+  }
+};
+
+TEST_F(ReduceWindowRewriterScanUpgradeTest, InclusiveCumSum) {
+  const char* hlo = R"(
+HloModule m
+
+add_float {
+  lhs = f32[] parameter(0)
+  rhs = f32[] parameter(1)
+  ROOT add = f32[] add(lhs, rhs)
+}
+
+ENTRY entry (arg: f32[46592]) -> f32[46592] {
+  arg = f32[46592]{0} parameter(0)
+  constant = f32[] constant(0)
+  ROOT reduce-window = f32[46592]{0} reduce-window(f32[46592]{0} %arg, f32[] %constant), window={size=46592 pad=46591_0}, to_apply=%add_float
+})";
+  // Expect a single kScan, forward, inclusive, with is_associative=true.
+  CheckRewrite(hlo, R"(
+// CHECK: scan({{.*}}arg{{.*}}, {{.*}}constant{{.*}}), dimensions={0}, num_carries=1{{.*}}is_associative=true
+)");
+}
+
+TEST_F(ReduceWindowRewriterScanUpgradeTest, ReverseCumSum) {
+  const char* hlo = R"(
+HloModule m
+
+add_float {
+  lhs = f32[] parameter(0)
+  rhs = f32[] parameter(1)
+  ROOT add = f32[] add(lhs, rhs)
+}
+
+ENTRY entry (arg: f32[46592]) -> f32[46592] {
+  arg = f32[46592]{0} parameter(0)
+  constant = f32[] constant(0)
+  ROOT reduce-window = f32[46592]{0} reduce-window(f32[46592]{0} %arg, f32[] %constant), window={size=46592 pad=0_46591}, to_apply=%add_float
+})";
+  CheckRewrite(hlo, R"(
+// CHECK: scan({{.*}}), dimensions={0}, num_carries=1{{.*}}is_reverse=true{{.*}}is_associative=true
+)");
+}
+
+TEST_F(ReduceWindowRewriterScanUpgradeTest, ExclusiveCumSum) {
+  // Padding pattern of N (rather than N-1) on the leading edge marks the
+  // reduce-window as exclusive: input is N, reduce-window output is N+1.
+  // We pad the operand by 1 with init on the leading edge and run an
+  // inclusive kScan of length N+1 — its output already matches the original
+  // reduce-window result, so no slice is needed.
+  const char* hlo = R"(
+HloModule m
+
+add_float {
+  lhs = f32[] parameter(0)
+  rhs = f32[] parameter(1)
+  ROOT add = f32[] add(lhs, rhs)
+}
+
+ENTRY entry (arg: f32[46592]) -> f32[46593] {
+  arg = f32[46592]{0} parameter(0)
+  constant = f32[] constant(0)
+  ROOT reduce-window = f32[46593]{0} reduce-window(f32[46592]{0} %arg, f32[] %constant), window={size=46592 pad=46592_0}, to_apply=%add_float
+})";
+  CheckRewrite(hlo, R"(
+// CHECK: pad
+// CHECK: scan({{.*}}), dimensions={0}, num_carries=1{{.*}}is_associative=true
+// CHECK-NOT: slice
+)");
+}
+
+TEST_F(ReduceWindowRewriterScanUpgradeTest, ExclusiveReverseCumSum) {
+  // Reverse exclusive: pad on the trailing edge.
+  const char* hlo = R"(
+HloModule m
+
+add_float {
+  lhs = f32[] parameter(0)
+  rhs = f32[] parameter(1)
+  ROOT add = f32[] add(lhs, rhs)
+}
+
+ENTRY entry (arg: f32[46592]) -> f32[46593] {
+  arg = f32[46592]{0} parameter(0)
+  constant = f32[] constant(0)
+  ROOT reduce-window = f32[46593]{0} reduce-window(f32[46592]{0} %arg, f32[] %constant), window={size=46592 pad=0_46592}, to_apply=%add_float
+})";
+  CheckRewrite(hlo, R"(
+// CHECK: pad
+// CHECK: scan({{.*}}), dimensions={0}, num_carries=1{{.*}}is_reverse=true{{.*}}is_associative=true
+// CHECK-NOT: slice
+)");
+}
+
+TEST_F(ReduceWindowRewriterScanUpgradeTest, VariadicCumMaxMin) {
+  const char* hlo = R"(
+HloModule m
+
+MaxMin {
+  l.max = f32[] parameter(0)
+  l.min = f32[] parameter(1)
+  r.max = f32[] parameter(2)
+  r.min = f32[] parameter(3)
+  max = f32[] maximum(l.max, r.max)
+  min = f32[] minimum(l.min, r.min)
+  ROOT root = (f32[], f32[]) tuple(max, min)
+}
+
+ENTRY entry (arg.0: f32[46592], arg.1: f32[46592]) -> (f32[46592], f32[46592]) {
+  arg.0 = f32[46592]{0} parameter(0)
+  arg.1 = f32[46592]{0} parameter(1)
+  init_ninf = f32[] constant(-inf)
+  init_inf = f32[] constant(inf)
+  ROOT reduce-window = (f32[46592]{0}, f32[46592]{0}) reduce-window(f32[46592]{0} %arg.0, f32[46592]{0} %arg.1, f32[] %init_ninf, f32[] %init_inf), window={size=46592 pad=46591_0}, to_apply=%MaxMin
+})";
+  CheckRewrite(hlo, R"(
+// CHECK: scan({{.*}}arg.0{{.*}}, {{.*}}arg.1{{.*}}, {{.*}}init_ninf{{.*}}, {{.*}}init_inf{{.*}}), dimensions={0}, num_carries=2{{.*}}is_associative=true
+)");
+}
+
+TEST_F(ReduceWindowRewriterScanUpgradeTest, AssociativeScanLeftIntact) {
+  // With DecomposeAssociativeScan() == false the kScan must survive the pass.
+  const char* hlo = R"(
+HloModule m
+
+add_float {
+  lhs = f32[] parameter(0)
+  rhs = f32[] parameter(1)
+  add = f32[] add(lhs, rhs)
+  ROOT tuple = (f32[], f32[]) tuple(add, add)
+}
+
+ENTRY entry (arg: f32[46592]) -> f32[46592] {
+  arg = f32[46592]{0} parameter(0)
+  constant = f32[] constant(0)
+  scan = (f32[46592]{0}, f32[]) scan(f32[46592]{0} %arg, f32[] %constant), dimensions={0}, num_carries=1, to_apply=%add_float, is_associative=true
+  ROOT result = f32[46592]{0} get-tuple-element(scan), index=0
+})";
+  // No rewrite → expect std::nullopt.
+  CheckRewrite(hlo, std::nullopt);
+}
+
 }  // namespace
 }  // namespace xla

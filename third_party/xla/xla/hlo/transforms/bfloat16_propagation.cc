@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xla/hlo/transforms/bfloat16_propagation.h"
 
+#include <array>
 #include <cstdint>
 #include <utility>
 
@@ -30,8 +31,10 @@ limitations under the License.
 #include "xla/hlo/analysis/alias_info.h"
 #include "xla/hlo/analysis/hlo_dataflow_analysis.h"
 #include "xla/hlo/analysis/hlo_operand_index.h"
+#include "xla/hlo/ir/hlo_casting_utils.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
+#include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/hlo/transforms/simplifiers/hlo_dce.h"
@@ -50,6 +53,21 @@ limitations under the License.
 #include "tsl/platform/statusor.h"
 
 namespace xla {
+namespace {
+
+// Returns true if `hlo` is an associative scan (one for which the
+// ScanExpander chose not to lower into a while loop). Only associative
+// scans survive past ScanExpander, and only those need the kWhile-style
+// carry-aliasing handling implemented in this file. Non-associative scans
+// are expanded into while loops elsewhere and reach this pass as kWhile.
+bool IsAssociativeScan(const HloInstruction* hlo) {
+  if (hlo->opcode() != HloOpcode::kScan) {
+    return false;
+  }
+  return Cast<HloScanInstruction>(hlo)->is_associative() == TRI_STATE_TRUE;
+}
+
+}  // namespace
 
 BFloat16Propagation::BFloat16Propagation(const FloatSupport* bfloat16_support,
                                          const AliasInfo* alias_info)
@@ -222,6 +240,45 @@ void BFloat16Propagation::DetermineWhileComputationsPrecision(
   computations_visited_in_backward_pass_.insert(condition);
 }
 
+void BFloat16Propagation::DetermineScanComputationPrecision(
+    HloInstruction* scan_hlo) {
+  CHECK(IsAssociativeScan(scan_hlo));
+
+  // We are depending on the scan node itself having already been analyzed
+  // for whether it can output BF16 and this has been adjusted in the output
+  // shape. Mirroring the kWhile path, we now push those output-slot precision
+  // decisions down to the body root and propagate through the body.
+  //
+  // Scan tuple structure (verified by HloVerifier::HandleScan):
+  //   * scan output slot i and body root slot i hold the same precision; the
+  //     output is the body root with scan_dim added back (for i < num_outputs)
+  //     or carried through verbatim (for i >= num_outputs).
+  // So a per-shape-index walk over the body root mirrors the scan shape 1:1.
+  HloComputation* body = scan_hlo->to_apply();
+  HloInstruction* body_root = body->root_instruction();
+
+  ShapeUtil::ForEachSubshape(body_root->shape(), [this, scan_hlo, body_root](
+                                                     const Shape& subshape,
+                                                     const ShapeIndex& index) {
+    if (subshape.element_type() != F32) {
+      return;
+    }
+    if (OutputTypeAfterChange(scan_hlo, index) == BF16) {
+      AddToOrRemoveFromBF16ChangeSet(body_root, index, BF16);
+      VLOG(2) << "Scan body root " << body_root->ToString()
+              << " at shape index " << index
+              << " changed to BF16 precision for scan " << scan_hlo->ToString();
+    }
+  });
+
+  auto body_insts = body->MakeInstructionPostOrder();
+  for (auto inst_it = body_insts.rbegin(); inst_it != body_insts.rend();
+       ++inst_it) {
+    DetermineInstructionPrecision(*inst_it, /*skip_parameters=*/false);
+  }
+  computations_visited_in_backward_pass_.insert(body);
+}
+
 void BFloat16Propagation::DetermineConditionalComputationsPrecision(
     HloInstruction* cond) {
   CHECK_EQ(cond->opcode(), HloOpcode::kConditional);
@@ -389,6 +446,14 @@ bool BFloat16Propagation::AllUsersConsumeBF16(const HloInstruction& hlo,
           return false;
         }
         continue;
+      } else if (IsAssociativeScan(use.instruction)) {
+        auto* body_parameter =
+            use.instruction->to_apply()->parameter_instruction(
+                use.operand_number);
+        if (OutputTypeAfterChange(body_parameter, use.operand_index) != BF16) {
+          return false;
+        }
+        continue;
       } else if (use.instruction->opcode() == HloOpcode::kAsyncDone) {
         // async-done consumes whatever async-start gives it.
         continue;
@@ -446,6 +511,15 @@ bool BFloat16Propagation::ShouldKeepPrecisionUnchanged(
   // bitcast-convert, because this pass might break the interfaces or
   // assumptions for them. It is safe to change precision for AllocateBuffer
   // since it is merely a buffer allocation and does not have any side effects.
+  // Also pin precision for non-associative scans: they are expected to be
+  // expanded to while loops by ScanExpander upstream of BFloat16Propagation in
+  // real pipelines. Without expansion, this pass cannot consistently update
+  // both the scan output and the body, which would leave the module failing
+  // HloVerifier::HandleScan.
+  if (inst->opcode() == HloOpcode::kScan &&
+      Cast<HloScanInstruction>(inst)->is_associative() != TRI_STATE_TRUE) {
+    return true;
+  }
   return (inst->opcode() == HloOpcode::kCustomCall &&
           !inst->IsCustomCall("AllocateBuffer")) ||
          inst->opcode() == HloOpcode::kBitcastConvert ||
@@ -469,6 +543,8 @@ void BFloat16Propagation::DetermineInstructionPrecision(HloInstruction* hlo,
         DetermineFusionComputationPrecision(hlo);
       } else if (hlo->opcode() == HloOpcode::kWhile) {
         DetermineWhileComputationsPrecision(hlo);
+      } else if (IsAssociativeScan(hlo)) {
+        DetermineScanComputationPrecision(hlo);
       } else if (hlo->opcode() == HloOpcode::kConditional) {
         DetermineConditionalComputationsPrecision(hlo);
       } else if (hlo->opcode() == HloOpcode::kAsyncStart &&
@@ -485,6 +561,11 @@ void BFloat16Propagation::DetermineInstructionPrecision(HloInstruction* hlo,
   if (hlo->opcode() == HloOpcode::kWhile &&
       (caller_counts_[hlo->while_condition()] > 1 ||
        caller_counts_[hlo->while_body()] > 1)) {
+    postpone_processing_called_computations = true;
+    return;
+  }
+
+  if (IsAssociativeScan(hlo) && caller_counts_[hlo->to_apply()] > 1) {
     postpone_processing_called_computations = true;
     return;
   }
@@ -625,6 +706,11 @@ void BFloat16Propagation::AdjustCalledComputationParameters(
       adjust_computation(hlo->while_condition(), hlo->operands());
       adjust_computation(hlo->while_body(), hlo->operands());
       break;
+    case HloOpcode::kScan:
+      if (IsAssociativeScan(hlo)) {
+        adjust_computation(hlo->to_apply(), hlo->operands());
+      }
+      break;
     case HloOpcode::kConditional:
       for (int64_t i = 0; i < hlo->branch_count(); ++i) {
         adjust_computation(hlo->branch_computation(i),
@@ -690,6 +776,11 @@ void BFloat16Propagation::AdjustCalledComputationRoot(HloInstruction* hlo) {
     case HloOpcode::kWhile:
       adjust_computation(hlo->while_body(), hlo);
       break;
+    case HloOpcode::kScan:
+      if (IsAssociativeScan(hlo)) {
+        adjust_computation(hlo->to_apply(), hlo);
+      }
+      break;
     case HloOpcode::kConditional:
       for (auto* branch : hlo->branch_computations()) {
         adjust_computation(branch, hlo);
@@ -707,6 +798,89 @@ void BFloat16Propagation::AdjustCalledComputationRoot(HloInstruction* hlo) {
     default:
       break;
   }
+}
+
+bool BFloat16Propagation::AlignScanCarryPrecisions(HloInstruction* scan_hlo) {
+  CHECK(IsAssociativeScan(scan_hlo));
+  auto* scan_instr = Cast<HloScanInstruction>(scan_hlo);
+  const int64_t num_carries = scan_instr->num_carries();
+  if (num_carries == 0) {
+    return false;
+  }
+  HloComputation* body = scan_hlo->to_apply();
+  HloInstruction* body_root = body->root_instruction();
+  const int64_t num_inputs = scan_hlo->operand_count() - num_carries;
+  const int64_t num_outputs =
+      scan_hlo->shape().IsTuple()
+          ? static_cast<int64_t>(scan_hlo->shape().tuple_shapes().size()) -
+                num_carries
+          : 0;
+
+  // For a 1-carry-0-output associative scan, body root and scan result are
+  // arrays (not tuples), and the single carry slot is addressed by ShapeIndex
+  // {}. Indexing a non-tuple shape with {num_outputs + i} would CHECK-fail
+  // in ShapeUtil::GetSubshape, so we conditionally pick the right index.
+  auto carry_index = [&](const Shape& shape, int64_t i) -> ShapeIndex {
+    return shape.IsTuple() ? ShapeIndex{num_outputs + i} : ShapeIndex{};
+  };
+  // Returns the leaf primitive type at (hlo, index), or INVALID if the
+  // sub-shape is not an array (tuple carries are out of scope here:
+  // HloVerifier::HandleScan accepts them but no real backend emits them).
+  auto leaf_type = [&](HloInstruction* hlo,
+                       const ShapeIndex& index) -> PrimitiveType {
+    const Shape& sub = ShapeUtil::GetSubshape(hlo->shape(), index);
+    if (!sub.IsArray()) return PRIMITIVE_TYPE_INVALID;
+    return OutputTypeAfterChange(hlo, index);
+  };
+
+  bool changed = false;
+  for (int64_t i = 0; i < num_carries; ++i) {
+    HloInstruction* carry_init = scan_hlo->mutable_operand(num_inputs + i);
+    HloInstruction* body_param = body->parameter_instruction(num_inputs + i);
+    const ShapeIndex root_carry_index = carry_index(body_root->shape(), i);
+    const ShapeIndex result_carry_index = carry_index(scan_hlo->shape(), i);
+
+    // The four logical locations of carry slot `i`. Order is
+    // (init_operand, body_param, body_root, scan_result).
+    using CarryLoc = std::pair<HloInstruction*, ShapeIndex>;
+    const std::array<CarryLoc, 4> locations{{
+        {carry_init, /*index=*/{}},
+        {body_param, /*index=*/{}},
+        {body_root, root_carry_index},
+        {scan_hlo, result_carry_index},
+    }};
+
+    // Only align if all four locations are leaf array slots and at least one
+    // is F32. The carry init (operand) and body parameter cannot be
+    // unilaterally changed here because they may have other consumers; we
+    // only ever DOWNGRADE BF16 -> F32 on the body root, scan result, and
+    // body parameter. This is sufficient to make the scan verifier and
+    // FloatNormalization see a self-consistent shape.
+    PrimitiveType types[4];
+    bool valid = true;
+    bool any_f32 = false;
+    for (int k = 0; k < 4; ++k) {
+      types[k] = leaf_type(locations[k].first, locations[k].second);
+      if (types[k] == PRIMITIVE_TYPE_INVALID) {
+        valid = false;
+        break;
+      }
+      any_f32 |= (types[k] == F32);
+    }
+    if (!valid || !any_f32) continue;
+
+    // Downgrade the three locations we're allowed to (skip the carry_init
+    // operand at index 0).
+    for (int k = 1; k < 4; ++k) {
+      if (types[k] != BF16) continue;
+      AddToOrRemoveFromBF16ChangeSet(locations[k].first, locations[k].second,
+                                     F32);
+      changed = true;
+    }
+    VLOG(2) << "Aligned scan carry slot " << i << " to F32 for scan "
+            << scan_hlo->ToString();
+  }
+  return changed;
 }
 
 bool BFloat16Propagation::ResolveInconsistencyOfAliasingBuffersHelper(
@@ -818,6 +992,26 @@ bool BFloat16Propagation::ResolveInconsistencyOfAliasingBuffersHelper(
         }
         visited_computations->insert(visited_in_while.begin(),
                                      visited_in_while.end());
+      } else if (IsAssociativeScan(hlo)) {
+        // Mirrors the kWhile loop above: re-run the body until parameters
+        // stop changing. A fixed point is guaranteed because parameters
+        // can only be downgraded BF16 -> F32, never the other way. Unlike
+        // kWhile, scan carries are not represented as runtime aliases
+        // so HloDataflowAnalysis does not give the
+        // standard helper a way to propagate precision across them. We
+        // call AlignScanCarryPrecisions on each iteration to enforce the
+        // verifier-required precision agreement across the four carry
+        // locations (init operand, body param, body root, scan result).
+        absl::flat_hash_set<const HloComputation*> visited_in_scan;
+        while (ResolveInconsistencyOfAliasingBuffersHelper(hlo->to_apply(),
+                                                           &visited_in_scan) ||
+               AlignScanCarryPrecisions(hlo)) {
+          visited_in_scan.clear();
+          ShapeUtil::ForEachSubshape(hlo->shape(), adjust_hlo_output);
+          AdjustCalledComputationRoot(hlo);
+        }
+        visited_computations->insert(visited_in_scan.begin(),
+                                     visited_in_scan.end());
       } else if (hlo->opcode() == HloOpcode::kFusion) {
         ResolveInconsistencyOfAliasingBuffersHelper(
             hlo->fused_instructions_computation(), visited_computations);
@@ -1127,10 +1321,67 @@ absl::StatusOr<bool> BFloat16Propagation::RunImpl(
   }
 
   TF_RETURN_IF_ERROR(ResolveInconsistentFusions(module));
+  TF_RETURN_IF_ERROR(ResolveInconsistentScans(module));
   TF_RETURN_IF_ERROR(ResolveConvertedConstants(module));
 
   TF_RETURN_IF_ERROR(clean_up());
   return true;
+}
+
+absl::Status BFloat16Propagation::ResolveInconsistentScans(HloModule* module) {
+  // Body roots of associative scans must have shapes that match the scan
+  // output (per HloVerifier::HandleScan: per-step body root slot i has
+  // scan_dim added back to produce scan output slot i for i < num_outputs;
+  // carry slots i + num_outputs are pass-through). Propagation may have
+  // changed the scan output slot precision while the underlying body root
+  // value (e.g. the `add` in `tuple(add, add)` for cumsum) had to stay F32
+  // because at least one of its uses demanded F32. Insert precision-changing
+  // converts on the affected body root tuple slots to bring the body root
+  // shape into agreement with the scan output shape. Mirrors
+  // ResolveInconsistentFusions for fusion roots.
+  for (auto computation :
+       module->MakeComputationPostOrder(execution_threads_)) {
+    for (auto inst : computation->MakeInstructionPostOrder()) {
+      if (!IsAssociativeScan(inst)) {
+        continue;
+      }
+      HloComputation* body = inst->to_apply();
+      HloInstruction* body_root = body->root_instruction();
+      const Shape& scan_shape = inst->shape();
+      if (ShapeUtil::Compatible(body_root->shape(), scan_shape)) {
+        continue;
+      }
+      // Use DeepCopyInstructionWithCustomCopier to walk every leaf of the body
+      // root and insert a precision-changing convert wherever the leaf type
+      // disagrees with the corresponding scan output slot. This mirrors
+      // ResolveInconsistentFusions and works regardless of body_root's opcode
+      // (kTuple, kParameter, kCall, kFusion, ...): instead of mutating
+      // body_root's operands directly we materialize a fresh GTE/Convert/Tuple
+      // tree and swap it in as the new root. Body root tuple slot i maps to
+      // scan output tuple slot i for both per-step outputs (i < num_outputs)
+      // and carries (i >= num_outputs); carries simply pass through unchanged.
+      TF_ASSIGN_OR_RETURN(
+          HloInstruction * new_root,
+          body->DeepCopyInstructionWithCustomCopier(
+              body_root, [this, &scan_shape](HloInstruction* leaf,
+                                             const ShapeIndex& leaf_index,
+                                             HloComputation* comp) {
+                const Shape& scan_subshape =
+                    ShapeUtil::GetSubshape(scan_shape, leaf_index);
+                if (ShapeUtil::Compatible(leaf->shape(), scan_subshape)) {
+                  return leaf;
+                }
+                Shape converted_shape = leaf->shape();
+                converted_shape.set_element_type(scan_subshape.element_type());
+                UpdateLayout(&converted_shape);
+                return comp->AddInstruction(
+                    HloInstruction::CreateConvert(converted_shape, leaf));
+              }));
+      body->set_root_instruction(new_root,
+                                 /*accept_different_shape=*/true);
+    }
+  }
+  return absl::OkStatus();
 }
 
 PrimitiveType BFloat16Propagation::OutputTypeAfterChange(

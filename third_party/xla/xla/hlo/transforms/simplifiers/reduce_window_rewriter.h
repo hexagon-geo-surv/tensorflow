@@ -61,6 +61,24 @@ class ReduceWindowRewriter : public HloModulePass {
       HloModule* module,
       const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
+  // Subclass hooks controlling associative-scan handling. Defaults preserve
+  // the legacy behavior (decompose kScan and ignore scan-shaped reduce-window)
+  // so backends without a native scan emitter (e.g. CPU/GPU today) need no
+  // changes.
+  //
+  // If true, recognize a scan-shaped HloReduceWindowInstruction and rewrite
+  // it as an HloScanInstruction (with `is_associative=TRI_STATE_TRUE`)
+  // instead of decomposing it into a tree-reduction here. Useful for
+  // backends that have a native scan emitter and prefer to consume `kScan`
+  // directly. Default: false.
+  virtual bool RewriteCumSumAsScan() const { return false; }
+
+  // If true, decompose an associative HloScanInstruction into the tree-style
+  // reduce-window pipeline (the legacy path). Default: true.
+  // Backends with a native scan emitter should override to return false so
+  // long scans flow through to lowering as a single HLO.
+  virtual bool DecomposeAssociativeScan() const { return true; }
+
  private:
   // Helper methods to optimize ReduceWindow ops.
 
@@ -107,6 +125,14 @@ class ReduceWindowRewriter : public HloModulePass {
       HloReduceWindowInstruction* reduce_window);
 
   absl::StatusOr<bool> TryOptimizeAssociativeScan(HloScanInstruction* scan);
+
+  // Recognizes a scan-shaped HloReduceWindowInstruction (single non-trivial
+  // window dim with the canonical cumsum/cumprod padding pattern) and
+  // rewrites it as an HloScanInstruction with `is_associative=TRI_STATE_TRUE`.
+  // Returns true on success. Only invoked when `RewriteCumSumAsScan()` is
+  // true.
+  absl::StatusOr<bool> TryRewriteCumSumAsScan(
+      HloReduceWindowInstruction* reduce_window);
 
   absl::StatusOr<HloInstruction*> RewriteScanAsTreeReduction(
       HloComputation* parent, std::vector<HloInstruction*> sources,
