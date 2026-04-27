@@ -28,6 +28,21 @@ cc_library(
     visibility = ["//visibility:public"],
 )
 
+cc_library(
+    name = "traceme_global_flags",
+    srcs = ["traceme_global_flags.cc"],
+    hdrs = ["traceme_global_flags.h"],
+    copts = tf_profiler_copts(),
+    visibility = internal_visibility([
+        "@xla//xla/tsl/profiler:internal",
+        "@xla//xla/tsl/profiler:xla_internal",
+        "//tsl/profiler/lib:__pkg__",
+    ]),
+    deps = [
+        "@xla//xla/tsl/platform:macros",
+    ],
+)
+
 filegroup(
     name = "mobile_srcs_no_runtime",
     srcs = [
