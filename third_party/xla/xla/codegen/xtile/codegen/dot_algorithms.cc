@@ -96,7 +96,8 @@ absl::StatusOr<Value> ScaledDot(mlir::ImplicitLocOpBuilder& b,
                           mlir::Float4E2M1FNType::get(b.getContext());
   auto dot_scaled_op = xtile::DotScaledOp::create(
       b, operands.accumulator.getType(), operands.lhs, operands.rhs, lhs_scale,
-      rhs_scale, /*fastMath=*/true, /*lhs_k_pack=*/true, rhs_k_pack);
+      rhs_scale, /*fastMath=*/true, /*lhs_k_pack=*/true, rhs_k_pack,
+      operands.dot_dimension_numbers);
 
   auto add_result =
       mlir::isa<mlir::IntegerType>(
@@ -300,6 +301,9 @@ absl::StatusOr<Value> EmitSingleTileDot(mlir::ImplicitLocOpBuilder& b,
 absl::StatusOr<Value> EmitSingleTileScaledDot(
     mlir::ImplicitLocOpBuilder& b, const HloScaledDotInstruction& scaled_dot,
     ScaledDotOperands dot_operands) {
+  dot_operands.dot_dimension_numbers =
+      ::xla::stablehlo::ConvertDotDimensionNumbers(
+          scaled_dot.dot_dimension_numbers(), &b);
   return ScaledDot(b, dot_operands);
 }
 
