@@ -30,6 +30,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "xla/tsl/platform/status_macros.h"
 #include "llvm/ADT/STLExtras.h"
@@ -505,9 +506,6 @@ Tiles PropagateTileToOutputForReduceOp(const HloReduceInstruction& reduce,
 
 absl::Status IsSupportedReshape(const std::vector<MinimalReshape>& reshapes) {
   for (const auto& minimal_reshape : reshapes) {
-    if (minimal_reshape.category == MinimalReshapeCategory::kExpandShape) {
-      return absl::UnimplementedError("Unsupported reshape (kExpandShape).");
-    }
     if (minimal_reshape.category == MinimalReshapeCategory::kGeneric) {
       return absl::UnimplementedError("Unsupported reshape (kGeneric).");
     }
@@ -532,62 +530,74 @@ SmallVector<int64_t> GetNonTrivialDimIds(const Shape& shape,
                           : SmallVector<int64_t>{range.start};
 }
 
-// Checks source tile to see if kCollapseShape is supported.
+// Returns true if the symbolic expression simplifies to the given constant.
+bool IsConstantValue(const SymbolicExpr& expr, int64_t value) {
+  auto canonical = expr.Canonicalize();
+  return canonical.GetType() == SymbolicExprType::kConstant &&
+         canonical.GetValue() == value;
+}
+
+// Consider a reshape with 1-to-n (kExpandShape) or n-to-1 (kCollapseShape)
+// mapping of the "significant" dimensions, verify if the reshape is supported.
 //
-// We consider a kCollapseShape reshape is supported if there is at most one
-// dimension that is partially tiled. Specifically:
-// - Only one dimension is truly "tiled" (size > 1).
+// We consider a kCollapseShape / kExpandShape to be supported if
+// for the multidim side there is at most one dimension that is partially tiled.
+// Specifically:
+// - Only one dimension is truly "tiled" (ts > 1).
 // - Any dimensions inner to the tiled dimension are fully covered (ts_i = d_i)
 // - Any dimensions outer to the tiled dimension are tile size 1 (ts_i = 1)
 // - All dimensions except the innermost have stride 1.
 // Example: for [3, 4] -> [12] we support:
 // - ts_0 = 1, or
 // - ts_1 = 4 (i.e., we take full rows)
-absl::Status IsSupportedCollapseShape(absl::Span<const DimTile> source_tiles,
-                                      absl::Span<const int64_t> source_dims) {
-  // All dimensions except the innermost must have stride 1.
-  int num_dims = static_cast<int>(source_tiles.size());
-  auto IsStride1 = [](const DimTile& dt) {
-    return dt.stride.GetType() == SymbolicExprType::kConstant &&
-           dt.stride.GetValue() == 1;
+absl::Status VerifyReshapeContiguity(
+    absl::Span<const DimTile> linear_side_tiles,
+    absl::Span<const DimTile> multidim_side_tiles,
+    absl::Span<const int64_t> multidim_side_dims, bool is_collapse = true) {
+  auto FormatError = [&](auto... args) {
+    return absl::UnimplementedError(absl::StrCat(
+        "Unsupported minimal reshape (",
+        is_collapse ? "kCollapseShape" : "kExpandShape", "): ", args...));
   };
-  if (!absl::c_all_of(source_tiles.subspan(0, num_dims - 1), IsStride1)) {
-    return absl::UnimplementedError(
-        "Unsupported minimal reshape (kCollapseShape): "
-        "stride > 1 in non-innermost significant dimension");
+
+  if (linear_side_tiles.size() != 1 || multidim_side_tiles.empty()) {
+    return FormatError("Invalid minimal reshape dimensions.");
   }
 
-  // Find the first dimension that is not size 1.
+  // Verify that the source tiles are contiguous.
+  // - In Collapse: All but the innermost source dimensions must be stride 1.
+  // - In Expand: The single source dimension must be stride 1.
+  int n = static_cast<int>(multidim_side_tiles.size());
+  auto source_stride_check_span =
+      is_collapse ? multidim_side_tiles.subspan(0, n - 1) : linear_side_tiles;
+  if (!absl::c_all_of(source_stride_check_span, [](const DimTile& dt) {
+        return IsConstantValue(dt.stride, 1);
+      })) {
+    return FormatError("Source tiles must be contiguous.");
+  }
+
+  // Verify that the multidim side has at most one partially tiled dimension.
   int i = 0;
-  while (i < num_dims &&
-         (source_tiles[i].size.GetType() == SymbolicExprType::kConstant &&
-          source_tiles[i].size.GetValue() == 1)) {
+  while (i < n && IsConstantValue(multidim_side_tiles[i].size, 1)) {
     ++i;
   }
-  // Find the last dimension that is not fully covered.
-  int j = num_dims - 1;
+  int j = n - 1;
   while (j >= 0 &&
-         (source_tiles[j].size.GetType() == SymbolicExprType::kConstant &&
-          source_tiles[j].size.GetValue() == source_dims[j])) {
+         IsConstantValue(multidim_side_tiles[j].size, multidim_side_dims[j])) {
     --j;
   }
   // All dimensions before i are size 1 and all dimensions after j are full.
   // If i >= j, then only index k=i=j potentially partially tiled.
   if (i < j) {
-    return absl::UnimplementedError(
-        absl::StrCat("Unsupported minimal reshape (kCollapseShape): "
-                     "multiple dimensions are partially tiled. "
-                     "The first dimension with tile size > 1 is at index ",
-                     i,
-                     " and the last dimension that is not fully covered is "
-                     "at index ",
-                     j, ". Expected i >= j."));
+    return FormatError(
+        "Multiple dimensions are partially tiled. "
+        "The first dimension with tile size > 1 is at index ",
+        i, " and the last dimension that is not fully covered is at index ", j,
+        ". Expected i >= j.");
   }
-
   return absl::OkStatus();
 }
 
-// TODO(b/477615292) - Change MinimalReshape to store dim ids instead of ranges.
 absl::Status PropagateTileThroughMinimalReshape(
     mlir::MLIRContext* mlir_context, const MinimalReshape& minimal_reshape,
     const Shape& source_shape, const Shape& target_shape,
@@ -596,6 +606,8 @@ absl::Status PropagateTileThroughMinimalReshape(
   const DimensionRange& target_range = minimal_reshape.output_dim_ids;
   auto source_ids = GetNonTrivialDimIds(source_shape, source_range);
   auto target_ids = GetNonTrivialDimIds(target_shape, target_range);
+  auto source_tiles = llvm::to_vector(llvm::map_range(
+      source_ids, [&](int64_t id) { return source_tile.dim_tiles()[id]; }));
 
   switch (minimal_reshape.category) {
     // 1-to-1 mapping of the "significant" dimensions (size > 1).
@@ -609,24 +621,8 @@ absl::Status PropagateTileThroughMinimalReshape(
     }
     // n-to-1 mapping of the "significant" dimensions (size > 1).
     case MinimalReshapeCategory::kCollapseShape: {
-      if (source_ids.empty()) {
-        return absl::UnimplementedError(
-            "Unsupported minimal reshape (kCollapseShape): "
-            "Expected at least one significant source dimension but found "
-            "none.");
-      }
-      if (target_ids.size() != 1) {
-        return absl::UnimplementedError(absl::StrCat(
-            "Unsupported minimal reshape (kCollapseShape): "
-            "Expected exactly one significant target dimension but found ",
-            target_ids.size()));
-      }
-
-      auto source_tiles = llvm::to_vector(llvm::map_range(
-          source_ids, [&](int64_t id) { return source_tile.dim_tiles()[id]; }));
       auto source_dims = llvm::to_vector(llvm::map_range(
           source_ids, [&](int64_t id) { return source_shape.dimensions(id); }));
-      RETURN_IF_ERROR(IsSupportedCollapseShape(source_tiles, source_dims));
 
       llvm::SmallVector<SymbolicExpr> offsets, upper_bounds_inclusive;
       SymbolicExpr total_tile_elements =
@@ -641,18 +637,46 @@ absl::Status PropagateTileThroughMinimalReshape(
 
       int64_t target_id = target_ids[0];
       target_dim_tiles[target_id].offset =
-          LinearizeShape(source_dims, offsets, mlir_context);
-      // Due to IsSupportedCollapseShape, the linear stride of the collapsed
+          LinearizeShape(source_dims, offsets, mlir_context).Canonicalize();
+      // Due to VerifyReshapeContiguity, the linear stride of the collapsed
       // dimension is simply the stride of the innermost dimension.
       target_dim_tiles[target_id].stride = source_tiles.back().stride;
-      target_dim_tiles[target_id].size = total_tile_elements;
+      target_dim_tiles[target_id].size = total_tile_elements.Canonicalize();
       target_dim_tiles[target_id].upper_bound =
-          LinearizeShape(source_dims, upper_bounds_inclusive, mlir_context) + 1;
+          (LinearizeShape(source_dims, upper_bounds_inclusive, mlir_context) +
+           1)
+              .Canonicalize();
 
-      return absl::OkStatus();
+      return VerifyReshapeContiguity(
+          absl::MakeSpan(&target_dim_tiles[target_id], 1), source_tiles,
+          source_dims, /*is_collapse=*/true);
     }
-    // 1-to-n mapping of the "significant" dimensions (size > 1).
-    case MinimalReshapeCategory::kExpandShape:
+    case MinimalReshapeCategory::kExpandShape: {
+      const DimTile& source_dt = source_tiles[0];
+      auto target_dims = llvm::to_vector(llvm::map_range(
+          target_ids, [&](int64_t id) { return target_shape.dimensions(id); }));
+      llvm::SmallVector<SymbolicExpr> offsets =
+          DelinearizeIndex(target_dims, source_dt.offset, mlir_context);
+      llvm::SmallVector<SymbolicExpr> upper_bounds_inclusive = DelinearizeIndex(
+          target_dims,
+          source_dt.offset + (source_dt.size - 1) * source_dt.stride,
+          mlir_context);
+
+      for (int i = 0; i < static_cast<int>(target_ids.size()); ++i) {
+        int64_t target_id = target_ids[i];
+        target_dim_tiles[target_id].offset = offsets[i].Canonicalize();
+        target_dim_tiles[target_id].stride = source_dt.stride.Canonicalize();
+        target_dim_tiles[target_id].size =
+            (upper_bounds_inclusive[i] - offsets[i] + 1).Canonicalize();
+        target_dim_tiles[target_id].upper_bound =
+            (upper_bounds_inclusive[i] + 1).Canonicalize();
+      }
+
+      auto target_tiles = llvm::to_vector(llvm::map_range(
+          target_ids, [&](int64_t id) { return target_dim_tiles[id]; }));
+      return VerifyReshapeContiguity(source_tiles, target_tiles, target_dims,
+                                     /*is_collapse=*/false);
+    }
     // m-to-n mapping of the "significant" dimensions (size > 1).
     case MinimalReshapeCategory::kGeneric:
       return absl::UnimplementedError(
