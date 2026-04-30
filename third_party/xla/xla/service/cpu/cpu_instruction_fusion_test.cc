@@ -1121,7 +1121,7 @@ TEST_F(InstructionFusionTest, NoSkipScatterComputationsIfNoFusionEmitters) {
                                            kScatterModuleString, mod_config));
   TF_ASSERT_OK_AND_ASSIGN(bool changed,
                           CpuInstructionFusion(&alias_info_).Run(module.get()));
-  EXPECT_TRUE(changed);
+  EXPECT_FALSE(changed);
 }
 
 static constexpr absl::string_view kReduceModuleString = R"(
@@ -1162,7 +1162,7 @@ TEST_F(InstructionFusionTest, NoSkipReduceComputationsIfNoFusionEmitters) {
                                            kReduceModuleString, mod_config));
   TF_ASSERT_OK_AND_ASSIGN(bool changed,
                           CpuInstructionFusion(&alias_info_).Run(module.get()));
-  EXPECT_TRUE(changed);
+  EXPECT_FALSE(changed);
 }
 
 }  // namespace

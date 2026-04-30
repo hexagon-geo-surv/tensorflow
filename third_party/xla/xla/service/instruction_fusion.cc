@@ -918,6 +918,25 @@ bool IsSafeToFuseSliceIntoDusFusion(const HloInstruction* producer,
 
 }  // namespace
 
+/*static*/ bool InstructionFusion::IsInsideEmbeddedComputation(
+    const HloComputation* computation) {
+  if (computation == nullptr) {
+    return false;
+  }
+  for (const HloInstruction* caller : computation->caller_instructions()) {
+    // kFusion computations are filtered out by GetNonFusionComputations
+    // before we reach this point, so we don't treat a kFusion caller as
+    // "inside an embedded computation".
+    if (caller->opcode() == HloOpcode::kFusion) {
+      continue;
+    }
+    if (GetInstructionCallContext(caller->opcode()) == CallContext::kEmbedded) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /*static*/ FusionDecision InstructionFusion::ShouldFuseInPlaceOp(
     const HloInstruction* producer, const HloInstruction* consumer,
     const AliasInfo* alias_info,
@@ -1107,11 +1126,15 @@ FusionDecision InstructionFusion::ShouldFuse(
   VLOG(2) << "Evaluating fusion: producer '" << producer->name()
           << "' into consumer '" << consumer->name() << "'.";
 
-  // Skip fusion inside the body of any kScan.
-  if (const HloComputation* parent = consumer->parent(); parent != nullptr) {
-    if (!parent->caller_instructions(HloOpcode::kScan).empty()) {
-      return FusionDecision::Forbid("not fusing inside the body of a scan");
-    }
+  // Skip fusion inside the body of any kEmbedded computation (e.g. kScan,
+  // kSort, kMap, kReduce, kReduceWindow, kScatter, kSelectAndScatter,
+  // kAllReduce, kReduceScatter, kAllReduceStart, kCustomCall). These bodies
+  // are typically scalar-in / scalar-out and do not materialize tensors, so
+  // wrapping their instructions in kFusion ops is unhelpful and breaks
+  // backends that expect them to stay flat.
+  if (IsInsideEmbeddedComputation(consumer->parent())) {
+    return FusionDecision::Forbid(
+        "not fusing inside the body of an embedded computation");
   }
 
   // Don't fuse across a root instruction.

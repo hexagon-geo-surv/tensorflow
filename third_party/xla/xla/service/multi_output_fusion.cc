@@ -35,6 +35,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_print_options.h"
 #include "xla/hlo/transforms/simplifiers/hlo_dce.h"
 #include "xla/map_util.h"
+#include "xla/service/instruction_fusion.h"
 #include "xla/shape_util.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/util.h"
@@ -286,11 +287,14 @@ bool MultiOutputFusion::LegalToFusePreliminaryConstraints(
     return false;
   }
 
-  // Skip multi-output fusion inside the body of any kScan.
-  if (const HloComputation* parent = instr1->parent(); parent != nullptr) {
-    if (!parent->caller_instructions(HloOpcode::kScan).empty()) {
-      return false;
-    }
+  // Skip multi-output fusion inside the body of any kEmbedded computation
+  // (e.g. kScan, kSort, kMap, kReduce, kReduceWindow, kScatter,
+  // kSelectAndScatter, kAllReduce, kReduceScatter, kAllReduceStart,
+  // kCustomCall). These bodies are typically scalar-in / scalar-out and do
+  // not materialize tensors, so wrapping their instructions in kFusion ops is
+  // unhelpful and breaks backends that expect them to stay flat.
+  if (InstructionFusion::IsInsideEmbeddedComputation(instr1->parent())) {
+    return false;
   }
 
   // Check if the users of multioutput fusion is not a get-tuple-element.
