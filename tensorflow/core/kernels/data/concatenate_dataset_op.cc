@@ -17,19 +17,27 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "tensorflow/core/data/name_utils.h"
 #include "tensorflow/core/data/split_utils.h"
 #include "tensorflow/core/framework/dataset.h"
+#include "tensorflow/core/framework/model.h"
+#include "tensorflow/core/framework/op_kernel.h"
+#include "tensorflow/core/framework/op_requires.h"
+#include "tensorflow/core/framework/partial_tensor_shape.h"
 #include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/framework/types.h"
+#include "tensorflow/core/platform/macros.h"
 #include "tsl/platform/mutex.h"
 #include "tsl/platform/thread_annotations.h"
 
@@ -212,6 +220,10 @@ class ConcatenateDatasetOp::Dataset : public DatasetBase {
                                  std::vector<Tensor>* out_tensors,
                                  bool* end_of_sequence) override {
       mutex_lock l(mu_);
+      if (input_impls_.size() != 2) {
+        return absl::FailedPreconditionError(
+            "`Initialize` should be called before `GetNextInternal`.");
+      }
       if (!input_impls_[0] && !input_impls_[1]) {
         *end_of_sequence = true;
         return absl::OkStatus();
@@ -336,6 +348,11 @@ class ConcatenateDatasetOp::Dataset : public DatasetBase {
     absl::Status SaveInternal(SerializationContext* ctx,
                               IteratorStateWriter* writer) override {
       mutex_lock l(mu_);
+      if (input_impls_.size() != 2) {
+        return absl::FailedPreconditionError(
+            "`Initialize` should be called before saving/restoring from "
+            "tf.data checkpoints.");
+      }
       TF_RETURN_IF_ERROR(writer->WriteScalar(prefix(), kIndex, i_));
       TF_RETURN_IF_ERROR(
           writer->WriteScalar(prefix(), kElementCount, element_count_));
@@ -359,8 +376,8 @@ class ConcatenateDatasetOp::Dataset : public DatasetBase {
       mutex_lock l(mu_);
       if (input_impls_.size() != 2) {
         return absl::FailedPreconditionError(
-            "`Initialize` should be called before restoring from tf.data "
-            "checkpoints.");
+            "`Initialize` should be called before saving/restoring from "
+            "tf.data checkpoints.");
       }
       int64_t input_uninitialized[2];
       TF_RETURN_IF_ERROR(reader->ReadScalar(
