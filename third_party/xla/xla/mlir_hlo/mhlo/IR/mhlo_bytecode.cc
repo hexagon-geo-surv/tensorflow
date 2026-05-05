@@ -617,6 +617,45 @@ TypeExtensionsAttr MhloBytecodeInterface::readTypeExtensionsAttr(
   return TypeExtensionsAttr::get(getContext(), bounds);
 }
 
+OriginalArrayAttr MhloBytecodeInterface::readOriginalArrayAttr(
+    DialectBytecodeReader& reader) const {
+  LOG_READ_CALL;
+  StringAttr instructionName;
+  llvm::SmallVector<int64_t> shapeIndex;
+  if (failed(reader.readAttribute(instructionName)) ||
+      failed(reader.readSignedVarInts(shapeIndex))) {
+    return OriginalArrayAttr();
+  }
+  return OriginalArrayAttr::get(getContext(), instructionName, shapeIndex);
+}
+
+OriginalValueElementAttr MhloBytecodeInterface::readOriginalValueElementAttr(
+    DialectBytecodeReader& reader) const {
+  LOG_READ_CALL;
+  llvm::SmallVector<int64_t> shapeIndex;
+  OriginalArrayAttr originalArray;
+  if (failed(reader.readSignedVarInts(shapeIndex)) ||
+      failed(reader.readOptionalAttribute(originalArray))) {
+    return OriginalValueElementAttr();
+  }
+  return OriginalValueElementAttr::get(
+      getContext(), shapeIndex,
+      originalArray ? std::optional<OriginalArrayAttr>(originalArray)
+                    : std::nullopt);
+}
+
+OriginalValueAttr MhloBytecodeInterface::readOriginalValueAttr(
+    DialectBytecodeReader& reader) const {
+  LOG_READ_CALL;
+  bool isSyntheticCall;
+  llvm::SmallVector<OriginalValueElementAttr> elements;
+  if (failed(reader.readBool(isSyntheticCall)) ||
+      failed(reader.readAttributes(elements))) {
+    return OriginalValueAttr();
+  }
+  return OriginalValueAttr::get(getContext(), isSyntheticCall, elements);
+}
+
 //===----------------------------------------------------------------------===//
 // Attributes: Writer
 
@@ -629,11 +668,12 @@ LogicalResult MhloBytecodeInterface::writeAttribute(
       .Case<ArgResultAliasAttr, ComparisonDirectionAttr, ComparisonTypeAttr,
             ConvDimensionNumbersAttr, ChannelHandleAttr, DomainKindAttr,
             DotDimensionNumbersAttr, FftTypeAttr, FusionKindAttr,
-            GatherDimensionNumbersAttr, OutputOperandAliasAttr, PrecisionAttr,
-            ResultAccuracyAttr, ResultAccuracyModeAttr, RngAlgorithmAttr,
-            RngDistributionAttr, ScatterDimensionNumbersAttr, TransposeAttr,
-            TypeExtensionsAttr, ReplicaGroupMeshAxesAttr, AxisRefAttr,
-            SubAxisInfoAttr>([&](auto attr) {
+            GatherDimensionNumbersAttr, OutputOperandAliasAttr,
+            OriginalArrayAttr, OriginalValueAttr, OriginalValueElementAttr,
+            PrecisionAttr, ResultAccuracyAttr, ResultAccuracyModeAttr,
+            RngAlgorithmAttr, RngDistributionAttr, ScatterDimensionNumbersAttr,
+            TransposeAttr, TypeExtensionsAttr, ReplicaGroupMeshAxesAttr,
+            AxisRefAttr, SubAxisInfoAttr>([&](auto attr) {
         LOG_WRITE_CALL;
         write(attr, writer);
         return success();
