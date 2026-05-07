@@ -449,7 +449,7 @@ ENTRY %main (a: f32[4096], b: f32[4096]) -> f32[4096] {
   ROOT %result.1 = f32[4096]{0} add(%param_0, %param_1)
 }
 
-%async_wrapped (async_param: f32[4096], async_param.1: f32[4096]) -> f32[4096] {
+%async_wrapped_computation_for_call (async_param: f32[4096], async_param.1: f32[4096]) -> f32[4096] {
   %async_param = f32[4096]{0} parameter(0)
   %async_param.1 = f32[4096]{0} parameter(1)
   ROOT %call = f32[4096]{0} call(%async_param, %async_param.1), to_apply=%called_computation
@@ -461,7 +461,7 @@ ENTRY %main (a: f32[4096], b: f32[4096]) -> f32[4096] {
   ROOT %result.0 = f32[4096]{0} add(%param_0.1, %param_1.1)
 }
 
-%async_wrapped.1 (async_param.2: f32[4096], async_param.3: f32[4096]) -> f32[4096] {
+%async_wrapped_computation_for_call.1 (async_param.2: f32[4096], async_param.3: f32[4096]) -> f32[4096] {
   %async_param.2 = f32[4096]{0} parameter(0)
   %async_param.3 = f32[4096]{0} parameter(1)
   ROOT %call.1 = f32[4096]{0} call(%async_param.2, %async_param.3), to_apply=%called_computation.clone
@@ -470,9 +470,9 @@ ENTRY %main (a: f32[4096], b: f32[4096]) -> f32[4096] {
 ENTRY %main (a: f32[4096], b: f32[4096]) -> f32[4096] {
   %a = f32[4096]{0} parameter(0)
   %b = f32[4096]{0} parameter(1)
-  %call-start.0 = ((f32[4096]{0}, f32[4096]{0}), f32[4096]{0}, u32[]) async-start(%a, %b), calls=%async_wrapped
+  %call-start.0 = ((f32[4096]{0}, f32[4096]{0}), f32[4096]{0}, u32[]) async-start(%a, %b), calls=%async_wrapped_computation_for_call
   %call-done.0 = f32[4096]{0} async-done(%call-start.0)
-  %call-start.1 = ((f32[4096]{0}, f32[4096]{0}), f32[4096]{0}, u32[]) async-start(%call-done.0, %b), calls=%async_wrapped.1
+  %call-start.1 = ((f32[4096]{0}, f32[4096]{0}), f32[4096]{0}, u32[]) async-start(%call-done.0, %b), calls=%async_wrapped_computation_for_call.1
   %call-done.1 = f32[4096]{0} async-done(%call-start.1)
   ROOT %add_1 = f32[4096]{0} add(%a, %call-done.1)
 }
