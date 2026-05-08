@@ -21,6 +21,7 @@ limitations under the License.
 #include <cstring>
 #include <memory>
 #include <queue>
+#include <utility>
 #include <vector>
 
 #include "absl/algorithm/container.h"
@@ -36,8 +37,8 @@ namespace xla {
 
 HloReachabilityMap::HloReachabilityMap(
     absl::Span<const HloInstruction* const> instructions)
-    : bits_per_bitset_(instructions.size()),
-      words_per_bitset_((bits_per_bitset_ + BitSet::kBits - 1) / BitSet::kBits),
+    : words_per_bitset_((instructions.size() + BitSet::kBits - 1) /
+                        BitSet::kBits),
       total_words_((instructions.size() + 1 /*for tmp_bit_set_*/) *
                    words_per_bitset_) {
   if (!instructions.empty()) {
@@ -210,6 +211,78 @@ void HloReachabilityMap::UpdateReachabilityThroughInstruction(
       }
     }
   }
+}
+
+// Use ptr tagging in `worklist` to check if current instruction is successor of
+// left or right.
+static constexpr uintptr_t FROM_LEFT_FLAG_MASK = 1;
+static constexpr uintptr_t PTR_MASK = ~FROM_LEFT_FLAG_MASK;
+static_assert(alignof(HloInstruction) >= 2,
+              "HloInstruction must be aligned to at least 2 bytes");
+void HloReachabilityMap::UpdateMultipleInstructions(
+    const HloInstruction* left, const HloInstruction* right,
+    std::vector<uintptr_t>& worklist, std::vector<Index>& indices_to_update) {
+  if (left == right) {
+    return;
+  }
+  CHECK(worklist.empty());
+  CHECK(indices_to_update.empty());
+  DCHECK(IsPresentFast(*left));
+  DCHECK(IsPresentFast(*right));
+  BitSet left_bit_set = BitSetFromIndex(GetIndex(left));
+  BitSet right_bit_set = BitSetFromIndex(GetIndex(right));
+  Index left_index = GetIndex(left);
+  Index right_index = GetIndex(right);
+
+  absl::flat_hash_set<const HloInstruction*> visited;
+  auto add_to_worklist = [&](const HloInstruction* instr,
+                             bool from_left) -> void {
+    if (visited.insert(instr).second) {
+      if (IsPresentFast(*instr)) {
+        BitSet bit_set = BitSetFromIndex(GetIndex(instr));
+        bool can_skip = false;
+        if (from_left) {
+          can_skip = bit_set.Get(right_index);
+        } else {
+          can_skip = bit_set.Get(left_index);
+        }
+        if (can_skip) {
+          return;
+        }
+      }
+      uintptr_t raw_addr = reinterpret_cast<uintptr_t>(instr);
+      worklist.push_back(raw_addr | (from_left ? 1 : 0));
+    }
+  };
+  add_to_worklist(left, /*from_left=*/true);
+  add_to_worklist(right, /*from_left=*/false);
+  if (worklist.empty()) {
+    return;
+  }
+  left_bit_set.GetDifferingWordUnions(right_bit_set, diff_buffer_);
+  while (!worklist.empty()) {
+    const uintptr_t item_and_from_left = worklist.back();
+    worklist.pop_back();
+
+    const bool from_left = (item_and_from_left & FROM_LEFT_FLAG_MASK);
+    const HloInstruction* item =
+        reinterpret_cast<const HloInstruction*>(item_and_from_left & PTR_MASK);
+
+    if (IsPresentFast(*item)) {
+      indices_to_update.push_back(GetIndex(item));
+    }
+    for (const HloInstruction* succ : item->users()) {
+      add_to_worklist(succ, from_left);
+    }
+    for (const HloInstruction* succ : item->control_successors()) {
+      add_to_worklist(succ, from_left);
+    }
+  }
+  for (Index index : indices_to_update) {
+    BitSet bit_set = BitSetFromIndex(index);
+    bit_set.ApplyWordUnions(diff_buffer_);
+  }
+  diff_buffer_.clear();
 }
 
 void HloReachabilityMap::UpdateMultipleInstructions(
