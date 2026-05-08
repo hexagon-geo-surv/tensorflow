@@ -19,10 +19,12 @@ limitations under the License.
 #include <optional>
 #include <set>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <variant>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -137,12 +139,25 @@ absl::StatusOr<OrderedEstimatesAndConfigs> EstimateConfigs(
 
 OrderedEstimatesAndConfigs GetTopEstimatedConfigs(
     const OrderedEstimatesAndConfigs& estimates_and_confs, int64_t n,
-    const OrderedEstimatesAndConfigs* configs_to_skip) {
+    const OrderedEstimatesAndConfigs* configs_to_skip,
+    std::optional<int> max_same_mnk, bool only_faster_than_skip) {
   absl::flat_hash_set<TritonGemmConfig> exclude_set;
+  absl::flat_hash_map<std::tuple<int, int, int>, int> mnk_counts;
+
+  std::optional<absl::Duration> limit_time;
+
   if (configs_to_skip) {
     VLOG(5) << "Skipping " << configs_to_skip->size() << " provided configs.";
     for (const auto& pair : *configs_to_skip) {
       exclude_set.insert(pair.second);
+      if (max_same_mnk.has_value()) {
+        ++mnk_counts[{pair.second.block_m, pair.second.block_n,
+                      pair.second.block_k}];
+      }
+    }
+    if (only_faster_than_skip && !configs_to_skip->empty()) {
+      limit_time = configs_to_skip->begin()->first;
+      VLOG(5) << "Mixin configs must be faster than: " << *limit_time;
     }
   }
 
@@ -153,6 +168,23 @@ OrderedEstimatesAndConfigs GetTopEstimatedConfigs(
     }
     if (exclude_set.contains(pair.second)) {
       continue;
+    }
+    if (limit_time.has_value() && pair.first >= *limit_time) {
+      VLOG(5) << "Stopping config selection because subsequent configs are not "
+                 "faster than the base set: "
+              << pair.second.ToString() << " (" << pair.first
+              << " >= " << *limit_time << ")";
+      break;
+    }
+    if (max_same_mnk.has_value()) {
+      std::tuple<int, int, int> mnk = {pair.second.block_m, pair.second.block_n,
+                                       pair.second.block_k};
+      if (mnk_counts[mnk] >= *max_same_mnk) {
+        VLOG(5) << "Skipping config due to max_same_mnk limit: "
+                << pair.second.ToString();
+        continue;
+      }
+      ++mnk_counts[mnk];
     }
     VLOG(5) << "Top config #" << top_configs.size() << ": "
             << pair.second.ToString() << " with estimate: " << pair.first;
@@ -191,6 +223,10 @@ std::string CostModelGemmTilingOptions::ToString() const {
   }
   if (mixin.has_value()) {
     absl::StrAppend(&s, " mixin: ", *mixin);
+    if (mixin_max_same_mnk.has_value()) {
+      absl::StrAppend(&s, " mixin_max_same_mnk: ", *mixin_max_same_mnk);
+    }
+    absl::StrAppend(&s, " mixin_only_faster: ", mixin_only_faster);
   }
   if (filter.has_value()) {
     absl::StrAppend(&s, " filter: ", *filter);
@@ -226,6 +262,22 @@ absl::StatusOr<CostModelGemmTilingOptions> ParseCostModelGemmTilingOptions(
       } else {
         return absl::InvalidArgumentError(
             absl::StrCat("Could not parse 'mixin' value: ", value));
+      }
+    } else if (key == "mixin_max_same_mnk") {
+      int val = 0;
+      if (absl::SimpleAtoi(value, &val)) {
+        parsed_options.mixin_max_same_mnk = val;
+      } else {
+        return absl::InvalidArgumentError(absl::StrCat(
+            "Could not parse 'mixin_max_same_mnk' value: ", value));
+      }
+    } else if (key == "mixin_only_faster") {
+      int val = 0;
+      if (absl::SimpleAtoi(value, &val)) {
+        parsed_options.mixin_only_faster = (val != 0);
+      } else {
+        return absl::InvalidArgumentError(
+            absl::StrCat("Could not parse 'mixin_only_faster' value: ", value));
       }
     } else if (key == "filter") {
       float val = 0.f;
@@ -307,7 +359,9 @@ absl::StatusOr<std::vector<TritonGemmConfig>> OptimizeConfigsWithCostModel(
                         get_estimated_all_configs());
 
     detail::OrderedEstimatesAndConfigs top_non_present =
-        detail::GetTopEstimatedConfigs(all, *options.mixin, &current_set);
+        detail::GetTopEstimatedConfigs(all, *options.mixin, &current_set,
+                                       options.mixin_max_same_mnk,
+                                       options.mixin_only_faster);
 
     current_set.insert(top_non_present.begin(), top_non_present.end());
   }

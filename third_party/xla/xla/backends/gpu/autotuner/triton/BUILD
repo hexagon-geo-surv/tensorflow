@@ -136,6 +136,7 @@ cc_library(
         "//xla/stream_executor:device_description",
         "//xla/tsl/platform:statusor",
         "//xla/tsl/util:sorted_range",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
