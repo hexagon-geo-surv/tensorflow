@@ -88,7 +88,10 @@ if [[ "$TFCI_WHL_IMPORT_TEST_ENABLE" == "1" ]]; then
   # FIXME: Preventing the error: 
   #   CUDA Runtime error: cudaErrorInsufficientDriver: 
   #     CUDA driver version is insufficient for CUDA runtime version
-  if [[ ! "$TFCI" =~ "rbe" ]]; then
+  # This happens when the host VM's kernel driver (KMD) is older than the
+  # CUDA toolkit requires. While Bazel builds can use the hermetic UMD to
+  # bridge this gap, pip doesn't know about it and falls back to the host's KMD.
+  if [[ ! "$TFCI" =~ "rbe" ]] || [[ "$TFCI_BAZEL_HERMETIC_CUDA_UMD_ENABLE" == "1" ]]; then
     export CUDA_VISIBLE_DEVICES="-1"
   fi
 
