@@ -113,20 +113,6 @@ mlir::StringAttr getStringAttribute(Attribute attr, mlir::OpBuilder& builder) {
   return builder.getStringAttr(mlir::sdy::attributeToString(attr));
 }
 
-SmallVector<NamedAttribute> getExistingFrontendAttributes(
-    DictionaryAttr frontendAttributes, StringRef excludedAttribute) {
-  SmallVector<NamedAttribute> dictEntries;
-  if (!frontendAttributes) {
-    return dictEntries;
-  }
-  for (NamedAttribute entry : frontendAttributes) {
-    if (entry.getName() != excludedAttribute) {
-      dictEntries.push_back(entry);
-    }
-  }
-  return dictEntries;
-}
-
 void setFrontendAttribute(SmallVector<NamedAttribute>& existingAttributes,
                           StringRef name, Attribute value) {
   mlir::OpBuilder builder(value.getContext());
@@ -144,28 +130,9 @@ void setFrontendAttribute(SmallVector<NamedAttribute>& existingAttributes,
   existingAttributes.emplace_back(builder.getStringAttr(name), stringValue);
 }
 
-void removeFrontendAttribute(
-    DictionaryAttr frontendAttributes, StringRef attributeName,
-    std::function<void(ArrayRef<NamedAttribute>)> setAttr,
-    std::function<void()> removeAttr) {
-  SmallVector<NamedAttribute> existingAttributes =
-      getExistingFrontendAttributes(frontendAttributes, attributeName);
-  if (!existingAttributes.empty()) {
-    setAttr(existingAttributes);
-  } else {
-    removeAttr();
-  }
-}
-
 void setFrontendAttrs(Operation* op, ArrayRef<NamedAttribute> frontendAttrs) {
   return op->setAttr(kFrontendAttributesAttr,
                      DictionaryAttr::get(op->getContext(), frontendAttrs));
-}
-
-void setFuncArgFrontendAttrs(FuncOp funcOp, unsigned int index,
-                             ArrayRef<NamedAttribute> frontendAttrs) {
-  funcOp.setArgAttr(index, kFrontendAttributesAttr,
-                    DictionaryAttr::get(funcOp.getContext(), frontendAttrs));
 }
 
 std::optional<TensorShardingAttr> adjustShardingInternal(
@@ -195,6 +162,20 @@ std::optional<TensorShardingAttr> adjustShardingInternal(
 
 }  // namespace
 
+SmallVector<NamedAttribute> getExistingFrontendAttributes(
+    DictionaryAttr frontendAttributes, StringRef excludedAttribute) {
+  SmallVector<NamedAttribute> dictEntries;
+  if (!frontendAttributes) {
+    return dictEntries;
+  }
+  for (NamedAttribute entry : frontendAttributes) {
+    if (entry.getName() != excludedAttribute) {
+      dictEntries.push_back(entry);
+    }
+  }
+  return dictEntries;
+}
+
 void setFrontendAttribute(Operation* op, StringRef name, Attribute value) {
   SmallVector<NamedAttribute> existingAttributes =
       getExistingFrontendAttributes(getFrontendAttrs(op), "");
@@ -209,6 +190,25 @@ void setFrontendAttribute(FuncOp funcOp, StringRef name, Attribute value,
                                     "");
   setFrontendAttribute(existingAttributes, name, value);
   setFuncArgFrontendAttrs(funcOp, argNum, existingAttributes);
+}
+
+void setFuncArgFrontendAttrs(FuncOp funcOp, unsigned int index,
+                             ArrayRef<NamedAttribute> frontendAttrs) {
+  funcOp.setArgAttr(index, kFrontendAttributesAttr,
+                    DictionaryAttr::get(funcOp.getContext(), frontendAttrs));
+}
+
+void removeFrontendAttribute(
+    DictionaryAttr frontendAttributes, StringRef attributeName,
+    std::function<void(ArrayRef<NamedAttribute>)> setAttr,
+    std::function<void()> removeAttr) {
+  SmallVector<NamedAttribute> existingAttributes =
+      getExistingFrontendAttributes(frontendAttributes, attributeName);
+  if (!existingAttributes.empty()) {
+    setAttr(existingAttributes);
+  } else {
+    removeAttr();
+  }
 }
 
 void removeFrontendAttribute(Operation* op, StringRef attributeName) {
