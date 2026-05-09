@@ -54,6 +54,11 @@ mlir::DictionaryAttr getFrontendAttrs(mlir::Operation* op);
 mlir::DictionaryAttr getFuncArgFrontendAttrs(mlir::func::FuncOp funcOp,
                                              unsigned int index);
 
+// Returns a vector of attributes from `frontendAttributes` dict excluding
+// `excludedAttribute` one.
+llvm::SmallVector<mlir::NamedAttribute> getExistingFrontendAttributes(
+    mlir::DictionaryAttr frontendAttributes, mlir::StringRef excludedAttribute);
+
 // Adds `name` into the frontend attributes of `op` with value `value`. If
 // `name` already exists, it will be overwritten. Note that `value` will be
 // turned into a `StringAttr`.
@@ -65,6 +70,17 @@ void setFrontendAttribute(mlir::Operation* op, mlir::StringRef name,
 // that `value` will be turned into a `StringAttr`.
 void setFrontendAttribute(mlir::func::FuncOp funcOp, mlir::StringRef name,
                           mlir::Attribute value, int64_t argNum);
+
+// Sets `funcOp` argument at `index` w/ frontend attributes to `frontendAttrs`.
+void setFuncArgFrontendAttrs(
+    mlir::func::FuncOp funcOp, unsigned int index,
+    llvm::ArrayRef<mlir::NamedAttribute> frontendAttrs);
+
+// Remove `attributeName` from `frontendAttributes`.
+void removeFrontendAttribute(
+    mlir::DictionaryAttr frontendAttributes, mlir::StringRef attributeName,
+    std::function<void(llvm::ArrayRef<mlir::NamedAttribute>)> setAttr,
+    std::function<void()> removeAttr);
 
 // Remove `attributeName` from the frontend attributes of `op`.
 void removeFrontendAttribute(mlir::Operation* op,
