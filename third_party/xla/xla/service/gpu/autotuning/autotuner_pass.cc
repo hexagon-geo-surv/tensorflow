@@ -49,6 +49,15 @@ limitations under the License.
 namespace xla {
 namespace gpu {
 
+namespace {
+
+bool RequireDeterminism(const DebugOptions& debug_options) {
+  return debug_options.xla_gpu_deterministic_ops() ||
+         debug_options.xla_gpu_exclude_nondeterministic_ops();
+}
+
+}  // namespace
+
 AutotuneConfig GetAutotuneConfig(const DebugOptions& debug_options,
                                  bool is_deviceless,
                                  bool optimize_scratch_bytes,
@@ -63,8 +72,7 @@ AutotuneConfig GetAutotuneConfig(const DebugOptions& debug_options,
   autotune_config.exclude_cublas_config =
       !debug_options.xla_gpu_cublas_fallback();
   autotune_config.select_first_config =
-      debug_options.xla_gpu_deterministic_ops() ||
-      debug_options.xla_gpu_exclude_nondeterministic_ops() ||
+      RequireDeterminism(debug_options) ||
       debug_options.xla_gpu_autotune_level() == 0;
 
   if (is_deviceless) {
