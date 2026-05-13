@@ -102,8 +102,20 @@ message AutotuneResult {
     google.protobuf.Any config = 2;
   }
 
+  // Auxiliary metrics estimated by a cost model (such as memory traffic and
+  // FLOPS), as opposed to the primary execution time estimate stored in
+  // run_time.
+  message AuxiliaryCostModelMetrics {
+    int64 bytes_read = 1;
+    int64 bytes_written = 2;
+    // Total L2 cache bytes read across all threadblocks.
+    int64 l2_bytes = 3;
+    int64 flops = 4;
+  }
+
   int64 scratch_bytes = 8;
   google.protobuf.Duration run_time = 9;
+  AuxiliaryCostModelMetrics auxiliary_cost_model_metrics = 20;
 
   FailureResult failure = 7;
 
