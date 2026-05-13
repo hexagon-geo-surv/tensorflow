@@ -1899,6 +1899,7 @@ cc_library(
         "//xla/service:logical_buffer",
         "//xla/service:loop_schedule_linearizer",
         "//xla/service:memory_annotations_hdr",
+        "//xla/service:multi_module_driver",
         "//xla/service:reduce_scatter_combiner",
         "//xla/service:reduce_scatter_reassociate",
         "//xla/service:scan_expander",
@@ -2049,6 +2050,7 @@ xla_test(
         "//xla/service:hlo_module_config",
         "//xla/service:hlo_proto_cc",
         "//xla/service:hlo_runner_interface",
+        "//xla/service:multi_module_driver",
         "//xla/service:pattern_matcher",
         "//xla/service:xla_debug_info_manager",
         "//xla/service/gpu/autotuning:autotuner_cache",
@@ -2438,6 +2440,7 @@ cc_library(
         "@llvm-project//llvm:IRReader",
         "@llvm-project//llvm:Support",
         "@llvm-project//llvm:ir_headers",
+        "@llvm-project//mlir:IR",
         "@tsl//tsl/platform:path",
         "@tsl//tsl/profiler/lib:scoped_annotation",
         "@tsl//tsl/profiler/lib:traceme",
@@ -2691,6 +2694,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@llvm-project//llvm:ir_headers",
+        "@llvm-project//mlir:IR",
     ],
 )
 
