@@ -23,6 +23,7 @@ limitations under the License.
 #include <utility>
 
 #include "absl/algorithm/container.h"
+#include "absl/base/optimization.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -52,12 +53,24 @@ std::string HloPtrToString(const HloInstruction* hlo) {
   return hlo == nullptr ? "nullptr" : hlo->ToString();
 }
 
+std::string DimensionSemanticsToString(
+    TilingSpace::DimensionSemantics dim_semantics) {
+  switch (dim_semantics) {
+    case TilingSpace::DimensionSemantics::kParallel:
+      return "parallel";
+    case TilingSpace::DimensionSemantics::kSequential:
+      return "sequential";
+    case TilingSpace::DimensionSemantics::kReplica:
+      return "replica";
+  }
+  ABSL_UNREACHABLE();
+}
+
 }  // namespace
 
 std::string TilingSpace::DimensionInfo::ToString() const {
   std::stringstream ss;
-  ss << id << " type: "
-     << (type == DimensionSemantics::kParallel ? "parallel" : "sequential")
+  ss << id << " type: " << DimensionSemanticsToString(type)
      << " size: " << dimension_size;
   if (tile_size.has_value()) {
     ss << " tile size: " << *tile_size;
@@ -96,6 +109,9 @@ void TilingSpace::ProcessInstruction(const HloInstruction& hlo) {
       break;
     case HloOpcode::kDynamicSlice:
       ProcessDynamicSlice(hlo);
+      break;
+    case HloOpcode::kAllGather:
+      ProcessAllGather(hlo);
       break;
     default:
       // TODO(goncharov): should have a explicit list of supported instructions?
@@ -140,6 +156,15 @@ void TilingSpace::ProcessDynamicSlice(const HloInstruction& hlo) {
     AppendRTVar(&hlo, dim + first_index_num, ds->operand(dim + first_index_num),
                 input_shape.dimensions(dim) - slice_size);
   }
+}
+
+void TilingSpace::ProcessAllGather(const HloInstruction& hlo) {
+  int64_t gather_dim =
+      Cast<HloAllGatherInstruction>(&hlo)->all_gather_dimension();
+  int64_t local_size = hlo.operand(0)->shape().dimensions(gather_dim);
+  int64_t num_replicas = hlo.shape().dimensions(gather_dim) / local_size;
+  int64_t num_dims = hlo.shape().dimensions().size();
+  AppendDimension(&hlo, num_dims, num_replicas, DimensionSemantics::kReplica);
 }
 
 const Shape& GetFirstShape(const HloInstruction* instr, int64_t index) {

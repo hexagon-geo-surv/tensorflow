@@ -491,20 +491,21 @@ TEST_F(TileAnalysisTest, CollectiveDotBasic) {
       p1 = f32[256,512] parameter(1)
       ROOT fusion = f32[128,512] fusion(p0, p1), kind=kCustom, calls=fusion
     })hlo",
-                                    {16, 32, 32}));
+                                    {16, 32, 32, 1}));
 
   EXPECT_THAT(tiled_computation, MatchString(R"(
     Dimensions:
       0 type: parallel size: 128 tile size: 16 dim ID:0 hlo: %dot = f32[128,512]{1,0} dot(%ag, %p1), lhs_contracting_dims={1}, rhs_contracting_dims={0}
       1 type: parallel size: 512 tile size: 32 dim ID:1 hlo: %dot = f32[128,512]{1,0} dot(%ag, %p1), lhs_contracting_dims={1}, rhs_contracting_dims={0}
       2 type: sequential size: 256 tile size: 32 dim ID:2 hlo: %dot = f32[128,512]{1,0} dot(%ag, %p1), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+      3 type: replica size: 2 tile size: 1 dim ID:2 hlo: %ag = f32[128,256]{1,0} all-gather(%p0), replica_groups={{0,1}}, dimensions={0}
     Root tiles:
       0 root tile:  offsets [tid_0 * 16, tid_1 * 32] sizes [16, 32] strides [1, 1] upper bounds [128, 512]
 
     Tiled HLO:
       dot.tile_0 = dot(ag.tile_0, p1.1.tile_0)  offsets [tid_0 * 16, tid_1 * 32] sizes [16, 32] strides [1, 1] upper bounds [128, 512]
       region #0 {
-        p0.1.tile_0 = parameter(0)  offsets [(tid_0 * 16) mod 64, tid_2 * 32] sizes [16, 32] strides [1, 1] upper bounds [64, 256] replica_id [(tid_0 * 16) floordiv 64]
+        p0.1.tile_0 = parameter(0)  offsets [(tid_0 * 16) mod 64, tid_2 * 32, (tid_0 * 16) floordiv 64] sizes [16, 32, 1] strides [1, 1, 1] upper bounds [64, 256, 2]
         ag.tile_0 = all-gather(p0.1.tile_0)  offsets [tid_0 * 16, tid_2 * 32] sizes [16, 32] strides [1, 1] upper bounds [128, 256]
         p1.1.tile_0 = parameter(1)  offsets [tid_2 * 32, tid_1 * 32] sizes [32, 32] strides [1, 1] upper bounds [256, 512]
       }

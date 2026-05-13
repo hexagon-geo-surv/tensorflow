@@ -986,6 +986,7 @@ Tiles PropagateTileToInputForAllGatherOp(const TilingSpace& tiling_space,
       << "Multi-operand AllGather is not yet supported.";
   const Shape& input_shape = hlo.operand(0)->shape();
   int64_t local_size = input_shape.dimensions(gather_dim);
+  int64_t num_replicas = hlo.shape().dimensions(gather_dim) / local_size;
 
   const DimTile& output_dim_tile = output_tile.dim_tiles()[gather_dim];
 
@@ -993,8 +994,7 @@ Tiles PropagateTileToInputForAllGatherOp(const TilingSpace& tiling_space,
   SymbolicExpr input_offset = output_dim_tile.offset % local_size;
 
   llvm::SmallVector<DimTile> input_dim_tiles;
-  input_dim_tiles.reserve(output_tile.num_dim_tiles());
-
+  input_dim_tiles.reserve(output_tile.num_dim_tiles() + 1);
   for (int64_t i = 0; i < output_tile.num_dim_tiles(); ++i) {
     if (i == gather_dim) {
       input_dim_tiles.push_back(DimTile{
@@ -1005,16 +1005,22 @@ Tiles PropagateTileToInputForAllGatherOp(const TilingSpace& tiling_space,
     }
   }
 
-  Tile input_tile(output_tile.tiling_space(), std::move(input_dim_tiles));
-  input_tile.set_replica_id(replica_id);
-
-  return {input_tile};
+  mlir::MLIRContext* ctx = output_tile.mlir_context();
+  // Add a replica dimension.
+  input_dim_tiles.push_back(DimTile{
+      /*offset=*/replica_id,
+      /*size=*/CreateSymbolicConstant(1, ctx),
+      /*stride=*/CreateSymbolicConstant(1, ctx),
+      /*upper_bound=*/
+      CreateSymbolicConstant(num_replicas, ctx),
+  });
+  return {output_tile.CloneWithNewDims(std::move(input_dim_tiles))};
 }
 
-absl::StatusOr<Tiles> PropagateTileToInput(TilingSpace& tiling_space,
-                                           const HloInstruction& hlo,
-                                           const Tile& output_tile,
-                                           int64_t output_index) {
+absl::StatusOr<Tiles> ComputeInputTiles(TilingSpace& tiling_space,
+                                        const HloInstruction& hlo,
+                                        const Tile& output_tile,
+                                        int64_t output_index) {
   VLOG(1) << "PropagateTileToInput:\n"
           << "  hlo: " << hlo.ToString() << "\n"
           << "  output_tile: " << output_tile.ToString() << "\n"
@@ -1069,6 +1075,28 @@ absl::StatusOr<Tiles> PropagateTileToInput(TilingSpace& tiling_space,
   }
   return absl::InvalidArgumentError(absl::StrCat(
       "Output to input tile propagation not implemented for ", hlo.opcode()));
+}
+
+absl::StatusOr<Tiles> PropagateTileToInput(TilingSpace& tiling_space,
+                                           const HloInstruction& hlo,
+                                           const Tile& output_tile,
+                                           int64_t output_index) {
+  ASSIGN_OR_RETURN(
+      Tiles input_tiles,
+      ComputeInputTiles(tiling_space, hlo, output_tile, output_index));
+  int64_t output_rank = GetFirstShape(&hlo).dimensions().size();
+  // If we inserted dimension that does not map 1:1 to an output dimension,
+  // we need carry it towards the input. Eg: kReplicaId type dimension.
+  if (output_tile.num_dim_tiles() > output_rank) {
+    auto extra_entries = output_tile.dim_tiles().slice(
+        output_rank, output_tile.num_dim_tiles() - output_rank);
+    for (Tile& input_tile : input_tiles) {
+      auto new_dims = llvm::to_vector(input_tile.dim_tiles());
+      new_dims.append(extra_entries.begin(), extra_entries.end());
+      input_tile = Tile(tiling_space, std::move(new_dims));
+    }
+  }
+  return input_tiles;
 }
 
 absl::StatusOr<Tiles> PropagateTileToOutput(const TilingSpace& tiling_space,

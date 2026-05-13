@@ -90,7 +90,22 @@ class TilingSpace {
   // Unique ID for the dimension or runtime variable.
   using ID = int64_t;
 
-  enum class DimensionSemantics { kParallel, kSequential };
+  enum class DimensionSemantics {
+    // Eg: output dimensions of the fusion.
+    // For each parallel dimension, scheduler can choose to tile it or not, and
+    // the tile size can be any value up to the dimension size (although ideally
+    // the dimension size is a multiple of the tile size to avoid masking)
+    kParallel,
+    // Eg: contraction/reduction dimensions of dot/reduce operations.
+    // Sequential dimensions cannot be broken into tiles and must fit into a
+    // single tile. The tile size is typically a divisor of the dimension size.
+    kSequential,
+    // Eg: replica ID to which the tile belongs.
+    // Only relevant when collective operations are present.
+    // Tile size is 1 along the replica ID dimension to ensure that each tile
+    // belongs to a single replica ID.
+    kReplica
+  };
   struct DimensionInfo {
     // Unique ID for the dimension within the tiling space.
     TiledDimId id;
@@ -215,6 +230,7 @@ class TilingSpace {
   void ProcessDotLike(const HloInstruction& hlo);
   void ProcessReduce(const HloInstruction& hlo);
   void ProcessDynamicSlice(const HloInstruction& hlo);
+  void ProcessAllGather(const HloInstruction& hlo);
   void ProcessInstruction(const HloInstruction& hlo);
 
   // Maps from (hlo, dim_position) to the dimension info.
