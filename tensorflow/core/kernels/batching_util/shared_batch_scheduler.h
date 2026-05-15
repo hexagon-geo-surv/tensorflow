@@ -47,6 +47,7 @@ limitations under the License.
 #include "tensorflow/core/kernels/batching_util/batch_stats.h"
 #include "tensorflow/core/kernels/batching_util/periodic_function.h"
 #include "tensorflow/core/lib/core/errors.h"
+#include "tensorflow/core/lib/monitoring/counter.h"
 #include "tensorflow/core/lib/strings/strcat.h"
 #include "tensorflow/core/platform/cpu_info.h"
 #include "tensorflow/core/platform/env.h"
@@ -408,6 +409,29 @@ class SharedBatchScheduler
 // Implementation details follow. API users need not read.
 
 namespace internal {
+
+inline constexpr absl::string_view kLazyCancellationReasonDeadlineExceeded =
+    "deadline_exceeded";
+inline constexpr absl::string_view kLazyCancellationReasonRpcCancelled =
+    "rpc_cancelled";
+
+inline void RecordLazyCancelledTaskMetrics(int64_t size,
+                                           absl::string_view reason) {
+  static auto* count_cell = tensorflow::monitoring::Counter<1>::New(
+      "/tensorflow/serving/batching/lazy_cancelled_tasks",
+      "Tracks the number of tasks cancelled due to deadline exceeded or RPC "
+      "cancellation before batch formation.",
+      "reason");
+  count_cell->GetCell(std::string(reason))->IncrementBy(1);
+
+  static auto* size_cell = tensorflow::monitoring::Counter<1>::New(
+      "/tensorflow/serving/batching/lazy_cancelled_task_size",
+      "Tracks the sum of task sizes dropped due to deadline exceeded or RPC "
+      "cancellation before batch formation.",
+      "reason");
+  size_cell->GetCell(std::string(reason))->IncrementBy(size);
+}
+
 // A priority queue of tasks, designed to be used with
 // SharedBatchScheduler when `enable_priority_aware_batch_scheduler` is true.
 // Tasks are stored in a priority queue ordered by criticality and arrival time.
@@ -517,12 +541,17 @@ class PriorityTaskQueue {
         if (enable_lazy_cancellation_filtering_) {
           if (it->task->IsDeadlineExceeded(now)) {
             QueueEntry cancelled_entry = RemoveEntryInternal(it);
+            RecordLazyCancelledTaskMetrics(
+                cancelled_entry.task->size(),
+                kLazyCancellationReasonDeadlineExceeded);
             cancelled_entry.task->FinishTask(absl::DeadlineExceededError(
                 "Task cancelled: RPC deadline exceeded."));
             continue;
           }
           if (it->task->IsCancelled()) {
             QueueEntry cancelled_entry = RemoveEntryInternal(it);
+            RecordLazyCancelledTaskMetrics(cancelled_entry.task->size(),
+                                           kLazyCancellationReasonRpcCancelled);
             cancelled_entry.task->FinishTask(
                 absl::CancelledError("Task cancelled: RPC is cancelled."));
             continue;
