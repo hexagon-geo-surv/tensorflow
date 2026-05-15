@@ -89,6 +89,7 @@ limitations under the License.
 #include "xla/stream_executor/device_address.h"
 #include "xla/stream_executor/device_description.h"
 #include "xla/stream_executor/platform.h"
+#include "xla/stream_executor/platform_manager.h"
 #include "xla/stream_executor/rocm/rocm_compute_capability.h"
 #include "xla/stream_executor/semantic_version.h"
 #include "xla/stream_executor/stream.h"
@@ -112,6 +113,7 @@ limitations under the License.
 #include "tsl/platform/path.h"
 #include "tsl/platform/platform.h"
 #include "tsl/platform/regexp.h"
+#include "tsl/profiler/lib/profiler_lock.h"
 
 namespace xla {
 namespace gpu {
@@ -1749,6 +1751,62 @@ ENTRY main {
   const ThunkSequence& thunks = gpu_exec->thunk_executor().thunks();
   ASSERT_EQ(thunks.size(), 1);
   EXPECT_EQ(thunks[0]->kind(), Thunk::Kind::kCommandBuffer);
+}
+
+TEST_F(GpuCompilerTest, EnableCommandBuffersDuringProfilingIsRespectedInAot) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> hlo_module,
+                       ParseAndReturnVerifiedModule(R"hlo(
+    HloModule test
+
+    ENTRY main {
+      a = f32[2,2] parameter(0)
+      b = f32[2,2] parameter(1)
+      ROOT dot = f32[2,2] dot(a, b), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+    }
+    )hlo"));
+
+  DebugOptions aot_debug_options = GetDebugOptionsForTest();
+  aot_debug_options.set_xla_gpu_experimental_aot_compiled_thunks(true);
+  hlo_module->mutable_config().set_debug_options(aot_debug_options);
+
+  ASSERT_OK_AND_ASSIGN(
+      se::Platform * platform,
+      se::PlatformManager::PlatformWithId(compiler()->PlatformId()));
+  ASSERT_OK_AND_ASSIGN(se::StreamExecutor * stream_exec,
+                       platform->ExecutorForDevice(0));
+
+  AotCompilationOptions aot_options(compiler()->PlatformId());
+  aot_options.set_gpu_topology(
+      GetSingleDeviceGpuTopology(/*platform_version=*/"", gpu_target_config()));
+  aot_options.set_executor(stream_exec);
+  *aot_options.mutable_debug_options() = aot_debug_options;
+
+  ASSERT_OK_AND_ASSIGN(
+      std::vector<std::unique_ptr<CompiledModule>> aot_results,
+      compiler()->CompileAheadOfTime(std::move(hlo_module), aot_options));
+  ASSERT_EQ(aot_results.size(), 1);
+
+  DebugOptions runtime_debug_options = GetDebugOptionsForTest();
+  runtime_debug_options.clear_xla_gpu_enable_command_buffer();
+  runtime_debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::FUSION);
+  runtime_debug_options.set_xla_gpu_graph_min_graph_size(1);
+  runtime_debug_options.set_xla_enable_command_buffers_during_profiling(true);
+
+  ASSERT_OK_AND_ASSIGN(auto lock, tsl::profiler::ProfilerLock::Acquire());
+
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Executable> executable,
+                       std::move(*aot_results[0])
+                           .LoadExecutable(compiler()->PlatformId(),
+                                           stream_exec->GetDeviceDescription(),
+                                           runtime_debug_options));
+
+  GpuExecutable* gpu_exec = dynamic_cast<GpuExecutable*>(executable.get());
+  ASSERT_NE(gpu_exec, nullptr);
+  const ThunkSequence& thunks = gpu_exec->thunk_executor().thunks();
+  ASSERT_EQ(thunks.size(), 1);
+  EXPECT_EQ(thunks[0]->kind(), Thunk::Kind::kCommandBuffer);
+  EXPECT_THAT(thunks[0]->profile_annotation(),
+              Not(HasSubstr("(disabled for profiling)")));
 }
 
 TEST_F(GpuCompilerTest, NoCudnnVectorizationOnHopperAndBeyond) {

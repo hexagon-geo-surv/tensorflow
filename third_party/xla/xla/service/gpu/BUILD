@@ -2057,6 +2057,7 @@ xla_test(
         "//xla/stream_executor:device_address",
         "//xla/stream_executor:device_description",
         "//xla/stream_executor:platform",
+        "//xla/stream_executor:platform_manager",
         "//xla/stream_executor:semantic_version",
         "//xla/stream_executor:stream",
         "//xla/stream_executor/cuda:cuda_compute_capability",
@@ -2089,6 +2090,7 @@ xla_test(
         "@tsl//tsl/platform:casts",
         "@tsl//tsl/platform:path",
         "@tsl//tsl/platform:regexp",
+        "@tsl//tsl/profiler/lib:profiler_lock",
     ],
 )
 
