@@ -44,7 +44,10 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/worker_cache.h"
 #include "tensorflow/core/distributed_runtime/worker_env.h"
 #include "tensorflow/core/framework/function.h"
+#include "tensorflow/core/framework/node_def_util.h"
+#include "tensorflow/core/framework/op_def_builder.h"
 #include "tensorflow/core/framework/rendezvous.h"
+#include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/nccl/collective_communicator.h"
 #include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/platform/host_info.h"
@@ -58,44 +61,6 @@ namespace tensorflow {
 namespace eager {
 
 namespace {
-absl::Status GetNumRetvals(
-    FunctionLibraryDefinition* func_lib_def, const std::string& op_name,
-    const google::protobuf::Map<std::string, tensorflow::AttrValue>& attrs,
-    int* num_retvals) {
-  const tensorflow::OpRegistrationData* op_reg_data = nullptr;
-  auto status = tensorflow::OpRegistry::Global()->LookUp(op_name, &op_reg_data);
-  if (absl::IsNotFound(status)) {
-    status = func_lib_def->LookUp(op_name, &op_reg_data);
-  }
-  TF_RETURN_IF_ERROR(status);
-
-  const tensorflow::OpDef& op_def = op_reg_data->op_def;
-
-  for (const auto& output_arg : op_def.output_arg()) {
-    if (!output_arg.number_attr().empty()) {
-      auto iter = attrs.find(output_arg.number_attr());
-      if (iter == attrs.end()) {
-        return absl::InvalidArgumentError(
-            absl::StrCat("Unable to find number_attr ",
-                         output_arg.number_attr(), " for Op: ", op_name));
-      }
-      *num_retvals += iter->second.i();
-    } else if (!output_arg.type_list_attr().empty()) {
-      auto iter = attrs.find(output_arg.type_list_attr());
-      if (iter == attrs.end()) {
-        return absl::InvalidArgumentError(
-            absl::StrCat("Unable to find type_list_attr ",
-                         output_arg.type_list_attr(), " for Op: ", op_name));
-      }
-      *num_retvals += iter->second.list().type_size();
-    } else {
-      *num_retvals += 1;
-    }
-  }
-
-  return absl::OkStatus();
-}
-
 absl::Status GetEagerOperationAndNumRetvals(const Operation& operation,
                                             EagerContext* eager_context,
                                             EagerExecutor* eager_executor,
@@ -129,16 +94,49 @@ absl::Status GetEagerOperationAndNumRetvals(const Operation& operation,
   TF_RETURN_IF_ERROR(eager_op->Reset(name, operation.device().c_str(), false,
                                      eager_executor, remote_func_params));
 
+  tensorflow::NodeDef node_def;
+  node_def.set_name(operation.name());
+  node_def.set_op(operation.name());
+  for (int i = 0; i < operation.op_inputs_size(); ++i) {
+    node_def.add_input(absl::StrCat("dummy_input_", i));
+  }
+  for (const auto& attr : operation.attrs()) {
+    (*node_def.mutable_attr())[attr.first] = attr.second;
+  }
+
+  const tensorflow::OpRegistrationData* op_reg_data = nullptr;
+  auto status =
+      tensorflow::OpRegistry::Global()->LookUp(operation.name(), &op_reg_data);
+  if (absl::IsNotFound(status)) {
+    status = func_lib_def->LookUp(operation.name(), &op_reg_data);
+  }
+  TF_RETURN_IF_ERROR(status);
+
+  tensorflow::AddDefaultsToNodeDef(op_reg_data->op_def, &node_def);
+  TF_RETURN_IF_ERROR(
+      tensorflow::ValidateNodeDef(node_def, op_reg_data->op_def));
+
+  tensorflow::DataTypeVector input_types;
+  tensorflow::DataTypeVector output_types;
+  TF_RETURN_IF_ERROR(tensorflow::InOutTypesForNode(
+      node_def, op_reg_data->op_def, &input_types, &output_types));
+
+  if (input_types.size() != operation.op_inputs_size()) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "Operation ", operation.name(), " expects ", input_types.size(),
+        " inputs, but got ", operation.op_inputs_size()));
+  }
+
   {
     tsl::profiler::TraceMe activity("EagerService:RemoteTensorHandleInternal",
                                     tsl::profiler::TraceMeLevel::kVerbose);
-    for (const auto& input : operation.op_inputs()) {
+    for (int i = 0; i < operation.op_inputs_size(); ++i) {
+      const auto& input = operation.op_inputs(i);
       tensorflow::TensorHandle* handle;
       if (input.has_remote_handle()) {
         TF_RETURN_IF_ERROR(
             eager_context->RemoteMgr()->DeserializeRemoteTensorHandle(
                 input.remote_handle(), &handle));
-        TF_RETURN_IF_ERROR(eager_op->AddInput(handle));
       } else {
         Tensor tensor;
         if (!ParseTensorProtoToTensor(input.tensor(), &tensor)) {
@@ -147,11 +145,21 @@ absl::Status GetEagerOperationAndNumRetvals(const Operation& operation,
         } else {
           handle = TensorHandle::CreateLocalHandle(std::move(tensor), nullptr,
                                                    nullptr, eager_context);
-          TF_RETURN_IF_ERROR(eager_op->AddInput(handle));
         }
       }
-      // Unref handle since it has a ref as an input now.
+
+      if (handle->dtype != input_types[i]) {
+        auto dtype = handle->dtype;
+        handle->Unref();
+        return absl::InvalidArgumentError(absl::StrCat(
+            "Type mismatch for input ", i, " of operation ", operation.name(),
+            ". Expected ", tensorflow::DataTypeString(input_types[i]), ", got ",
+            tensorflow::DataTypeString(dtype)));
+      }
+
+      absl::Status s = eager_op->AddInput(handle);
       handle->Unref();
+      TF_RETURN_IF_ERROR(s);
     }
   }
 
@@ -159,9 +167,8 @@ absl::Status GetEagerOperationAndNumRetvals(const Operation& operation,
     eager_op->MutableAttrs()->Set(attr.first, attr.second);
   }
 
-  // TODO(nareshmodi): Consider caching this.
-  return GetNumRetvals(func_lib_def, operation.name(), operation.attrs(),
-                       num_retvals);
+  *num_retvals = output_types.size();
+  return absl::OkStatus();
 }
 
 absl::Status TensorHandleProto(TensorHandle* handle, TensorProto* proto) {
@@ -716,8 +723,8 @@ absl::Status EagerServiceImpl::Enqueue(CallOptions* call_opts,
       s = ExecuteOp(call_opts, item.operation(), context->Context(), &executor,
                     queue_response);
     } else if (item.has_handle_to_decref()) {
-      auto handle_to_decref = std::make_unique<RemoteTensorHandleInternal>(
-          item.handle_to_decref());
+      auto handle_to_decref =
+          std::make_unique<RemoteTensorHandleInternal>(item.handle_to_decref());
       auto node = std::make_unique<ClientTensorHandleDeleteNode>(
           context, std::move(handle_to_decref));
       s = context->Context()->Executor().AddOrExecute(std::move(node));
@@ -866,19 +873,36 @@ absl::Status EagerServiceImpl::SendPackedHandle(
     if (item.has_local_handle()) {
       Tensor tensor;
       if (!ParseTensorProtoToTensor(item.local_handle().tensor(), &tensor)) {
+        for (int j = 0; j < i; ++j) handles[j]->Unref();
         return absl::InvalidArgumentError(
             absl::StrCat("Invalid TensorProto: ",
                          item.local_handle().tensor().DebugString()));
       }
       Device* op_device = nullptr;
-      TF_RETURN_IF_ERROR(eager_context->FindDeviceFromName(
-          item.local_handle().device().c_str(), &op_device));
+      absl::Status status = eager_context->FindDeviceFromName(
+          item.local_handle().device().c_str(), &op_device);
+      if (!status.ok()) {
+        for (int j = 0; j < i; ++j) handles[j]->Unref();
+        return status;
+      }
       handles[i] = TensorHandle::CreateLocalHandle(
           std::move(tensor), /*d=*/nullptr, op_device, eager_context);
     } else {
-      TF_RETURN_IF_ERROR(
+      absl::Status status =
           eager_context->RemoteMgr()->DeserializeRemoteTensorHandle(
-              item.remote_handle(), &handles[i]));
+              item.remote_handle(), &handles[i]);
+      if (!status.ok()) {
+        for (int j = 0; j < i; ++j) handles[j]->Unref();
+        return status;
+      }
+    }
+  }
+
+  tensorflow::DataType dtype = handles.at(0)->dtype;
+  for (int i = 1; i < handles.size(); ++i) {
+    if (handles.at(i)->dtype != dtype) {
+      for (auto* h : handles) h->Unref();
+      return absl::InvalidArgumentError("Handles do not have the same dtype.");
     }
   }
 
