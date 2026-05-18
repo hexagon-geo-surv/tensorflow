@@ -388,6 +388,7 @@ cc_library(
     name = "pjrt_ifrt",
     srcs = [
         "pjrt_array.cc",
+        "pjrt_buffer_hash_util.cc",
         "pjrt_client.cc",
         "pjrt_compiler.cc",
         "pjrt_device.cc",
@@ -400,6 +401,7 @@ cc_library(
     ],
     hdrs = [
         "pjrt_array.h",
+        "pjrt_buffer_hash_util.h",
         "pjrt_client.h",
         "pjrt_compiler.h",
         "pjrt_device.h",
@@ -455,6 +457,7 @@ cc_library(
         "//xla/python/ifrt",
         "//xla/python/ifrt:attribute_map",
         "//xla/python/ifrt:basic_device_list",
+        "//xla/python/ifrt:buffer_hash_util",
         "//xla/python/ifrt:client_impl_util",
         "//xla/python/ifrt:serdes_version",
         "//xla/python/ifrt:serdes_week_4_old_version_accessor",
@@ -735,6 +738,24 @@ xla_cc_test(
         "//xla/python/ifrt:test_util",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
+    ],
+)
+
+xla_cc_test(
+    name = "pjrt_buffer_hash_util_test",
+    size = "small",
+    srcs = ["pjrt_buffer_hash_util_test.cc"],
+    deps = [
+        ":pjrt_ifrt",
+        "//xla:literal",
+        "//xla:literal_util",
+        "//xla/pjrt:pjrt_client",
+        "//xla/pjrt/plugin/xla_cpu:cpu_client_options",
+        "//xla/pjrt/plugin/xla_cpu:xla_cpu_pjrt_client",
+        "//xla/python/ifrt",
+        "//xla/python/ifrt:buffer_hash_util",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 
