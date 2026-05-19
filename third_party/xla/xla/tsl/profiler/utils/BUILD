@@ -259,14 +259,18 @@ tsl_cc_test(
         ":xplane_schema",
         ":xplane_utils",
         ":xplane_visitor",
-        "//xla/tsl/platform:test",
-        "//xla/tsl/platform:types",
+        "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
-        "@com_google_googletest//:gtest_main",
+        "//xla/tsl/platform:test",
+        "//xla/tsl/platform:types",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        # copybara:uncomment_begin
+        # "//third_party/tcmalloc:malloc_extension",
+        # copybara:uncomment_end
     ],
 )
 
