@@ -51,10 +51,8 @@ CublasBackend::GetSupportedConfigs(const HloInstruction& instr) {
 
   if (ShouldUseCublasLt(instr)) {
     std::vector<std::unique_ptr<BackendConfig>> configs;
-    AutotuneResult::GemmKey gemm_key;
-    gemm_key.set_algorithm(0);
-    configs.push_back(std::make_unique<google::protobuf::Any>());
-    configs.back()->PackFrom(gemm_key);
+    configs.push_back(std::make_unique<BackendConfig>());
+    configs.back()->mutable_gemm()->set_algorithm(0);
     return configs;
   }
 
@@ -121,11 +119,9 @@ CublasBackend::GetSupportedConfigs(const HloInstruction& instr) {
   std::vector<std::unique_ptr<BackendConfig>> configs;
   configs.reserve(algorithms.size());
   for (se::blas::AlgorithmType algorithm : algorithms) {
-    AutotuneResult::GemmKey gemm_key;
-    gemm_key.set_algorithm(algorithm);
-    auto any = std::make_unique<google::protobuf::Any>();
-    any->PackFrom(gemm_key);
-    configs.push_back(std::move(any));
+    auto config = std::make_unique<BackendConfig>();
+    config->mutable_gemm()->set_algorithm(algorithm);
+    configs.push_back(std::move(config));
   }
   return configs;
 }
@@ -136,23 +132,22 @@ absl::StatusOr<std::unique_ptr<BackendConfig>> CublasBackend::GetDefaultConfig(
     return absl::InvalidArgumentError(
         "CublasBackend does not support this instruction.");
   }
-  AutotuneResult::GemmKey gemm_key;
-  gemm_key.set_algorithm(se::blas::kDefaultAlgorithm);
-  auto any = std::make_unique<google::protobuf::Any>();
+  auto config = std::make_unique<BackendConfig>();
+  auto* gemm_key = config->mutable_gemm();
+  gemm_key->set_algorithm(se::blas::kDefaultAlgorithm);
   if (ShouldUseCublasLt(instr)) {
-    gemm_key.set_algorithm(0);
+    gemm_key->set_algorithm(0);
   }
-  any->PackFrom(gemm_key);
-  return any;
+  return config;
 }
 
 absl::Status CublasBackend::ApplyConfig(HloInstruction& instr,
                                         const BackendConfig& config) {
-  AutotuneResult::GemmKey gemm_key;
-  if (!config.UnpackTo(&gemm_key)) {
+  if (!config.has_gemm()) {
     return absl::InvalidArgumentError(
-        "Failed to unpack CublasBackendConfig from Any.");
+        "Expected GemmKey config for CublasBackend.");
   }
+  AutotuneResult::GemmKey gemm_key = config.gemm();
   if (ShouldUseCublasLt(instr) && gemm_key.algorithm() == -1) {
     gemm_key.set_algorithm(0);
   }

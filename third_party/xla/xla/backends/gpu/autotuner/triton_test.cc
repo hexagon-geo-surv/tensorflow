@@ -160,12 +160,11 @@ TEST_F(TritonBackendTest, GetSupportedConfigs) {
           .IsAtLeastHopper()) {
     // Check that TMA configurations are generated.
     EXPECT_TRUE(std::any_of(configs.value().begin(), configs.value().end(),
-                            [](auto& config) {
-                              TritonBackendConfig actual_config;
-                              if (!config->UnpackTo(&actual_config)) {
+                            [](const auto& config) {
+                              if (!config->has_triton()) {
                                 return false;
                               }
-                              return actual_config.is_tma_allowed();
+                              return config->triton().is_tma_allowed();
                             }));
   }
 }
@@ -275,11 +274,10 @@ TEST_F(TritonBackendTest, AmpereUsesMoreThanTwoStages) {
 
   EXPECT_TRUE(std::any_of(configs.value().begin(), configs.value().end(),
                           [](const std::unique_ptr<BackendConfig>& config) {
-                            TritonBackendConfig triton_config;
-                            if (!config->UnpackTo(&triton_config)) {
+                            if (!config->has_triton()) {
                               return false;
                             }
-                            return triton_config.num_stages() > 2;
+                            return config->triton().num_stages() > 2;
                           }));
 }
 
@@ -301,9 +299,8 @@ TEST_F(TritonBackendTest, VerifyHopperConfigsAreDifferentFromBlackwell) {
 
     std::vector<TritonBackendConfig> result;
     for (auto& config : configs) {
-      TritonBackendConfig triton_config;
-      if (config->UnpackTo(&triton_config)) {
-        result.push_back(triton_config);
+      if (config->has_triton()) {
+        result.push_back(config->triton());
       }
     }
     return result;
@@ -407,11 +404,10 @@ TEST_F(TritonBackendTest, TmaConfigsAreGeneratedOnlyForHopperAndWorkCorrectly) {
       [](const std::vector<std::unique_ptr<BackendConfig>>& configs) {
         return std::any_of(configs.begin(), configs.end(),
                            [](const std::unique_ptr<BackendConfig>& config) {
-                             TritonBackendConfig triton_config;
-                             if (!config->UnpackTo(&triton_config)) {
+                             if (!config->has_triton()) {
                                return false;
                              }
-                             return triton_config.is_tma_allowed();
+                             return config->triton().is_tma_allowed();
                            });
       };
 
@@ -441,8 +437,7 @@ TEST_F(TritonBackendTest, TmaConfigsAreGeneratedOnlyForHopperAndWorkCorrectly) {
     EXPECT_TRUE(has_tma(configs));
     std::unique_ptr<BackendConfig> tma_config;
     for (auto& c : configs) {
-      TritonBackendConfig tc;
-      if (c->UnpackTo(&tc) && tc.is_tma_allowed()) {
+      if (c->has_triton() && c->triton().is_tma_allowed()) {
         tma_config = std::move(c);
         break;
       }
@@ -478,8 +473,8 @@ TEST_F(TritonBackendTest, GetOverriddenConfigs) {
 
   EXPECT_THAT(configs, absl_testing::IsOk());
   EXPECT_EQ(configs.value().size(), 1);
-  TritonBackendConfig triton_config;
-  ASSERT_TRUE(configs.value()[0]->UnpackTo(&triton_config));
+  ASSERT_TRUE(configs.value()[0]->has_triton());
+  TritonBackendConfig triton_config = configs.value()[0]->triton();
   EXPECT_THAT(triton_config, EqualsProto(gemm_config));
 }
 
@@ -514,8 +509,8 @@ TEST_F(TritonBackendTest, GetOverriddenConfigsFromFile) {
 
   EXPECT_THAT(configs, absl_testing::IsOk());
   EXPECT_EQ(configs.value().size(), 1);
-  TritonBackendConfig triton_config;
-  ASSERT_TRUE(configs.value()[0]->UnpackTo(&triton_config));
+  ASSERT_TRUE(configs.value()[0]->has_triton());
+  TritonBackendConfig triton_config = configs.value()[0]->triton();
   EXPECT_THAT(triton_config, EqualsProto(*gemm_config));
 }
 
@@ -545,11 +540,10 @@ TEST_F(TritonBackendTest, WarpSpecializationConfigsAreGenerated) {
   EXPECT_TRUE(
       std::any_of(configs.value().begin(), configs.value().end(),
                   [](const std::unique_ptr<BackendConfig>& config) {
-                    TritonBackendConfig triton_config;
-                    if (!config->UnpackTo(&triton_config)) {
+                    if (!config->has_triton()) {
                       return false;
                     }
-                    return triton_config.is_warp_specialization_allowed();
+                    return config->triton().is_warp_specialization_allowed();
                   }));
 }
 
@@ -588,9 +582,9 @@ TEST_F(TritonBackendTest, WarpSpecializationConfigsDoNotHaveNumStagesTwo) {
 
   bool found_warp_spec_config = false;
   for (const auto& config : configs) {
-    TritonBackendConfig triton_config;
-    if (config->UnpackTo(&triton_config) &&
-        triton_config.is_warp_specialization_allowed()) {
+    if (config->has_triton() &&
+        config->triton().is_warp_specialization_allowed()) {
+      TritonBackendConfig triton_config = config->triton();
       found_warp_spec_config = true;
       EXPECT_NE(triton_config.num_stages(), 2)
           << "Found config with num_stages = 2 and warp specialization "
@@ -725,9 +719,8 @@ ENTRY entry_computation {
   TF_ASSERT_OK_AND_ASSIGN(std::vector<std::unique_ptr<BackendConfig>> configs,
                           backend_.GetSupportedConfigs(*root));
   for (const auto& config : configs) {
-    TritonBackendConfig triton_config;
-    if (config->UnpackTo(&triton_config) &&
-        triton_config.is_warp_specialization_allowed()) {
+    if (config->has_triton() &&
+        config->triton().is_warp_specialization_allowed()) {
       EXPECT_THAT(backend_.Compile(*root, *config), IsOk());
     }
   }

@@ -62,22 +62,22 @@ NativeEmitterBackend::GetSupportedConfigs(const HloInstruction& instr) {
     return configs;
   }
 
-  ASSIGN_OR_RETURN(std::unique_ptr<BackendConfig> default_config_any,
+  ASSIGN_OR_RETURN(std::unique_ptr<BackendConfig> default_config,
                    GetDefaultConfig(instr));
-  NativeEmitterBackendConfig default_config;
-  if (!default_config_any->UnpackTo(&default_config)) {
-    return absl::InternalError("Failed to unpack default config.");
+  if (!default_config->has_native_emitter()) {
+    return absl::InternalError("Expected NativeEmitterBackendConfig.");
   }
 
   if (!debug_options().xla_gpu_native_emitter_tune_unroll_factor_for_loops() ||
-      default_config.type() != NativeEmitterType::NATIVE_EMITTER_TYPE_LOOP) {
-    configs.push_back(std::move(default_config_any));
+      default_config->native_emitter().type() !=
+          NativeEmitterType::NATIVE_EMITTER_TYPE_LOOP) {
+    configs.push_back(std::move(default_config));
     return configs;
   }
 
   // For loop fusions we try a few different unroll factors: default * {0.5, 1,
   // 2}
-  int64_t unroll_factor = default_config.unroll_factor();
+  int64_t unroll_factor = default_config->native_emitter().unroll_factor();
 
   std::vector<int64_t> unroll_factors = {unroll_factor};
   if (unroll_factor > 1) {
@@ -86,19 +86,19 @@ NativeEmitterBackend::GetSupportedConfigs(const HloInstruction& instr) {
   unroll_factors.push_back(2 * unroll_factor);
 
   for (int64_t unroll_factor : unroll_factors) {
-    NativeEmitterBackendConfig config;
-    config.set_type(NativeEmitterType::NATIVE_EMITTER_TYPE_LOOP);
-    config.set_unroll_factor(unroll_factor);
-    auto any = std::make_unique<google::protobuf::Any>();
-    any->PackFrom(config);
-    configs.push_back(std::move(any));
+    auto config = std::make_unique<BackendConfig>();
+    auto* native_emitter_config = config->mutable_native_emitter();
+    native_emitter_config->set_type(
+        NativeEmitterType::NATIVE_EMITTER_TYPE_LOOP);
+    native_emitter_config->set_unroll_factor(unroll_factor);
+    configs.push_back(std::move(config));
   }
   return configs;
 }
 
 absl::StatusOr<std::unique_ptr<BackendConfig>>
 NativeEmitterBackend::GetDefaultConfig(const HloInstruction& instr) {
-  NativeEmitterBackendConfig config;
+  NativeEmitterBackendConfig native_emitter_config;
   if (IsSupported(instr)) {
     if (debug_options().xla_gpu_native_emitter_tune_unroll_factor_for_loops()) {
       se::DeviceDescription device_description =
@@ -107,23 +107,25 @@ NativeEmitterBackend::GetDefaultConfig(const HloInstruction& instr) {
           HloFusionAnalysis::Create(instr, device_description);
       if (fusion_analysis.emitter_fusion_kind() ==
           HloFusionAnalysis::EmitterFusionKind::kLoop) {
-        config.set_type(NativeEmitterType::NATIVE_EMITTER_TYPE_LOOP);
-        config.set_unroll_factor(ComputeLoopFusionConfig(fusion_analysis));
+        native_emitter_config.set_type(
+            NativeEmitterType::NATIVE_EMITTER_TYPE_LOOP);
+        native_emitter_config.set_unroll_factor(
+            ComputeLoopFusionConfig(fusion_analysis));
       }
     }
   }
-  auto any = std::make_unique<google::protobuf::Any>();
-  any->PackFrom(config);
-  return any;
+  auto config = std::make_unique<BackendConfig>();
+  *config->mutable_native_emitter() = native_emitter_config;
+  return config;
 }
 
 absl::Status NativeEmitterBackend::ApplyConfig(HloInstruction& instr,
                                                const BackendConfig& config) {
-  NativeEmitterBackendConfig native_emitter_fusion_config;
-  if (!config.UnpackTo(&native_emitter_fusion_config)) {
-    return absl::InvalidArgumentError(
-        "Invalid backend config type for NativeEmitterBackendConfig.");
+  if (!config.has_native_emitter()) {
+    return absl::InvalidArgumentError("Expected NativeEmitterBackendConfig.");
   }
+  NativeEmitterBackendConfig native_emitter_fusion_config =
+      config.native_emitter();
   auto fusion_instr = Cast<HloFusionInstruction>(&instr);
   HloInstruction::FusionKind emitter_fusion_kind =
       native_emitter_fusion_config.type() ==
