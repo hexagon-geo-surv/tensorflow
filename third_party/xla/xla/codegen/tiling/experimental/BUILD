@@ -26,6 +26,7 @@ cc_library(
         "tiling_space.h",
     ],
     deps = [
+        ":tiling_space_utils",
         "//xla:shape_util",
         "//xla:xla_data_proto_cc",
         "//xla/codegen/tiling:constraint_expression",
@@ -39,6 +40,7 @@ cc_library(
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
@@ -281,5 +283,29 @@ cc_library(
         "@com_google_googletest//:gtest_for_library",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
+    ],
+)
+
+cc_library(
+    name = "tiling_space_utils",
+    srcs = ["tiling_space_utils.cc"],
+    hdrs = ["tiling_space_utils.h"],
+    deps = [
+        "//xla/tsl/platform:status_macros",
+        "@com_google_absl//absl/container:inlined_vector",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+xla_cc_test(
+    name = "tiling_space_utils_test",
+    srcs = ["tiling_space_utils_test.cc"],
+    deps = [
+        ":tiling_space_utils",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest_main",
     ],
 )
