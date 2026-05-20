@@ -34,12 +34,12 @@ limitations under the License.
 #include "llvm/Support/ExtensibleRTTI.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/testlib/test.h"
-#include "xla/pjrt/pjrt_executable.h"
 #include "xla/pjrt/pjrt_layout.h"
 #include "xla/python/ifrt/array.h"
 #include "xla/python/ifrt/array_spec.h"
 #include "xla/python/ifrt/attribute_map.h"
 #include "xla/python/ifrt/basic_device_list.h"
+#include "xla/python/ifrt/bundle.h"
 #include "xla/python/ifrt/client.h"
 #include "xla/python/ifrt/compiler.h"
 #include "xla/python/ifrt/device.h"
@@ -171,6 +171,12 @@ class MockClient : public llvm::RTTIExtends<MockClient, Client> {
               (absl::Span<const ValueRef> values), (final));
   MOCK_METHOD(absl::StatusOr<tsl::RCReference<Tuple>>, MakeTuple,
               (absl::Span<ValueRef> values), (final));
+
+  MOCK_METHOD(absl::StatusOr<BundleRef>, Bundle,
+              (absl::Span<ValueRef> values, ArrayCopySemantics semantics),
+              (final));
+  MOCK_METHOD(absl::StatusOr<BundleRef>, ConcatBundles,
+              (absl::Span<BundleRef> bundles), (final));
   MOCK_METHOD(
       void, CancelExecution,
       (xla::ifrt::LoadedExecutable::CancellationHandle cancellation_handle,
@@ -379,6 +385,9 @@ class MockLoadedExecutable
               (absl::Span<ArrayRef> args, const ExecuteOptions& options,
                std::optional<DeviceListRef> devices),
               (final));
+  MOCK_METHOD(absl::StatusOr<ExecuteBundleResult>, ExecuteBundle,
+              (absl::Span<BundleRef> args, const ExecuteOptions& options),
+              (final));
   MOCK_METHOD(absl::Span<Device* const>, addressable_devices, (),
               (const, final));
   MOCK_METHOD(std::optional<DeviceListRef>, devices, (), (const, final));
@@ -445,6 +454,9 @@ class MockMpmdLoadedExecutable
   MOCK_METHOD(absl::StatusOr<ExecuteResult>, Execute,
               (absl::Span<ArrayRef> args, const ExecuteOptions& options,
                std::optional<DeviceListRef> devices),
+              (final));
+  MOCK_METHOD(absl::StatusOr<ExecuteBundleResult>, ExecuteBundle,
+              (absl::Span<BundleRef> args, const ExecuteOptions& options),
               (final));
   MOCK_METHOD(absl::Span<Device* const>, addressable_devices, (),
               (const, final));

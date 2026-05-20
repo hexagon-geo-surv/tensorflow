@@ -38,12 +38,14 @@ cc_library(
         "program.cc",
         # TODO(hyeontaek): Move this SerDes out of `ifrt` target once `Compiler::DeserializeLoadedExecutable()` is split into executable deserialization and executable loading, and thus the method can be removed.
         "executable_serdes.cc",
+        "bundle.cc",
         "shape.cc",
         "sharding.cc",
         "sharding_spec.cc",
         "topology.cc",
         "tuple.cc",
         "value.cc",
+        "value_util.cc",
     ],
     hdrs = [
         "array.h",
@@ -63,12 +65,14 @@ cc_library(
         "program.h",
         # TODO(hyeontaek): Move this SerDes out of `ifrt` target once `Compiler::DeserializeLoadedExecutable()` is split into executable deserialization and executable loading, and thus the method can be removed.
         "executable_serdes.h",
+        "bundle.h",
         "shape.h",
         "sharding.h",
         "sharding_spec.h",
         "topology.h",
         "tuple.h",
         "value.h",
+        "value_util.h",
     ],
     compatible_with = get_compatible_with_portable(),
     visibility = internal_visibility([
@@ -433,6 +437,21 @@ xla_cc_test(
     ],
 )
 
+xla_cc_test(
+    name = "value_util_test",
+    size = "small",
+    srcs = ["value_util_test.cc"],
+    deps = [
+        ":ifrt",
+        ":mock",
+        "//xla/tsl/concurrency:ref_count",
+        "//xla/tsl/platform:test",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_library(
     name = "test_util",
     testonly = True,
@@ -615,7 +634,6 @@ cc_library(
         "//xla:xla_data_proto_cc",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/testlib:test",
-        "//xla/pjrt:pjrt_executable",
         "//xla/pjrt:pjrt_layout",
         "//xla/tsl/concurrency:future",
         "//xla/tsl/concurrency:ref_count",

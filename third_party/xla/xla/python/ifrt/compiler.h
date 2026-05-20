@@ -16,9 +16,10 @@ limitations under the License.
 #ifndef XLA_PYTHON_IFRT_COMPILER_H_
 #define XLA_PYTHON_IFRT_COMPILER_H_
 
+#include <cstdint>
 #include <memory>
-#include <string>
-#include <utility>
+#include <optional>
+#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -43,6 +44,12 @@ namespace ifrt {
 // TODO(hyeontaek): Make an new `LoadOptions` that is specific for loading.
 struct CompileOptions : llvm::RTTIExtends<CompileOptions, Serializable> {
   static char ID;  // NOLINT
+
+  // When executing the program with `LoadedExecutable::ExecuteBundle()`, apply
+  // `Bundle::Slice()` to the execution output. If `std::nullopt`, the output is
+  // a single `Bundle` containing all output values. The sum of the slice sizes
+  // must match the number of output values.
+  std::optional<std::vector<int64_t>> outputs_bundle_slice_sizes;
 };
 
 // Represents a compiler that creates an `Executable` that can run a computation
