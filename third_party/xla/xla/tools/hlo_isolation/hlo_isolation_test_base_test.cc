@@ -41,13 +41,12 @@ limitations under the License.
 #include "xla/literal_util.h"
 #include "xla/service/hlo_runner_interface.h"
 #include "xla/shape_util.h"
-#include "xla/tests/hlo_pjrt_interpreter_reference_mixin.h"
-#include "xla/tests/hlo_pjrt_test_base.h"
+#include "xla/tests/hlo_interpreter_reference_mixin.h"
+#include "xla/tests/hlo_test_base.h"
 #include "xla/tests/test_utils.h"
 #include "xla/tools/hlo_isolation/hlo_isolation.pb.h"
 #include "xla/tools/hlo_isolation/hlo_isolation_api.h"
 #include "xla/tsl/platform/env.h"
-#include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/test.h"
 #include "tsl/platform/path.h"
 
@@ -55,8 +54,9 @@ namespace xla {
 namespace hlo_isolation {
 namespace {
 
-class HloIsolationTest : public HloIsolationTestMixin<
-                             HloPjRtInterpreterReferenceMixin<HloTestBase>> {};
+class HloIsolationTest
+    : public HloIsolationTestMixin<HloInterpreterReferenceMixin<HloTestBase>> {
+};
 
 TEST_F(HloIsolationTest, RunSimpleModule) {
   const char* hlo_text = R"(
@@ -69,8 +69,8 @@ ENTRY main {
 }
 )";
 
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
-                          ParseAndReturnVerifiedModule(hlo_text));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                       ParseAndReturnVerifiedModule(hlo_text));
   RunAndVerifyIsolationTest(*module);
 }
 
@@ -87,8 +87,8 @@ ENTRY main {
 }
 )";
 
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
-                          ParseAndReturnVerifiedModule(hlo_text));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                       ParseAndReturnVerifiedModule(hlo_text));
   RunAndVerifyIsolationTest(*module);
 }
 
@@ -111,9 +111,9 @@ ENTRY main {
 }
 )";
 
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
-                          ParseAndReturnVerifiedModule(hlo_text));
-  TF_ASSERT_OK_AND_ASSIGN(
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                       ParseAndReturnVerifiedModule(hlo_text));
+  ASSERT_OK_AND_ASSIGN(
       std::vector<NumericMismatch> mismatches,
       ExtractAndEnrichTopMismatches(error_message, module.get()));
   ASSERT_FALSE(mismatches.empty());
@@ -302,10 +302,10 @@ ENTRY %multiply_reduce_fusion.94 (parameter.0: f32[14,40,100,128], parameter.1: 
 }
 )hlo";
 
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
-                          ParseAndReturnVerifiedModule(hlo_string));
-  TF_ASSERT_OK_AND_ASSIGN(std::vector<bool> output_is_reduce,
-                          DetectReducesInModuleOutput(module.get()));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                       ParseAndReturnVerifiedModule(hlo_string));
+  ASSERT_OK_AND_ASSIGN(std::vector<bool> output_is_reduce,
+                       DetectReducesInModuleOutput(module.get()));
 
   EXPECT_EQ(output_is_reduce.size(), 5);
   EXPECT_EQ(output_is_reduce[0], true);
@@ -349,8 +349,8 @@ Absolute error breakdown of elements exceeding rel error bound:
   >= 1      : 35637554 (95.3762%)
 )";
 
-  TF_ASSERT_OK_AND_ASSIGN(NumericMismatch mismatch,
-                          ExtractTopRelativeErrorMismatch(error_message));
+  ASSERT_OK_AND_ASSIGN(NumericMismatch mismatch,
+                       ExtractTopRelativeErrorMismatch(error_message));
   EXPECT_EQ(mismatch.actual(), 0.06885);
   EXPECT_EQ(mismatch.expected(), 0);
   EXPECT_EQ(mismatch.rel_error(), std::numeric_limits<double>::infinity());
@@ -398,9 +398,9 @@ Elements exceeding abs error bound 0.01: 100 (50.5%)
 Elements exceeding rel error bound 0.1: 50 (25.2%)
 )";
 
-  TF_ASSERT_OK_AND_ASSIGN(std::vector<NumericMismatch> mismatches,
-                          ExtractTopMismatches(error_message,
-                                               /*is_tuple=*/true));
+  ASSERT_OK_AND_ASSIGN(std::vector<NumericMismatch> mismatches,
+                       ExtractTopMismatches(error_message,
+                                            /*is_tuple=*/true));
   EXPECT_EQ(mismatches.size(), 2);
   EXPECT_EQ(mismatches[0].output_shape_index(), 0);
 
@@ -452,9 +452,9 @@ Absolute error breakdown of elements exceeding rel error bound:
   >= 1      :     356 (100.0000%)
 )";
 
-  TF_ASSERT_OK_AND_ASSIGN(std::vector<NumericMismatch> mismatches,
-                          ExtractTopMismatches(error_message,
-                                               /*is_tuple=*/false));
+  ASSERT_OK_AND_ASSIGN(std::vector<NumericMismatch> mismatches,
+                       ExtractTopMismatches(error_message,
+                                            /*is_tuple=*/false));
   EXPECT_EQ(mismatches.size(), 1);
   EXPECT_EQ(mismatches[0].output_shape_index(), 0);
 
@@ -488,8 +488,8 @@ TEST_F(HloIsolationTest, TestLiteralContainsInfOrNan) {
 }
 
 TEST_F(HloIsolationTest, MakeFakeArgumentsForDynamicSliceKnownBits) {
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
-                          ParseAndReturnUnverifiedModule(R"(
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                       ParseAndReturnUnverifiedModule(R"(
 HloModule test_module
 
 ENTRY %main (param_1: s8[262144,2048], param_2: s32[]) -> s8[131072,2048] {
@@ -500,7 +500,7 @@ ENTRY %main (param_1: s8[262144,2048], param_2: s32[]) -> s8[131072,2048] {
 }
 )"));
 
-  TF_ASSERT_OK_AND_ASSIGN(
+  ASSERT_OK_AND_ASSIGN(
       std::vector<Literal> args,
       MakeFakeArguments(module.get(),
                         /*pseudo_random=*/true,
@@ -525,8 +525,8 @@ ENTRY %main (param_1: s8[262144,2048], param_2: s32[]) -> s8[131072,2048] {
 }
 
 TEST_F(HloIsolationTest, MakeFakeArgumentsForDynamicUpdateSliceKnownBits) {
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
-                          ParseAndReturnUnverifiedModule(R"(
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                       ParseAndReturnUnverifiedModule(R"(
 HloModule test_module
 
 ENTRY %main (param_1: s8[262144,2048], param_2: s8[131072,2048], param_3: s32[]) -> s8[262144,2048] {
@@ -538,7 +538,7 @@ ENTRY %main (param_1: s8[262144,2048], param_2: s8[131072,2048], param_3: s32[])
 }
 )"));
 
-  TF_ASSERT_OK_AND_ASSIGN(
+  ASSERT_OK_AND_ASSIGN(
       std::vector<Literal> args,
       MakeFakeArguments(module.get(),
                         /*pseudo_random=*/true,
@@ -577,8 +577,8 @@ ENTRY %main (param.0: f32[100000000]) -> f32[100000000] {
 }
 )";
 
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
-                          ParseAndReturnVerifiedModule(hlo_text));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                       ParseAndReturnVerifiedModule(hlo_text));
   RunAndVerifyIsolationTest(*module);
 }
 
@@ -604,16 +604,17 @@ ENTRY main.1 {
   ROOT add_abs_fusion = f32[3,6]{1,0:T(4,128)} fusion(sine_abs_fusion), kind=kLoop, calls=fused_computation, metadata={op_name="jit(f)/abs" stack_frame_id=14}
 }
 )hlo";
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
-                          ParseAndReturnVerifiedModule(hlo_string));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                       ParseAndReturnVerifiedModule(hlo_string));
 
   PipelineIsolationOptions options;
   options.module_options.run_module_fn =
       [](std::unique_ptr<HloModule> m, HloRunnerInterface* runner,
-         absl::Span<const Literal> input_data) -> absl::StatusOr<Literal> {
+         absl::Span<const Literal> input_data,
+         const RunModuleOptions& run_opts) -> absl::StatusOr<Literal> {
     const bool should_inject = (m->name() == "sine_abs_fusion");
     ASSIGN_OR_RETURN(Literal output,
-                     RunModule(std::move(m), runner, input_data));
+                     RunModule(std::move(m), runner, input_data, run_opts));
     if (should_inject) {
       // Flip an exponent bit in the first element to guarantee a mismatch.
       // Using untyped_data handles all primitive types without crashing.
