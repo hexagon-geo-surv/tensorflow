@@ -38,7 +38,7 @@ limitations under the License.
 #include "xla/backends/gpu/runtime/cudnn_thunk.h"
 #include "xla/backends/gpu/runtime/device_to_device_copy_thunk.h"
 #include "xla/backends/gpu/runtime/execution_stream_id.h"
-#include "xla/backends/gpu/runtime/gemm_thunk.h"
+#include "xla/backends/gpu/runtime/gpublas_lt_matmul_thunk.h"
 #include "xla/backends/gpu/runtime/replica_id_thunk.h"
 #include "xla/backends/gpu/runtime/sequential_thunk.h"
 #include "xla/backends/gpu/runtime/thunk.h"
@@ -148,7 +148,8 @@ std::unique_ptr<DeviceToDeviceCopyThunk> CreateCopyThunk(
       ShapedSlice{slice0, shape}, 1024);
 }
 
-std::unique_ptr<GemmThunk> CreateGemmThunk(const BufferAllocation& alloc1) {
+std::unique_ptr<CublasLtMatmulThunk> CreateCublasLtMatmulThunk(
+    const BufferAllocation& alloc1) {
   se::StreamExecutor* executor = GpuExecutor();
   auto config = GemmConfig::For(
       ShapeUtil::MakeShape(PrimitiveType::F32, {1, 3}), {}, {1},
@@ -159,8 +160,18 @@ std::unique_ptr<GemmThunk> CreateGemmThunk(const BufferAllocation& alloc1) {
       /*scale_mode=*/se::gpu::ScaleMode::kNone,
       executor->GetDeviceDescription().gpu_compute_capability());
   BufferAllocation::Slice slice1(&alloc1, 0, 16 * 4);
-  return std::make_unique<GemmThunk>(Thunk::ThunkInfo(), config.value(), slice1,
-                                     slice1, slice1, slice1, true);
+  Shape lhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 3});
+  Shape rhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {3, 1});
+  Shape output_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 1});
+  ShapedSlice a{slice1, lhs_shape};
+  ShapedSlice b{slice1, rhs_shape};
+  ShapedSlice c{slice1, output_shape};
+  ShapedSlice d{slice1, output_shape};
+  return std::make_unique<CublasLtMatmulThunk>(
+      Thunk::ThunkInfo(), "canonical_hlo", config.value(),
+      se::gpu::BlasLt::Epilogue::kDefault, 0, 0, a, b, c, d, std::nullopt,
+      std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+      std::nullopt, std::nullopt);
 }
 
 std::unique_ptr<ConvolutionThunk> CreateConvolutionThunk(
@@ -315,16 +326,17 @@ TEST(CommandBufferConversionPassTest, PartiallyConvertsToCommandBufferThunk) {
 
   ThunkSequence thunks;
 
-  // Create a {CopyThunk, GemmThunk, CopyThunk}
+  // Create a {CopyThunk, CublasLtMatmulThunk, CopyThunk}
   BufferAllocation alloc0(0, 1024, 0);
   BufferAllocation alloc1(1, 16 * 4, 0);
   thunks.push_back(CreateCopyThunk(alloc0));
-  thunks.push_back(CreateGemmThunk(alloc1));
+  thunks.push_back(CreateCublasLtMatmulThunk(alloc1));
   thunks.push_back(CreateCopyThunk(alloc0));
 
   DebugOptions debug_options = xla::GetDebugOptionsFromFlags();
 
-  // Enable only FUSION, which means GemmThunk should not be converted.
+  // Enable only FUSION, which means CublasLtMatmulThunk should not be
+  // converted.
   debug_options.set_xla_gpu_graph_min_graph_size(1);
   debug_options.clear_xla_gpu_enable_command_buffer();
   debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::FUSION);
@@ -335,10 +347,11 @@ TEST(CommandBufferConversionPassTest, PartiallyConvertsToCommandBufferThunk) {
                        device_info, allocator),
               IsOkAndHolds(true));
 
-  // Expected transformation: (Copy, Gemm, Copy) -> (CommandBuffer(Copy), Gemm,
-  // CommandBuffer(Copy))
-  EXPECT_THAT(thunks, ThunkKindsAre(Thunk::kCommandBuffer, Thunk::kGemm,
-                                    Thunk::kCommandBuffer));
+  // Expected transformation: (Copy, CublasLtMatmul, Copy) ->
+  // (CommandBuffer(Copy), CublasLtMatmul, CommandBuffer(Copy))
+  EXPECT_THAT(thunks,
+              ThunkKindsAre(Thunk::kCommandBuffer, Thunk::kCublasLtMatmul,
+                            Thunk::kCommandBuffer));
 
   // Check the content of the first command buffer thunk
   auto* command_buffer_thunk0 =
@@ -362,21 +375,21 @@ TEST(CommandBufferConversionPassTest, ConvertConvolutionAndGemmThunks) {
 
   ThunkSequence thunks;
 
-  // Create a {CopyThunk, GemmThunk, ConvolutionThunk}
+  // Create a {CopyThunk, CublasLtMatmulThunk, ConvolutionThunk}
   BufferAllocation alloc0(0, 1024, 0);
   BufferAllocation alloc1(1, 2048, 0);
   BufferAllocation alloc2(2, 2048, 0);
   thunks.push_back(CreateCopyThunk(alloc0));
-  thunks.push_back(CreateGemmThunk(alloc1));
+  thunks.push_back(CreateCublasLtMatmulThunk(alloc1));
   thunks.push_back(CreateConvolutionThunk(alloc0));
 
   DebugOptions debug_options;
 
-  // Enable only FUSION, which means GemmThunk should not be converted.
+  // Enable FUSION, CONVOLUTION and CUBLASLT.
   debug_options.clear_xla_gpu_enable_command_buffer();
   debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::FUSION);
   debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::CONVOLUTION);
-  debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::CUBLAS);
+  debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::CUBLASLT);
 
   se::DeviceDescription device_info = TestGpuDeviceInfo::CudaOrRocmDeviceInfo();
   FakeErrorAllocator allocator;
@@ -392,8 +405,9 @@ TEST(CommandBufferConversionPassTest, ConvertConvolutionAndGemmThunks) {
       static_cast<const CommandBufferThunk*>(thunks[0].get());
   const auto& thunks_in_command_buffer =
       command_buffer_thunk->thunks()->thunks();
-  EXPECT_THAT(thunks_in_command_buffer,
-              ThunkKindsAre(Thunk::kCopy, Thunk::kGemm, Thunk::kConvolution));
+  EXPECT_THAT(
+      thunks_in_command_buffer,
+      ThunkKindsAre(Thunk::kCopy, Thunk::kCublasLtMatmul, Thunk::kConvolution));
 }
 
 TEST(CommandBufferConversionPassTest, ConvertsAsyncPairToCommandBuffer) {
@@ -687,7 +701,7 @@ TEST(CommandBufferConversionPassTest, ConvertWhileThunk) {
 
   ThunkSequence body_thunks;
   BufferAllocation alloc1(1, 16 * 4, 0);
-  body_thunks.push_back(CreateGemmThunk(alloc1));
+  body_thunks.push_back(CreateCublasLtMatmulThunk(alloc1));
 
   // Create a while thunk
   BufferAllocation alloc2(0, 1024, 0);
@@ -699,7 +713,7 @@ TEST(CommandBufferConversionPassTest, ConvertWhileThunk) {
   debug_options.set_xla_gpu_graph_min_graph_size(1);
   debug_options.clear_xla_gpu_enable_command_buffer();
   debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::WHILE);
-  debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::CUBLAS);
+  debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::CUBLASLT);
   debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::FUSION);
   debug_options.set_xla_gpu_graph_min_graph_size(1);
   se::DeviceDescription device_info = TestGpuDeviceInfo::CudaOrRocmDeviceInfo();
@@ -710,8 +724,8 @@ TEST(CommandBufferConversionPassTest, ConvertWhileThunk) {
                        device_info, allocator),
               IsOkAndHolds(true));
 
-  // Expected transformation: (While({Copy}, {Gemm})) ->
-  // (CommandBuffer(While({Copy}, {Gemm})))
+  // Expected transformation: (While({Copy}, {CublasLtMatmul})) ->
+  // (CommandBuffer(While({Copy}, {CublasLtMatmul})))
   EXPECT_THAT(thunks, ThunkKindsAre(Thunk::kCommandBuffer));
 
   // Check the content of the command buffer thunk
@@ -727,7 +741,7 @@ TEST(CommandBufferConversionPassTest, ConvertWhileThunk) {
   EXPECT_THAT(while_thunk_transformed->condition_executor().thunks(),
               ThunkKindsAre(Thunk::kCopy));
   EXPECT_THAT(while_thunk_transformed->body_executor().thunks(),
-              ThunkKindsAre(Thunk::kGemm));
+              ThunkKindsAre(Thunk::kCublasLtMatmul));
 }
 
 TEST(CommandBufferConversionPassTest,
@@ -900,7 +914,7 @@ TEST(CommandBufferConversionPassTest, ConvertTheBodyOfWhileThunk) {
   BufferAllocation alloc3(1, 16 * 4, 0);
   // Add one non-convertible thunk to the body.
   body_thunks.push_back(CreateAllGatherThunk(alloc1, alloc2));
-  body_thunks.push_back(CreateGemmThunk(alloc3));
+  body_thunks.push_back(CreateCublasLtMatmulThunk(alloc3));
 
   // Create a while thunk
   BufferAllocation alloc4(0, 1024, 0);
@@ -912,7 +926,7 @@ TEST(CommandBufferConversionPassTest, ConvertTheBodyOfWhileThunk) {
   debug_options.set_xla_gpu_graph_min_graph_size(1);
   debug_options.clear_xla_gpu_enable_command_buffer();
   debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::WHILE);
-  debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::CUBLAS);
+  debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::CUBLASLT);
   debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::FUSION);
   debug_options.set_xla_gpu_graph_min_graph_size(1);
   se::DeviceDescription device_info = TestGpuDeviceInfo::CudaOrRocmDeviceInfo();
@@ -925,8 +939,8 @@ TEST(CommandBufferConversionPassTest, ConvertTheBodyOfWhileThunk) {
 
   // While thunk is not converted itself, because it has a non-convertible thunk
   // in its body, but the body is partially converted. Expected transformation:
-  // (While({Copy}, {AllGatherStart,Gemm})) ->
-  // ((While({Copy}, {AllGatherStart, CommandBuffer(Gemm))})))
+  // (While({Copy}, {AllGatherStart,CublasLtMatmul})) ->
+  // ((While({Copy}, {AllGatherStart, CommandBuffer(CublasLtMatmul))})))
   EXPECT_THAT(thunks, ThunkKindsAre(Thunk::kWhile));
 
   // Check the content of the while thunk
@@ -941,7 +955,7 @@ TEST(CommandBufferConversionPassTest, ConvertTheBodyOfWhileThunk) {
   ASSERT_NE(command_buffer_thunk, nullptr);
   const auto& thunks_in_command_buffer =
       command_buffer_thunk->thunks()->thunks();
-  EXPECT_THAT(thunks_in_command_buffer, ThunkKindsAre(Thunk::kGemm));
+  EXPECT_THAT(thunks_in_command_buffer, ThunkKindsAre(Thunk::kCublasLtMatmul));
 }
 
 TEST(CommandBufferConversionPassTest, ConvertAsyncStartDonePair) {

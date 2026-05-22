@@ -37,7 +37,7 @@ limitations under the License.
 #include "xla/backends/gpu/runtime/collective_params.h"
 #include "xla/backends/gpu/runtime/custom_call_thunk.h"
 #include "xla/backends/gpu/runtime/dynamic_slice_thunk.pb.h"
-#include "xla/backends/gpu/runtime/gemm_thunk.h"
+#include "xla/backends/gpu/runtime/gpublas_lt_matmul_thunk.h"
 #include "xla/backends/gpu/runtime/scratch_memory_requests.h"
 #include "xla/backends/gpu/runtime/thunk.h"
 #include "xla/backends/gpu/runtime/thunk_proto_deserialization.h"
@@ -231,11 +231,19 @@ absl::StatusOr<std::unique_ptr<DynamicSliceThunk>> CreateSlicedGemmThunk(
           se::blas::kDefaultComputePrecision, false, false,
           /*scale_mode=*/se::gpu::ScaleMode::kNone,
           executor->GetDeviceDescription().gpu_compute_capability()));
-  // Creating embedded GEMM thunk.
+  // Creating embedded CublasLtMatmulThunk.
   ThunkSequence seq;
-  seq.emplace_back(std::make_unique<GemmThunk>(
-      Thunk::ThunkInfo(), config, slice_lhs_fake, slice_rhs, slice_out,
-      slice_workspace, /*deterministic=*/true));
+  Shape lhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 3});
+  Shape rhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {3, 1});
+  Shape output_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 1});
+  seq.emplace_back(std::make_unique<CublasLtMatmulThunk>(
+      Thunk::ThunkInfo(), "canonical_hlo", config,
+      se::gpu::BlasLt::Epilogue::kDefault, 0, 0,
+      ShapedSlice{slice_lhs_fake, lhs_shape}, ShapedSlice{slice_rhs, rhs_shape},
+      ShapedSlice{slice_out, output_shape},
+      ShapedSlice{slice_out, output_shape}, std::nullopt, std::nullopt,
+      std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+      std::nullopt));
 
   // Wrapping dynamic slice thunk around the GEMM thunk.
   std::vector<DynamicSliceThunk::Offset> lhs_offsets{slice_lhs_offset_0,
@@ -402,11 +410,20 @@ CreateMultipleSlicedOperandsGemmThunk(
           /*scale_mode=*/se::gpu::ScaleMode::kNone,
           executor->GetDeviceDescription().gpu_compute_capability()));
 
-  // Creating embedded GEMM thunk.
+  // Creating embedded CublasLtMatmulThunk.
   ThunkSequence seq;
-  seq.emplace_back(std::make_unique<GemmThunk>(
-      Thunk::ThunkInfo(), config, slice_lhs_fake, slice_rhs_fake, slice_out,
-      slice_workspace, /*deterministic=*/true));
+  Shape lhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 3});
+  Shape rhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {3, 1});
+  Shape output_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 1});
+  seq.emplace_back(std::make_unique<CublasLtMatmulThunk>(
+      Thunk::ThunkInfo(), "canonical_hlo", config,
+      se::gpu::BlasLt::Epilogue::kDefault, 0, 0,
+      ShapedSlice{slice_lhs_fake, lhs_shape},
+      ShapedSlice{slice_rhs_fake, rhs_shape},
+      ShapedSlice{slice_out, output_shape},
+      ShapedSlice{slice_out, output_shape}, std::nullopt, std::nullopt,
+      std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+      std::nullopt));
 
   // Wrapping dynamic slice thunk around the GEMM thunk.
   std::vector<DynamicSliceThunk::Offset> lhs_offsets{slice_lhs_offset_0,
@@ -946,11 +963,20 @@ CreateSlicedGemmArbitraryArgumentOrderThunk(
           /*scale_mode=*/se::gpu::ScaleMode::kNone,
           executor->GetDeviceDescription().gpu_compute_capability()));
 
-  // Creating embedded GEMM thunk.
+  // Creating embedded CublasLtMatmulThunk.
   ThunkSequence seq;
-  seq.emplace_back(std::make_unique<GemmThunk>(
-      Thunk::ThunkInfo(), config, slice_lhs_fake, slice_rhs_fake,
-      slice_out_fake, slice_workspace_fake, /*deterministic=*/true));
+  Shape lhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 3});
+  Shape rhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {3, 1});
+  Shape output_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 1});
+  seq.emplace_back(std::make_unique<CublasLtMatmulThunk>(
+      Thunk::ThunkInfo(), "canonical_hlo", config,
+      se::gpu::BlasLt::Epilogue::kDefault, 0, 0,
+      ShapedSlice{slice_lhs_fake, lhs_shape},
+      ShapedSlice{slice_rhs_fake, rhs_shape},
+      ShapedSlice{slice_out_fake, output_shape},
+      ShapedSlice{slice_out_fake, output_shape}, std::nullopt, std::nullopt,
+      std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+      std::nullopt));
 
   // Wrapping dynamic slice thunk around the GEMM thunk.
   std::vector<DynamicSliceThunk::Offset> lhs_offsets{slice_lhs_offset_0,
@@ -1121,11 +1147,20 @@ CreateSlicedGemmArbitraryNumberOfArgumentsThunk(
           /*scale_mode=*/se::gpu::ScaleMode::kNone,
           executor->GetDeviceDescription().gpu_compute_capability()));
 
-  // Creating embedded GEMM thunk.
+  // Creating embedded CublasLtMatmulThunk.
   ThunkSequence seq;
-  seq.emplace_back(std::make_unique<GemmThunk>(
-      Thunk::ThunkInfo(), config, slice_lhs_fake, slice_rhs_fake,
-      slice_out_fake, slice_workspace_fake, /*deterministic=*/true));
+  Shape lhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 3});
+  Shape rhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {3, 1});
+  Shape output_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 1});
+  seq.emplace_back(std::make_unique<CublasLtMatmulThunk>(
+      Thunk::ThunkInfo(), "canonical_hlo", config,
+      se::gpu::BlasLt::Epilogue::kDefault, 0, 0,
+      ShapedSlice{slice_lhs_fake, lhs_shape},
+      ShapedSlice{slice_rhs_fake, rhs_shape},
+      ShapedSlice{slice_out_fake, output_shape},
+      ShapedSlice{slice_out_fake, output_shape}, std::nullopt, std::nullopt,
+      std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+      std::nullopt));
 
   // Wrapping dynamic slice thunk around the GEMM thunk.
   std::vector<DynamicSliceThunk::Offset> lhs_offsets{slice_lhs_offset_0,
@@ -1287,11 +1322,19 @@ CreateSlicedTupledOperandGemmThunk(
           /*scale_mode=*/se::gpu::ScaleMode::kNone,
           executor->GetDeviceDescription().gpu_compute_capability()));
 
-  // Creating embedded GEMM thunk.
+  // Creating embedded CublasLtMatmulThunk.
   ThunkSequence seq;
-  seq.emplace_back(std::make_unique<GemmThunk>(
-      Thunk::ThunkInfo(), config, slice_lhs_fake, slice_rhs, slice_out,
-      slice_workspace, /*deterministic=*/true));
+  Shape lhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 3});
+  Shape rhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {3, 1});
+  Shape output_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 1});
+  seq.emplace_back(std::make_unique<CublasLtMatmulThunk>(
+      Thunk::ThunkInfo(), "canonical_hlo", config,
+      se::gpu::BlasLt::Epilogue::kDefault, 0, 0,
+      ShapedSlice{slice_lhs_fake, lhs_shape}, ShapedSlice{slice_rhs, rhs_shape},
+      ShapedSlice{slice_out, output_shape},
+      ShapedSlice{slice_out, output_shape}, std::nullopt, std::nullopt,
+      std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+      std::nullopt));
 
   // Wrapping dynamic slice thunk around the GEMM thunk.
   std::vector<DynamicSliceThunk::Offset> lhs_offsets{slice_lhs_offset_0,
@@ -1667,11 +1710,20 @@ CreateSlicedOperandsSameBufferGemmThunk(
           /*scale_mode=*/se::gpu::ScaleMode::kNone,
           executor->GetDeviceDescription().gpu_compute_capability()));
 
-  // Creating embedded GEMM thunk.
+  // Creating embedded CublasLtMatmulThunk.
   ThunkSequence seq;
-  seq.emplace_back(std::make_unique<GemmThunk>(
-      Thunk::ThunkInfo(), config, slice_lhs_fake, slice_rhs_fake,
-      slice_out_fake, slice_workspace_fake, /*deterministic=*/true));
+  Shape lhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 3});
+  Shape rhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {3, 1});
+  Shape output_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 1});
+  seq.emplace_back(std::make_unique<CublasLtMatmulThunk>(
+      Thunk::ThunkInfo(), "canonical_hlo", config,
+      se::gpu::BlasLt::Epilogue::kDefault, 0, 0,
+      ShapedSlice{slice_lhs_fake, lhs_shape},
+      ShapedSlice{slice_rhs_fake, rhs_shape},
+      ShapedSlice{slice_out_fake, output_shape},
+      ShapedSlice{slice_out_fake, output_shape}, std::nullopt, std::nullopt,
+      std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+      std::nullopt));
 
   // Wrapping dynamic slice thunk around the GEMM thunk.
   std::vector<DynamicSliceThunk::Offset> lhs_offsets{slice_lhs_offset_0,
@@ -1816,8 +1868,8 @@ CreateHostInductionVariableAndOffsetEvaluationThunk(
                    ParseAndReturnUnverifiedModule(indvar_update));
   se::StreamExecutor* executor = GpuExecutor();
 
-  int64_t lhs_length = sizeof(float) * 2 * 4;
-  int64_t rhs_length = sizeof(float) * 4 * 1;
+  int64_t lhs_length = sizeof(float) * 2 * 3;
+  int64_t rhs_length = sizeof(float) * 3 * 1;
   int64_t out_length = sizeof(float) * 1 * 1;
 
   // Preparing buffer allocation slices for thunk creations.
@@ -1857,11 +1909,11 @@ CreateHostInductionVariableAndOffsetEvaluationThunk(
       GemmConfig::For(
           /*lhs_shape=*/ShapeUtil::MakeShape(
               /*element_type=*/PrimitiveType::F32,
-              /*dimensions=*/{1, 4}),
+              /*dimensions=*/{1, 3}),
           /*lhs_batch_dims=*/{}, /*lhs_contracting_dims=*/{1},
           /*rhs_shape=*/
           ShapeUtil::MakeShape(/*element_type=*/PrimitiveType::F32,
-                               /*dimensions=*/{4, 1}),
+                               /*dimensions=*/{3, 1}),
           /*rhs_batch_dims=*/{}, /*rhs_contracting_dims=*/{0},
           /*output_shape=*/
           ShapeUtil::MakeShape(/*element_type=*/PrimitiveType::F32,
@@ -1875,13 +1927,19 @@ CreateHostInductionVariableAndOffsetEvaluationThunk(
           /*gpu_version=*/
           executor->GetDeviceDescription().gpu_compute_capability()));
 
-  // Creating embedded GEMM thunk.
+  // Creating embedded CublasLtMatmulThunk.
   ThunkSequence seq;
-  seq.emplace_back(std::make_unique<GemmThunk>(
-      /*thunk_info*/ Thunk::ThunkInfo(), /*config=*/config,
-      /*lhs_buffer=*/slice_lhs_fake, /*rhs_buffer=*/slice_rhs,
-      /*output_buffer=*/slice_out,
-      /*workspace=*/slice_workspace, /*deterministic=*/true));
+  Shape lhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 3});
+  Shape rhs_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {3, 1});
+  Shape output_shape = ShapeUtil::MakeShape(PrimitiveType::F32, {1, 1});
+  seq.emplace_back(std::make_unique<CublasLtMatmulThunk>(
+      Thunk::ThunkInfo(), "canonical_hlo", config,
+      se::gpu::BlasLt::Epilogue::kDefault, 0, 0,
+      ShapedSlice{slice_lhs_fake, lhs_shape}, ShapedSlice{slice_rhs, rhs_shape},
+      ShapedSlice{slice_out, output_shape},
+      ShapedSlice{slice_out, output_shape}, std::nullopt, std::nullopt,
+      std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+      std::nullopt));
 
   // Wrapping dynamic slice thunk around the GEMM thunk.
   std::vector<DynamicSliceThunk::Offset> lhs_offsets{offset_module_ptr, 0l};
@@ -1901,11 +1959,11 @@ CreateHostInductionVariableAndOffsetEvaluationThunk(
           lhs_offsets, std::nullopt, std::nullopt, std::nullopt},
       /*orig_shapes=*/
       std::vector<std::optional<Shape>>{
-          ShapeUtil::MakeShape(PrimitiveType::F32, {2, 4}), std::nullopt,
+          ShapeUtil::MakeShape(PrimitiveType::F32, {2, 3}), std::nullopt,
           std::nullopt, std::nullopt},
       /*sliced_shapes=*/
       std::vector<std::optional<Shape>>{
-          ShapeUtil::MakeShape(PrimitiveType::F32, {1, 4}), std::nullopt,
+          ShapeUtil::MakeShape(PrimitiveType::F32, {1, 3}), std::nullopt,
           std::nullopt, std::nullopt},
       /*offset_byte_sizes=*/
       std::vector<std::optional<PrimitiveType>>{S64, std::nullopt, std::nullopt,
@@ -1927,10 +1985,10 @@ TEST_F(
 
 TEST_F(DynamicSliceThunkTest,
        HostInductionVariableAndOffsetEvaluationExecutesCorrectly) {
-  // Given a `lhs` tensor of shape f32[2,4]{1,0}
+  // Given a `lhs` tensor of shape f32[2,3]{1,0}
   // The `lhs` slice that we want to use will be equivalent to this static
   // slice op:
-  // f32[1,3]{1,0} slice(lhs), slice={[0:1], [0:4]}
+  // f32[1,3]{1,0} slice(lhs), slice={[0:1], [0:3]}
 
   se::StreamExecutor* executor = GpuExecutor();
   TF_ASSERT_OK_AND_ASSIGN(auto stream, executor->CreateStream());
@@ -1939,26 +1997,25 @@ TEST_F(DynamicSliceThunkTest,
       auto thunk,
       CreateHostInductionVariableAndOffsetEvaluationThunk(backing_allocations));
 
-  int64_t lhs_length = sizeof(float) * 2 * 4;
-  int64_t rhs_length = sizeof(float) * 4 * 1;
+  int64_t lhs_length = sizeof(float) * 2 * 3;
+  int64_t rhs_length = sizeof(float) * 3 * 1;
   int64_t out_length = sizeof(float) * 1 * 1;
 
   // Preparing memory for thunk arguments.
-  // lhs = [1.0, 2.0, 3.0, 4.0,
-  //        5.0, 6.0, 7.0, 8.0]
+  // lhs = [1.0, 2.0, 3.0,
+  //        4.0, 5.0, 6.0]
   se::DeviceAddress<float> lhs =
-      executor->AllocateArray<float>(/*element_count=*/2 * 4);
-  std::vector<float> lhs_arr{1, 2, 3, 4, 5, 6, 7, 8};
+      executor->AllocateArray<float>(/*element_count=*/2 * 3);
+  std::vector<float> lhs_arr{1, 2, 3, 4, 5, 6};
   TF_ASSERT_OK(stream->Memcpy(/*gpu_dst=*/&lhs, /*host_src=*/lhs_arr.data(),
                               /*size=*/lhs_length));
 
-  // rhs = [4.0,
-  //        3.0,
+  // rhs = [3.0,
   //        2.0,
   //        1.0]
   se::DeviceAddress<float> rhs =
-      executor->AllocateArray<float>(/*element_count=*/4 * 1);
-  std::vector<float> rhs_arr{4, 3, 2, 1};
+      executor->AllocateArray<float>(/*element_count=*/3 * 1);
+  std::vector<float> rhs_arr{3, 2, 1};
   TF_ASSERT_OK(stream->Memcpy(/*gpu_dst=*/&rhs, /*host_src=*/rhs_arr.data(),
                               /*size=*/rhs_length));
 
@@ -2011,7 +2068,7 @@ TEST_F(DynamicSliceThunkTest,
   TF_ASSERT_OK(stream->Memcpy(/*host_dst=*/dst.data(), /*gpu_src=*/out,
                               /*size=*/out_length));
 
-  ASSERT_EQ(dst, std::vector<float>({1 * 4 + 2 * 3 + 3 * 2 + 4 * 1}));
+  ASSERT_EQ(dst, std::vector<float>({1 * 3 + 2 * 2 + 3 * 1}));
 
   TF_ASSERT_OK(thunk->ExecuteOnStream(params));
   TF_ASSERT_OK(stream->BlockHostUntilDone());
@@ -2020,7 +2077,7 @@ TEST_F(DynamicSliceThunkTest,
   TF_ASSERT_OK(stream->Memcpy(/*host_dst=*/dst.data(), /*gpu_src=*/out,
                               /*size=*/out_length));
 
-  EXPECT_EQ(dst, std::vector<float>({5 * 4 + 6 * 3 + 7 * 2 + 8 * 1}));
+  EXPECT_EQ(dst, std::vector<float>({4 * 3 + 5 * 2 + 6 * 1}));
 }
 
 TEST_F(DynamicSliceThunkTest,

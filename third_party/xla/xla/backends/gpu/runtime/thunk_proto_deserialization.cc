@@ -52,7 +52,6 @@ limitations under the License.
 #include "xla/backends/gpu/runtime/dynamic_slice_fusion_v2_thunk.h"
 #include "xla/backends/gpu/runtime/dynamic_slice_thunk.h"
 #include "xla/backends/gpu/runtime/fft_thunk.h"
-#include "xla/backends/gpu/runtime/gemm_thunk.h"
 #include "xla/backends/gpu/runtime/gpublas_lt_matmul_thunk.h"
 #include "xla/backends/gpu/runtime/host_execute_thunk.h"
 #include "xla/backends/gpu/runtime/host_send_recv_thunk.h"
@@ -158,9 +157,7 @@ absl::StatusOr<std::unique_ptr<Thunk>> DeserializeThunkProtoImpl(
       return ConditionalThunk::FromProto(std::move(thunk_info),
                                          thunk_proto.conditional_thunk(),
                                          buffer_allocations, deserializer);
-    case ThunkProto::kGemmThunk:
-      return GemmThunk::FromProto(std::move(thunk_info),
-                                  thunk_proto.gemm_thunk(), buffer_allocations);
+
     case ThunkProto::kTriangularSolveThunk:
       return TriangularSolveThunk::FromProto(
           std::move(thunk_info), thunk_proto.triangular_solve_thunk(),
