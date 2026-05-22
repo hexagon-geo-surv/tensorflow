@@ -433,10 +433,14 @@ tsl::Future<Autotuner::Config> Autotuner::TuneBestConfig(
                 << results.size() << " compilation failures.";
 
         bool skip_profiling = executable_candidates.size() == 1 ||
-                              autotune_config_.select_first_config;
+                              autotune_config_.require_determinism;
         if (skip_profiling) {
+          LOG_IF(INFO, autotune_config_.require_determinism)
+              << "Determinism requested, using first config for HLO: "
+              << instr->ToString()
+              << " with config: " << executable_candidates[0].config.ToString();
           VLOG(1) << "Skipping profiling and using the "
-                  << (autotune_config_.select_first_config ? "first" : "only")
+                  << (autotune_config_.require_determinism ? "first" : "only")
                   << " config: " << executable_candidates[0].config.ToString();
           results.push_back({std::move(executable_candidates[0].config),
                              std::nullopt, absl::ZeroDuration(), 0});
@@ -625,7 +629,7 @@ Autotuner::CompileAll(const HloInstruction* instr,
     executables.reserve(configs.size());
     for (Config& config : configs) {
       executables.emplace_back(std::move(config), Compile(instr, config));
-      if (autotune_config_.select_first_config &&
+      if (autotune_config_.require_determinism &&
           executables.back().second.ok()) {
         return std::move(executables);
       }
@@ -1001,7 +1005,7 @@ std::string AutotuneConfig::ToString() const {
       crash_on_check_failure ? "true" : "false", scratch_bytes_window_size_us,
       expect_all_instructions_in_cache ? "true" : "false", dump_logs_to,
       exclude_cublas_config ? "true" : "false",
-      select_first_config ? "true" : "false",
+      require_determinism ? "true" : "false",
       use_default_config ? "true" : "false", dump_hlos ? "true" : "false",
       allow_reg_spills_fn ? "dynamic" : "null");
 }

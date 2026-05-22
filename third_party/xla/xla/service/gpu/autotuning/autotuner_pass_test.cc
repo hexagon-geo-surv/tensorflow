@@ -22,24 +22,35 @@ limitations under the License.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/base/log_severity.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/log/scoped_mock_log.h"
 #include "absl/status/status_matchers.h"
 #include "absl/strings/ascii.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "mlir/IR/MLIRContext.h"
 #include "xla/backends/autotuner/autotuner.h"
 #include "xla/backends/autotuner/codegen_backend.h"
 #include "xla/backends/autotuner/profiler.h"
 #include "xla/backends/gpu/autotuner/cublaslt.h"
+#include "xla/backends/gpu/autotuner/cudnn.h"
+#include "xla/backends/gpu/autotuner/triton.h"
+#include "xla/hlo/analysis/symbolic_expr.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
+#include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
+#include "xla/service/gpu/alias_info.h"
+#include "xla/service/gpu/autotuning/autotuner_cache.h"
 #include "xla/service/gpu/backend_configs.pb.h"
 #include "xla/service/gpu/gpu_compiler.h"
 #include "xla/service/gpu/nvptx_compiler.h"
 #include "xla/service/platform_util.h"
 #include "xla/shape.h"
 #include "xla/stream_executor/device_address_allocator.h"
+#include "xla/stream_executor/dnn.h"
 #include "xla/stream_executor/platform_manager.h"
 #include "xla/stream_executor/stream_executor.h"
 #include "xla/stream_executor/stream_executor_address_allocator.h"
@@ -95,6 +106,35 @@ ENTRY %main (arg0: f32[100,100], arg1: f32[100,100]) -> f32[100,100] {
   }
   ROOT %get-tuple-element = f32[100,100]{1,0} get-tuple-element(%custom-call.1), index=0
 })";
+
+const char kTritonGemmFusionHlo[] = R"(
+  HloModule module
+
+  computation {
+    p0 = f32[1024,1024]{1,0} parameter(0)
+    p1 = f32[1024,1024]{1,0} parameter(1)
+    ROOT dot = f32[1024,1024]{1,0} dot(p0, p1),
+        lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  }
+
+  ENTRY main {
+    p0 = f32[1024,1024]{1,0} parameter(0)
+    p1 = f32[1024,1024]{1,0} parameter(1)
+    ROOT fusion = f32[1024,1024]{1,0} fusion(p0, p1),
+      kind=kCustom, calls=computation,
+      backend_config={"fusion_backend_config":{"kind":"__triton_gemm"}}
+  })";
+
+const char kCudnnConvForwardHlo[] = R"(
+  HloModule TestModule
+
+  ENTRY TestComputation {
+    input = f16[10,20,30,40] parameter(0)
+    filter = f16[3,3,40,64]{2,1,0,3} parameter(1)
+    ROOT result = (f16[10,20,30,64], u8[0]) custom-call(input, filter),
+                  window={size=3x3 pad=1_1x1_1}, dim_labels=b01f_01io->b01f,
+                  custom_call_target="__cudnn$convForward"
+  })";
 
 TEST_F(AutotunerPassTest, CublasGemmIsAutotuned) {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
@@ -430,7 +470,7 @@ TEST_P(AutotunerFlagsTest, AutotuneLevel) {
   debug_options.set_xla_gpu_autotune_level(params.autotune_level);
 
   xla::AutotuneConfig autotune_config = GetAutotuneConfig(debug_options);
-  EXPECT_EQ(autotune_config.select_first_config,
+  EXPECT_EQ(autotune_config.require_determinism,
             params.expected_select_first_config);
   EXPECT_EQ(autotune_config.check_buffers, params.expected_check_buffers);
 
@@ -500,10 +540,228 @@ TEST_F(AutotunerFlagsTest, DevicelessUsesDefaultConfig) {
 TEST_F(AutotunerFlagsTest, DeterministicAutotuningSetsSelectFirstConfig) {
   DebugOptions debug_options = GetDebugOptionsForTest();
   debug_options.set_xla_gpu_deterministic_ops(true);
-  EXPECT_EQ(GetAutotuneConfig(debug_options).select_first_config, true);
+  EXPECT_EQ(GetAutotuneConfig(debug_options).require_determinism, true);
   debug_options.set_xla_gpu_deterministic_ops(false);
   debug_options.set_xla_gpu_exclude_nondeterministic_ops(true);
-  EXPECT_EQ(GetAutotuneConfig(debug_options).select_first_config, true);
+  EXPECT_EQ(GetAutotuneConfig(debug_options).require_determinism, true);
+}
+
+TEST_F(AutotunerPassTest, CublasLtSelectFirstConfig) {
+  AutotunerCache::ClearAutotuneResults();
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                          ParseAndReturnVerifiedModule(kCublasCustomCallHlo));
+
+  module->mutable_config().mutable_debug_options().set_xla_gpu_autotune_level(
+      0);
+
+  tsl::thread::ThreadPool thread_pool(tsl::Env::Default(), "autotuning",
+                                      /*num_threads=*/4);
+  std::vector<std::unique_ptr<CodegenBackend>> backends;
+  GpuCompiler::GpuTargetConfig target_config(stream_executor_);
+
+  auto cublaslt_backend = std::make_unique<CublasLtBackend>(
+      stream_executor_, &module->config().debug_options(), &compiler_,
+      &target_config);
+
+  auto gemm =
+      module->entry_computation()->GetInstructionWithName("custom-call.1");
+  TF_ASSERT_OK_AND_ASSIGN(auto supported_configs,
+                          cublaslt_backend->GetSupportedConfigs(*gemm));
+  ASSERT_GT(supported_configs.size(), 1);
+  auto expected_config = std::move(supported_configs[0]);
+
+  backends.push_back(std::move(cublaslt_backend));
+
+  auto get_backends_fn =
+      [backends =
+           std::make_shared<std::vector<std::unique_ptr<CodegenBackend>>>(
+               std::move(backends))]() mutable { return std::move(*backends); };
+  TF_ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<AutotunerPass> pass,
+      AutotunerPass::Create(
+          std::move(get_backends_fn), module->config().debug_options(),
+          target_config.device_description.gpu_compute_capability(),
+          stream_executor_, &thread_pool, &target_config,
+          /*alias_info=*/nullptr, /*mlir_context=*/nullptr,
+          /*shape_size_fn=*/[](const Shape& shape) { return 0; },
+          allocator_.get()));
+
+  absl::ScopedMockLog log;
+  EXPECT_CALL(log,
+              Log(absl::LogSeverity::kInfo, testing::_,
+                  testing::HasSubstr(
+                      "Determinism requested, using first config for HLO")))
+      .Times(testing::AtLeast(1));
+
+  log.StartCapturingLogs();
+
+  EXPECT_THAT(pass->Run(module.get(), /*execution_threads=*/{}),
+              absl_testing::IsOkAndHolds(true));
+
+  log.StopCapturingLogs();
+
+  TF_ASSERT_OK_AND_ASSIGN(auto gpu_backend_config_after,
+                          gemm->backend_config<GpuBackendConfig>());
+
+  AutotuneResult::GemmKey expected_gemm_key;
+  ASSERT_TRUE(expected_config->UnpackTo(&expected_gemm_key));
+
+  EXPECT_EQ(gpu_backend_config_after.gemm_backend_config().selected_algorithm(),
+            expected_gemm_key.algorithm());
+}
+
+TEST_F(AutotunerPassTest, TritonSelectFirstConfig) {
+  AutotunerCache::ClearAutotuneResults();
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                          ParseAndReturnVerifiedModule(kTritonGemmFusionHlo));
+
+  module->mutable_config().mutable_debug_options().set_xla_gpu_autotune_level(
+      0);
+
+  tsl::thread::ThreadPool thread_pool(tsl::Env::Default(), "autotuning",
+                                      /*num_threads=*/4);
+  std::vector<std::unique_ptr<CodegenBackend>> backends;
+  GpuCompiler::GpuTargetConfig target_config(stream_executor_);
+
+  GpuAliasInfo alias_info(stream_executor_->GetDeviceDescription());
+  mlir::MLIRContext mlir_context;
+  RegisterSymbolicExprStorage(&mlir_context);
+
+  auto triton_backend = std::make_unique<TritonBackend>(
+      &module->config().debug_options(), &compiler_, &target_config,
+      &alias_info, &mlir_context);
+
+  auto fusion = module->entry_computation()->GetInstructionWithName("fusion");
+  TF_ASSERT_OK_AND_ASSIGN(auto supported_configs,
+                          triton_backend->GetSupportedConfigs(*fusion));
+  ASSERT_GT(supported_configs.size(), 1);
+  auto expected_config = std::move(supported_configs[0]);
+
+  backends.push_back(std::move(triton_backend));
+
+  auto get_backends_fn =
+      [backends =
+           std::make_shared<std::vector<std::unique_ptr<CodegenBackend>>>(
+               std::move(backends))]() mutable { return std::move(*backends); };
+  TF_ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<AutotunerPass> pass,
+      AutotunerPass::Create(
+          std::move(get_backends_fn), module->config().debug_options(),
+          target_config.device_description.gpu_compute_capability(),
+          stream_executor_, &thread_pool, &target_config, &alias_info,
+          &mlir_context,
+          /*shape_size_fn=*/[](const Shape& shape) { return 0; },
+          allocator_.get()));
+
+  absl::ScopedMockLog log;
+  EXPECT_CALL(log,
+              Log(absl::LogSeverity::kInfo, testing::_,
+                  testing::HasSubstr(
+                      "Determinism requested, using first config for HLO")))
+      .Times(testing::AtLeast(1));
+
+  log.StartCapturingLogs();
+
+  EXPECT_THAT(pass->Run(module.get(), /*execution_threads=*/{}),
+              absl_testing::IsOkAndHolds(true));
+
+  log.StopCapturingLogs();
+
+  TF_ASSERT_OK_AND_ASSIGN(auto gpu_backend_config_after,
+                          fusion->backend_config<GpuBackendConfig>());
+
+  AutotuneResult::TritonGemmKey expected_triton_key;
+  ASSERT_TRUE(expected_config->UnpackTo(&expected_triton_key));
+
+  auto applied_triton_key =
+      gpu_backend_config_after.fusion_backend_config().triton_gemm_config();
+  EXPECT_EQ(applied_triton_key.block_m(), expected_triton_key.block_m());
+  EXPECT_EQ(applied_triton_key.block_n(), expected_triton_key.block_n());
+  EXPECT_EQ(applied_triton_key.block_k(), expected_triton_key.block_k());
+}
+
+TEST_F(AutotunerPassTest, CudnnSelectFirstConfig) {
+  AutotunerCache::ClearAutotuneResults();
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                          ParseAndReturnVerifiedModule(kCudnnConvForwardHlo));
+
+  module->mutable_config().mutable_debug_options().set_xla_gpu_autotune_level(
+      0);
+
+  tsl::thread::ThreadPool thread_pool(tsl::Env::Default(), "autotuning",
+                                      /*num_threads=*/4);
+  std::vector<std::unique_ptr<CodegenBackend>> backends;
+  GpuCompiler::GpuTargetConfig target_config(stream_executor_);
+
+  if (target_config.dnn_version_info <
+          stream_executor::dnn::VersionInfo(9, 12, 0) &&
+      absl::StrContains(stream_executor_->GetDeviceDescription().name(),
+                        "GB200")) {
+    GTEST_SKIP()
+        << "Skipping test as it requires cuDNN >= 9.12 on GB200. Otherwise, "
+           "test will crash.";
+  }
+
+  auto cudnn_backend = std::make_unique<CudnnBackend>(
+      stream_executor_, &module->config().debug_options(), &compiler_,
+      &target_config);
+
+  auto conv = module->entry_computation()->GetInstructionWithName("result");
+  TF_ASSERT_OK_AND_ASSIGN(auto supported_configs,
+                          cudnn_backend->GetSupportedConfigs(*conv));
+  ASSERT_GT(supported_configs.size(), 1);
+  auto expected_config = std::move(supported_configs[0]);
+
+  backends.push_back(std::move(cudnn_backend));
+
+  auto get_backends_fn =
+      [backends =
+           std::make_shared<std::vector<std::unique_ptr<CodegenBackend>>>(
+               std::move(backends))]() mutable { return std::move(*backends); };
+  TF_ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<AutotunerPass> pass,
+      AutotunerPass::Create(
+          std::move(get_backends_fn), module->config().debug_options(),
+          target_config.device_description.gpu_compute_capability(),
+          stream_executor_, &thread_pool, &target_config,
+          /*alias_info=*/nullptr, /*mlir_context=*/nullptr,
+          /*shape_size_fn=*/[](const Shape& shape) { return 0; },
+          allocator_.get()));
+
+  absl::ScopedMockLog log;
+  EXPECT_CALL(log,
+              Log(absl::LogSeverity::kInfo, testing::_,
+                  testing::HasSubstr(
+                      "Determinism requested, using first config for HLO")))
+      .Times(testing::AtLeast(1));
+
+  log.StartCapturingLogs();
+
+  EXPECT_THAT(pass->Run(module.get(), /*execution_threads=*/{}),
+              absl_testing::IsOkAndHolds(true));
+
+  log.StopCapturingLogs();
+
+  HloInstruction* conv_after = nullptr;
+  for (auto* instr : module->entry_computation()->instructions()) {
+    if (instr->opcode() == HloOpcode::kCustomCall &&
+        instr->custom_call_target() == "__cudnn$convForward") {
+      conv_after = instr;
+      break;
+    }
+  }
+  ASSERT_NE(conv_after, nullptr);
+
+  TF_ASSERT_OK_AND_ASSIGN(auto gpu_backend_config_after,
+                          conv_after->backend_config<GpuBackendConfig>());
+
+  stream_executor::dnn::AlgorithmProto expected_cudnn_key;
+  ASSERT_TRUE(expected_config->UnpackTo(&expected_cudnn_key));
+
+  EXPECT_EQ(gpu_backend_config_after.cudnn_conv_backend_config()
+                .algorithm()
+                .algo_id(),
+            expected_cudnn_key.algo_id());
 }
 
 }  // namespace

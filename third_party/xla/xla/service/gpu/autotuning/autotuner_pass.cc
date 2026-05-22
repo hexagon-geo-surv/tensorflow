@@ -99,12 +99,11 @@ AutotuneDecision AllowRegSpillsForGpuInstruction(
   return AutotuneDecision::Allow();
 }
 
-AutotuneDecision ShouldAutotuneCustomCall(bool do_not_autotune_cublas,
-                                          bool do_not_autotune_cudnn,
+AutotuneDecision ShouldAutotuneCustomCall(bool disable_binary_libraries,
                                           const HloInstruction& instruction) {
   auto gpu_config = instruction.backend_config<GpuBackendConfig>();
   if (IsCublasLtGemm(instruction)) {
-    if (do_not_autotune_cublas) {
+    if (disable_binary_libraries) {
       return AutotuneDecision::Forbid("Autotuning cuBLAS is disabled");
     }
     if (gpu_config.ok()) {
@@ -122,7 +121,7 @@ AutotuneDecision ShouldAutotuneCustomCall(bool do_not_autotune_cublas,
     return AutotuneDecision::Allow();
   }
   if (IsCustomCallToDnnConvolution(instruction)) {
-    if (do_not_autotune_cudnn) {
+    if (disable_binary_libraries) {
       return AutotuneDecision::Forbid("Autotuning cuDNN is disabled");
     }
     if (gpu_config.ok() &&
@@ -184,8 +183,7 @@ AutotuneDecision ShouldAutotunGenericFusion(bool enable_fusion_autotuner,
   return AutotuneDecision::Allow();
 }
 
-AutotuneDecision ShouldAutotuneInstruction(bool do_not_autotune_cublas,
-                                           bool do_not_autotune_cudnn,
+AutotuneDecision ShouldAutotuneInstruction(bool disable_binary_libraries,
                                            bool enable_fusion_autotuner,
                                            bool has_native_or_ble_backends,
                                            bool autotune_post_fusion,
@@ -203,8 +201,7 @@ AutotuneDecision ShouldAutotuneInstruction(bool do_not_autotune_cublas,
       return AutotuneDecision::Forbid(
           "Skip custom calls in generic fusion tuning pass (legacy)");
     }
-    return ShouldAutotuneCustomCall(do_not_autotune_cublas,
-                                    do_not_autotune_cudnn, instruction);
+    return ShouldAutotuneCustomCall(disable_binary_libraries, instruction);
   }
   if (instruction.opcode() == HloOpcode::kFusion) {
     // 2. GEMM fusions.
@@ -256,7 +253,7 @@ AutotuneConfig GetAutotuneConfig(const DebugOptions& debug_options,
   autotune_config.dump_logs_to = debug_options.xla_gpu_dump_autotune_logs_to();
   autotune_config.exclude_cublas_config =
       !debug_options.xla_gpu_cublas_fallback();
-  autotune_config.select_first_config =
+  autotune_config.require_determinism =
       debug_options.xla_gpu_deterministic_ops() ||
       debug_options.xla_gpu_exclude_nondeterministic_ops() ||
       debug_options.xla_gpu_autotune_level() == 0;
@@ -374,13 +371,8 @@ absl::StatusOr<std::unique_ptr<AutotunerPass>> AutotunerPass::Create(
                    get_backends_fn());
 
   // 1. Assessing whether to autotune custom calls.
-  bool do_not_autotune_cublas =
-      debug_options.xla_gpu_experimental_disable_binary_libraries() ||
-      debug_options.xla_gpu_autotune_level() == 0 ||
-      debug_options.xla_gpu_exclude_nondeterministic_ops();
-  bool do_not_autotune_cudnn =
-      debug_options.xla_gpu_experimental_disable_binary_libraries() ||
-      (do_not_autotune_cublas && !gpu_version.IsRocm());
+  bool disable_binary_libraries =
+      debug_options.xla_gpu_experimental_disable_binary_libraries();
 
   // 3. Assessing whether to autotune generic fusions.
   bool enable_fusion_autotuner =
@@ -394,12 +386,11 @@ absl::StatusOr<std::unique_ptr<AutotunerPass>> AutotunerPass::Create(
   bool autotune_post_fusion =
       debug_options.xla_gpu_experimental_autotune_post_fusion();
 
-  auto should_autotune =
-      [do_not_autotune_cublas, do_not_autotune_cudnn, enable_fusion_autotuner,
-       has_native_or_ble_backends,
-       autotune_post_fusion](const HloInstruction& instruction) -> bool {
+  auto should_autotune = [disable_binary_libraries, enable_fusion_autotuner,
+                          has_native_or_ble_backends, autotune_post_fusion](
+                             const HloInstruction& instruction) -> bool {
     AutotuneDecision decision = ShouldAutotuneInstruction(
-        do_not_autotune_cublas, do_not_autotune_cudnn, enable_fusion_autotuner,
+        disable_binary_libraries, enable_fusion_autotuner,
         has_native_or_ble_backends, autotune_post_fusion, instruction);
     if (!decision) {
       VLOG(3) << "Not autotuning " << instruction.name() << ": "

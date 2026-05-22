@@ -1104,7 +1104,7 @@ INSTANTIATE_TEST_SUITE_P(ExcludeCublasConfigInstance,
                                            "CUBLASLT_FISSION"));
 
 TEST_F(AutotunerTest, SelectFirstConfig) {
-  config_.select_first_config = true;
+  config_.require_determinism = true;
 
   std::vector<std::unique_ptr<BackendConfig>> configs;
   configs.push_back(GetTestConfig("test_config_1"));
@@ -1208,7 +1208,7 @@ TEST_F(AutotunerTest, ConfigsWithRegisterSpillingAreFiltered) {
 }
 
 TEST_F(AutotunerTest, SelectFirstConfigStopsAfterFirstSuccess) {
-  config_.select_first_config = true;
+  config_.require_determinism = true;
 
   std::vector<std::unique_ptr<BackendConfig>> configs;
   configs.push_back(GetTestConfig("test_config_1"));
@@ -1241,7 +1241,7 @@ TEST_F(AutotunerTest, SelectFirstConfigStopsAfterFirstSuccess) {
 }
 
 TEST_F(AutotunerTest, SelectFirstConfigFirstConfigFails) {
-  config_.select_first_config = true;
+  config_.require_determinism = true;
 
   std::vector<std::unique_ptr<BackendConfig>> configs;
   configs.push_back(GetTestConfig("test_config_1"));
@@ -1273,7 +1273,7 @@ TEST_F(AutotunerTest, SelectFirstConfigFirstConfigFails) {
 }
 
 TEST_F(AutotunerTest, SelectFirstConfigAllConfigsFail) {
-  config_.select_first_config = true;
+  config_.require_determinism = true;
 
   std::vector<std::unique_ptr<BackendConfig>> configs;
   configs.push_back(GetTestConfig("test_config_1"));
@@ -1661,7 +1661,7 @@ TEST(AutotuneConfigTest, ToString) {
   config.expect_all_instructions_in_cache = false;
   config.dump_logs_to = "/tmp/log";
   config.exclude_cublas_config = true;
-  config.select_first_config = false;
+  config.require_determinism = false;
   config.use_default_config = true;
   config.dump_hlos = false;
   config.allow_reg_spills_fn = [](const HloInstruction&) { return false; };
