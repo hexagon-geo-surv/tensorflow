@@ -22,6 +22,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "xla/tsl/platform/errors.h"
 #include "tensorflow/core/common_runtime/function_body.h"
 #include "tensorflow/core/common_runtime/function_def_utils.h"
@@ -256,7 +257,7 @@ class MlirBridgeGraphAnalyzer {
       }
       // Check the function body.
       std::unique_ptr<FunctionBody> func_body;
-      TF_RETURN_IF_ERROR(FunctionDefToBodyHelper(
+      RETURN_IF_ERROR(FunctionDefToBodyHelper(
           *func_def, AttrSlice(&func_def->attr()), &flib_def, &func_body));
       AnalyzeGraphNodes(*func_body->graph);
     }
@@ -288,7 +289,7 @@ class MlirBridgeGraphAnalyzer {
     // FunctionLibraryDefinition.
     GraphDef graph_def;
     graph.ToGraphDef(&graph_def);
-    TF_RETURN_IF_ERROR(AnalyzeReachableFunctions(graph_def, graph.flib_def()));
+    RETURN_IF_ERROR(AnalyzeReachableFunctions(graph_def, graph.flib_def()));
     // Analyze whether there is an inference graph, including non reachable
     // from the `graph` itself. This happens when there is a sequence of
     // TPUPartitionedCall()->main()->PartitionedCall() and only second part
@@ -298,8 +299,7 @@ class MlirBridgeGraphAnalyzer {
     // Check any associated function in the graph defined in a separate
     // FunctionLibraryDefinition.
     if (function_library != nullptr) {
-      TF_RETURN_IF_ERROR(
-          AnalyzeReachableFunctions(graph_def, *function_library));
+      RETURN_IF_ERROR(AnalyzeReachableFunctions(graph_def, *function_library));
       AnalyzeInferenceGraphs(*function_library);
     }
 

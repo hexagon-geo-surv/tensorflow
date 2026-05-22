@@ -22,6 +22,7 @@ limitations under the License.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/statusor.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/IR/DialectRegistry.h"  // from @llvm-project
 #include "mlir/IR/MLIRContext.h"  // from @llvm-project
@@ -97,7 +98,7 @@ absl::StatusOr<XlaCompiler::CompilationResult> CompileMlirModule(
   if (compile_serialized) {
     mlir_to_hlo_args.mlir_module = module_str;
   } else {
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         tensorflow::DeserializeMlirModule(module_str, &context, &mlir_module));
     mlir_to_hlo_args.mlir_module_op = mlir_module.get();
   }

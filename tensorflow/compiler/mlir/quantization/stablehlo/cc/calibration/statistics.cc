@@ -23,6 +23,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/IR/Builders.h"  // from @llvm-project
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/Support/LLVM.h"  // from @llvm-project
@@ -50,12 +51,12 @@ using CalibrationStatisticsFlatMap =
 // Reads the calibration statistics from the given directory.
 absl::StatusOr<CalibrationStatisticsFlatMap> ReadStatistics(
     absl::string_view calibration_data_dir) {
-  TF_ASSIGN_OR_RETURN(std::vector<std::string> statistics_files,
-                      io::ListDirectory(calibration_data_dir));
+  ASSIGN_OR_RETURN(std::vector<std::string> statistics_files,
+                   io::ListDirectory(calibration_data_dir));
 
   CalibrationStatisticsFlatMap statistics_map;
   for (const std::string& statistics_file : statistics_files) {
-    TF_ASSIGN_OR_RETURN(
+    ASSIGN_OR_RETURN(
         const auto single_map,
         io::ReadBinaryProto<CalibrationStatisticsMap>(
             tsl::io::JoinPath(calibration_data_dir, statistics_file)));
@@ -69,8 +70,8 @@ absl::Status AddCalibrationStatistics(
     mlir::ModuleOp module_op, absl::string_view calibration_data_dir,
     const CalibrationOptions& calibration_options,
     const PyFunctionLibrary& py_function_library) {
-  TF_ASSIGN_OR_RETURN(const CalibrationStatisticsFlatMap statistics_map,
-                      ReadStatistics(calibration_data_dir));
+  ASSIGN_OR_RETURN(const CalibrationStatisticsFlatMap statistics_map,
+                   ReadStatistics(calibration_data_dir));
 
   absl::Status status = absl::OkStatus();
   module_op.walk([&py_function_library, &calibration_options, &status,

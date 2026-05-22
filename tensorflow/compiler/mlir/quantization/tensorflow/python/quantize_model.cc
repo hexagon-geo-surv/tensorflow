@@ -30,6 +30,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/SmallVector.h"
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/IR/OwningOpRef.h"  // from @llvm-project
@@ -130,7 +131,7 @@ absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> ImportAndPreprocessSavedModel(
     return aliased_function_names.insert(aliases.first);
   });
 
-  TF_RETURN_IF_ERROR(PreprocessAndFreezeGraph(
+  RETURN_IF_ERROR(PreprocessAndFreezeGraph(
       /*mlir_dump_file_prefix=*/kDefaultTfQuantMlirDumpFilePrefix,
       /*is_inliner_run=*/is_inliner_run,
       /*noinline_functions=*/aliased_function_names, module_ref.get(), context,
@@ -143,15 +144,15 @@ absl::StatusOr<ExportedModel> ModuleOpToExportedModel(
     mlir::ModuleOp module_op, mlir::MLIRContext *ctx,
     absl::string_view step_name, const bool unfreeze_constants,
     const absl::flat_hash_map<std::string, std::string> &function_aliases) {
-  TF_ASSIGN_OR_RETURN(const std::string checkpoint_dir, GetLocalTmpFileName());
+  ASSIGN_OR_RETURN(const std::string checkpoint_dir, GetLocalTmpFileName());
 
   const auto export_opts =
       ExportOptions{/*duplicate_shape_determining_constants=*/true,
                     unfreeze_constants, checkpoint_dir,
                     /*debug_name=*/absl::StrCat(step_name, kExportStepSuffix)};
 
-  TF_ASSIGN_OR_RETURN(const llvm::SmallVector<AssetFileDef> asset_file_defs,
-                      RunExportPasses(export_opts, *ctx, module_op));
+  ASSIGN_OR_RETURN(const llvm::SmallVector<AssetFileDef> asset_file_defs,
+                   RunExportPasses(export_opts, *ctx, module_op));
 
   return ConvertMlirModuleToExportedModel(
       module_op, checkpoint_dir, function_aliases,
@@ -167,7 +168,7 @@ absl::StatusOr<ExportedModel> ExportCalibrationModel(
   // be reflected in the original values.
   mlir::OwningOpRef<mlir::ModuleOp> cloned_module_ref(module_op.clone());
 
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       RunCalibrationPasses(*cloned_module_ref, *context, calibration_data_dir,
                            quantization_options.calibration_options()
                                .force_regenerate_calibration_data()));
@@ -253,13 +254,13 @@ absl::StatusOr<ExportedModel> QuantizePtqModelPreCalibrationImpl(
         GetQuantizationConfigForStaticRangePtq(quantization_options);
 
     PreCalibrationComponent pre_calibration_component(context);
-    TF_ASSIGN_OR_RETURN(module_op, pre_calibration_component.Run(
-                                       module_op, quantization_config));
+    ASSIGN_OR_RETURN(module_op, pre_calibration_component.Run(
+                                    module_op, quantization_config));
   } else {
-    TF_RETURN_IF_ERROR(RunPasses(
+    RETURN_IF_ERROR(RunPasses(
         /*name=*/
         kTfQuantPtqPreCalibrationStepName, /*add_passes_func=*/
-        [&quantization_options](mlir::PassManager &pm) {
+        [&quantization_options](mlir::PassManager& pm) {
           AddQuantizePtqPreCalibrationPasses(pm, quantization_options);
         },
         *context, module_op));
@@ -280,13 +281,13 @@ absl::StatusOr<ExportedModel> QuantizePtqModelPostCalibrationImpl(
         GetQuantizationConfigForStaticRangePtq(quantization_options);
 
     PostCalibrationComponent post_calibration_component(context);
-    TF_ASSIGN_OR_RETURN(module_op, post_calibration_component.Run(
-                                       module_op, quantization_config));
+    ASSIGN_OR_RETURN(module_op, post_calibration_component.Run(
+                                    module_op, quantization_config));
   } else {
-    TF_RETURN_IF_ERROR(RunPasses(
+    RETURN_IF_ERROR(RunPasses(
         /*name=*/
         kTfQuantPtqPostCalibrationStepName, /*add_passes_func=*/
-        [&quantization_options](mlir::PassManager &pm) {
+        [&quantization_options](mlir::PassManager& pm) {
           AddQuantizePtqPostCalibrationPasses(
               pm, quantization_options, kTfQuantPtqPostCalibrationStepName);
         },
@@ -329,10 +330,10 @@ absl::StatusOr<ExportedModel> QuantizeQatModel(
   }
   mlir::OwningOpRef<mlir::ModuleOp> module_ref = std::move(module).value();
 
-  TF_RETURN_IF_ERROR(RunPasses(
+  RETURN_IF_ERROR(RunPasses(
       /*name=*/
       kTfQuantQatStepName, /*add_passes_func=*/
-      [&quantization_options](mlir::PassManager &pm) {
+      [&quantization_options](mlir::PassManager& pm) {
         AddQuantizeQatPasses(pm, quantization_options, kTfQuantQatStepName);
       },
       *context, *module_ref));
@@ -371,10 +372,10 @@ absl::StatusOr<ExportedModel> QuantizeDynamicRangePtq(
   }
   mlir::OwningOpRef<mlir::ModuleOp> module_ref = std::move(module).value();
 
-  TF_RETURN_IF_ERROR(RunPasses(
+  RETURN_IF_ERROR(RunPasses(
       /*name=*/
       kTfQuantPtqDynamicRangeStepName, /*add_passes_func=*/
-      [&quantization_options](mlir::PassManager &pm) {
+      [&quantization_options](mlir::PassManager& pm) {
         AddQuantizePtqDynamicRangePasses(pm, quantization_options,
                                          kTfQuantPtqDynamicRangeStepName);
       },
@@ -427,13 +428,13 @@ absl::StatusOr<ExportedModel> QuantizeWeightOnly(
         GetQuantizationConfigForWeightOnlyPtq(quantization_options);
 
     WeightOnlyPtqComponent weight_only_ptq_component(context.get());
-    TF_ASSIGN_OR_RETURN(*module_ref, weight_only_ptq_component.Run(
-                                         *module_ref, quantization_config));
+    ASSIGN_OR_RETURN(*module_ref, weight_only_ptq_component.Run(
+                                      *module_ref, quantization_config));
   } else {
-    TF_RETURN_IF_ERROR(RunPasses(
+    RETURN_IF_ERROR(RunPasses(
         kTfQuantWeightOnlyStepName,
         /*add_passes_func=*/
-        [&quantization_options](mlir::PassManager &pm) {
+        [&quantization_options](mlir::PassManager& pm) {
           AddQuantizeWeightOnlyPasses(pm, quantization_options,
                                       kTfQuantWeightOnlyStepName);
         },
@@ -482,18 +483,17 @@ absl::StatusOr<ExportedModel> QuantizeStaticRangePtq(
   std::string calibration_data_dir =
       quantization_options.calibration_options().calibration_data_dir();
   if (calibration_data_dir.empty()) {
-    TF_ASSIGN_OR_RETURN(calibration_data_dir, CreateTmpDir());
+    ASSIGN_OR_RETURN(calibration_data_dir, CreateTmpDir());
   }
 
-  TF_ASSIGN_OR_RETURN(ExportedModel calibration_exported_model,
-                      QuantizePtqModelPreCalibrationImpl(
-                          *module_ref, context.get(), quantization_options,
-                          *function_aliases, calibration_data_dir));
+  ASSIGN_OR_RETURN(ExportedModel calibration_exported_model,
+                   QuantizePtqModelPreCalibrationImpl(
+                       *module_ref, context.get(), quantization_options,
+                       *function_aliases, calibration_data_dir));
 
   // Save and run the calibration model.
   if (calibration_exported_model.has_graph_def()) {
-    TF_ASSIGN_OR_RETURN(std::string calibration_saved_model_dir,
-                        CreateTmpDir());
+    ASSIGN_OR_RETURN(std::string calibration_saved_model_dir, CreateTmpDir());
     py_function_library.SaveExportedModel(
         calibration_saved_model_dir, calibration_exported_model,
         saved_model_path, tags, signature_def_map);
@@ -523,7 +523,7 @@ absl::StatusOr<ExportedModel> QuantizeStaticRangePtq(
   if (quantization_options.has_debugger_config() &&
       quantization_options.debugger_config().debugger_type() ==
           DebuggerConfig::DEBUGGER_TYPE_WHOLE_MODEL) {
-    TF_ASSIGN_OR_RETURN(
+    ASSIGN_OR_RETURN(
         ExportedModel debugging_exported_model,
         ExportDebuggingModel(*module_ref, context.get(), quantization_options,
                              *function_aliases));

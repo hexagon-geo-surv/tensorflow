@@ -24,6 +24,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/IR/Diagnostics.h"  // from @llvm-project
 #include "mlir/IR/DialectRegistry.h"  // from @llvm-project
@@ -90,7 +91,7 @@ class TpuMetadataUtilsTest : public ::testing::Test {
 
   absl::StatusOr<std::vector<mlir::tf_device::ClusterFuncOp>> GetClusterFuncOps(
       absl::string_view mlir_module_filename) {
-    TF_RETURN_IF_ERROR(CreateMlirModule(mlir_module_filename));
+    RETURN_IF_ERROR(CreateMlirModule(mlir_module_filename));
     std::vector<mlir::tf_device::ClusterFuncOp> cluster_func_ops;
 
     mlir_module_->walk([&](mlir::tf_device::ClusterFuncOp op) {

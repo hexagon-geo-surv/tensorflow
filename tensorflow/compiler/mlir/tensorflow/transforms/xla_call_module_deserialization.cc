@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -88,7 +89,7 @@ absl::StatusOr<OwningOpRef<ModuleOp>> DeserializeStablehlo(MLIRContext *context,
   op->setAttr(kStablehloVersionAttrName,
               builder.getStringAttr(version.value().toString()));
 
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
       auto loader,
       tensorflow::XlaCallModuleLoader::Create(
           context, static_cast<int>(op.getVersion()), op.getModule(),

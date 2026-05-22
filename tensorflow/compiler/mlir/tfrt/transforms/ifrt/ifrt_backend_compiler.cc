@@ -26,6 +26,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/SmallVector.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
@@ -96,27 +97,26 @@ CompileAndRegisterIfrtPrograms(absl::string_view model_name,
       func->removeAttr("tfrt_ifrt_serving.program_id");
     });
 
-    TF_ASSIGN_OR_RETURN(
-        auto executable,
-        IfrtServingExecutable::Create(
-            program_id, model_name, entry_function_name.str(),
-            *std::move(submodule), ifrt_model_context.GetClient(),
-            &ifrt_model_context.GetThreadPool(),
-            &ifrt_model_context.GetLoadedVariableRegistry(),
-            &ifrt_model_context.GetRestoreTensorRegistry(),
-            ifrt_model_context.checkpoint_loader_queue(),
-            ifrt_model_context.GetDeviceMgr(),
-            ifrt_model_context.GetShapeRepresentationFn(),
-            ifrt_model_context.GetIfrtServingCoreSelector(),
-            ifrt_model_context.GetCompilationEnvOrOverrides(),
-            ifrt_model_context.GetTfToHloCompiler(),
-            ifrt_model_context.GetPersistentCompilationCache(),
-            ifrt_model_context.GetH2DTransferExecutorFactory()));
+    ASSIGN_OR_RETURN(auto executable,
+                     IfrtServingExecutable::Create(
+                         program_id, model_name, entry_function_name.str(),
+                         *std::move(submodule), ifrt_model_context.GetClient(),
+                         &ifrt_model_context.GetThreadPool(),
+                         &ifrt_model_context.GetLoadedVariableRegistry(),
+                         &ifrt_model_context.GetRestoreTensorRegistry(),
+                         ifrt_model_context.checkpoint_loader_queue(),
+                         ifrt_model_context.GetDeviceMgr(),
+                         ifrt_model_context.GetShapeRepresentationFn(),
+                         ifrt_model_context.GetIfrtServingCoreSelector(),
+                         ifrt_model_context.GetCompilationEnvOrOverrides(),
+                         ifrt_model_context.GetTfToHloCompiler(),
+                         ifrt_model_context.GetPersistentCompilationCache(),
+                         ifrt_model_context.GetH2DTransferExecutorFactory()));
 
     // Register the Ifrt program to `ServingExecutableRegistry` so that
     // the client TF program can invoke them via `IfrtCall` op.
-    TF_ASSIGN_OR_RETURN(auto handle, ServingExecutableRegistry::Register(
-                                         program_id, std::move(executable)));
+    ASSIGN_OR_RETURN(auto handle, ServingExecutableRegistry::Register(
+                                      program_id, std::move(executable)));
 
     handles.push_back(std::move(handle));
   }
@@ -130,14 +130,13 @@ absl::Status CompileTensorflowForIfrtServing(
   tsl::profiler::TraceMe trace_me("CompileTensorflowForIfrtServing");
   mlir::Builder builder(module.getContext());
 
-  TF_RETURN_IF_ERROR(RunClusterToIfrtRuntimeOpsPassPipeline(
+  RETURN_IF_ERROR(RunClusterToIfrtRuntimeOpsPassPipeline(
       module, model_name,
       ifrt_model_context.enable_propagate_static_shapes_pass(),
       enable_async_ifrt));
 
-  TF_ASSIGN_OR_RETURN(
-      auto handles,
-      CompileAndRegisterIfrtPrograms(model_name, module, ifrt_model_context));
+  ASSIGN_OR_RETURN(auto handles, CompileAndRegisterIfrtPrograms(
+                                     model_name, module, ifrt_model_context));
 
   for (auto& handle : handles) {
     ifrt_model_context.RegisterHandle(std::move(handle));
@@ -191,7 +190,7 @@ absl::Status IfrtBackendCompiler::CompileTensorflow(
   }
 
   // Use bridge for cluster formation.
-  TF_RETURN_IF_ERROR(tensorflow::tf2xla::v2::RunFunctionTf2xlaClusteringBridge(
+  RETURN_IF_ERROR(tensorflow::tf2xla::v2::RunFunctionTf2xlaClusteringBridge(
       module, /*is_supported_by_replicated_brige*/ true,
       /*is_in_fallback_enabled_mode=*/false));
 
@@ -200,7 +199,7 @@ absl::Status IfrtBackendCompiler::CompileTensorflow(
   }
 
   // Extract TPU program for IFRT call.
-  TF_RETURN_IF_ERROR(CompileTensorflowForIfrtServing(
+  RETURN_IF_ERROR(CompileTensorflowForIfrtServing(
       model_context.name(), **ifrt_model_context, module,
       model_context.graph_execution_options()
           .compile_options.enable_async_ifrt));

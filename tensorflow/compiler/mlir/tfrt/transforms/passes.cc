@@ -25,6 +25,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/log/vlog_is_on.h"
 #include "absl/status/status.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/Pass/PassManager.h"  // from @llvm-project
 #include "tensorflow/compiler/mlir/tensorflow/transforms/passes.h"
@@ -264,7 +265,7 @@ absl::Status ValidateTfrtPipelineOptions(const TfrtPipelineOptions &options) {
 
 absl::Status CreateTFExecutorToTFPreInvariantOptimizationPipeline(
     mlir::PassManager &pm, const TfrtPipelineOptions &options) {
-  TF_RETURN_IF_ERROR(ValidateTfrtPipelineOptions(options));
+  RETURN_IF_ERROR(ValidateTfrtPipelineOptions(options));
   if (VLOG_IS_ON(1)) {
     // Print the whole module after each pass, which requires disabling
     // multi-threading as well.

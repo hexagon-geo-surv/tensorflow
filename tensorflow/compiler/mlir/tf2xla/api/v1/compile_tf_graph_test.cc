@@ -24,6 +24,7 @@ limitations under the License.
 #include <gtest/gtest.h>
 #include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/StringRef.h"
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/IR/MLIRContext.h"  // from @llvm-project
@@ -111,7 +112,7 @@ absl::StatusOr<XlaCompilationResult> CompileWithComputation(
   tpu::TPUCompileMetadataProto metadata_proto;
   std::vector<TensorShape> arg_shapes;
   if (computation.index() == 0) {
-    TF_RETURN_IF_ERROR(tensorflow::tf2xla::internal::ConfigureMetadata(
+    RETURN_IF_ERROR(tensorflow::tf2xla::internal::ConfigureMetadata(
         std::get<0>(computation).mlir_module, arg_shapes, metadata_proto));
   }
 
@@ -125,8 +126,8 @@ absl::StatusOr<XlaCompilationResult> CompileWithComputation(
 
   if (std::holds_alternative<MlirToHloArgs>(computation) &&
       !use_serialized_mlir) {
-    TF_RETURN_IF_ERROR(DeserializeMlirModule(
-        std::get<0>(computation).mlir_module, &context, &mlir_module));
+    RETURN_IF_ERROR(DeserializeMlirModule(std::get<0>(computation).mlir_module,
+                                          &context, &mlir_module));
     std::get<0>(computation).mlir_module_op = mlir_module.get();
     std::get<0>(computation).mlir_module = "";
   }

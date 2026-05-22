@@ -29,6 +29,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/IR/BuiltinAttributes.h"  // from @llvm-project
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
@@ -84,7 +85,7 @@ absl::StatusOr<absl::flat_hash_map<FunctionName, FunctionAlias>>
 GetFunctionAliases(absl::string_view saved_model_path,
                    const std::unordered_set<std::string>& tags) {
   tensorflow::MetaGraphDef meta_graph;
-  TF_RETURN_IF_ERROR(tensorflow::ReadMetaGraphDefFromSavedModel(
+  RETURN_IF_ERROR(tensorflow::ReadMetaGraphDefFromSavedModel(
       saved_model_path, tags, &meta_graph));
 
   absl::flat_hash_map<FunctionName, FunctionAlias> function_aliases(
@@ -127,7 +128,7 @@ absl::StatusOr<OwningOpRef<ModuleOp>> ImportSavedModel(
     const absl::string_view mlir_dump_file_prefix,
     absl::flat_hash_map<FunctionName, FunctionAlias>& function_aliases,
     MLIRContext& ctx ABSL_ATTRIBUTE_LIFETIME_BOUND) {
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
       ImportedMlirModuleOp imported_module,
       SavedModelToMlirModuleOp(saved_model_path, tags, signature_keys, ctx));
   auto [module_op, saved_model_bundle] = std::move(imported_module);
@@ -141,7 +142,7 @@ absl::StatusOr<OwningOpRef<ModuleOp>> ImportSavedModel(
     return aliased_function_names.insert(aliases.first);
   });
 
-  TF_RETURN_IF_ERROR(PreprocessAndFreezeGraph(
+  RETURN_IF_ERROR(PreprocessAndFreezeGraph(
       mlir_dump_file_prefix, /*is_inliner_run=*/true,
       /*noinline_functions=*/aliased_function_names, *module_op, &ctx,
       saved_model_bundle == nullptr ? nullptr

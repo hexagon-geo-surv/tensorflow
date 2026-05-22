@@ -19,6 +19,7 @@ limitations under the License.
 #include "absl/base/nullability.h"
 #include "absl/log/die_if_null.h"
 #include "absl/status/statusor.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/Pass/PassManager.h"  // from @llvm-project
 #include "tensorflow/compiler/mlir/quantization/stablehlo/cc/config.h"
@@ -43,7 +44,7 @@ PostCalibrationComponent::PostCalibrationComponent(
 
 absl::StatusOr<ModuleOp> PostCalibrationComponent::Run(
     ModuleOp module_op, const QuantizationConfig& config) {
-  TF_RETURN_IF_ERROR(RunPasses(
+  RETURN_IF_ERROR(RunPasses(
       kName, /*add_passes_func=*/
       [&config](PassManager& pm) {
         // Add instrumentation to save quantization report after quantization.

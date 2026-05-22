@@ -24,6 +24,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/variant.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringRef.h"
 #include "mlir/Pass/Pass.h"  // from @llvm-project
@@ -127,12 +128,12 @@ absl::Status DumpHloCompilationResult(
     return absl::OkStatus();
   }
 
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
       auto hlo_module_config,
       xla::HloModule::CreateModuleConfigFromProto(
           compilation_result->computation->proto(), xla::DebugOptions()));
 
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
       std::unique_ptr<xla::HloModule> hlo_module,
       xla::HloModule::CreateFromProto(compilation_result->computation->proto(),
                                       hlo_module_config));
@@ -171,7 +172,7 @@ absl::StatusOr<tensorflow::XlaCompilationResult> LegalizeMlirToHlo(
 
   // If there are no MLIR args, compile the given function in the library.
   if (ShouldFallbackToGraphCompiler(computation)) {
-    TF_RETURN_IF_ERROR(tf2xla::v1::CompileTensorflowGraphToHlo(
+    RETURN_IF_ERROR(tf2xla::v1::CompileTensorflowGraphToHlo(
         computation, metadata, use_tuple_args, shape_determination_fns,
         arg_shapes, tsl::DeviceType(device_type.str()), arg_core_mapping,
         per_core_arg_shapes, client, compilation_result.get()));

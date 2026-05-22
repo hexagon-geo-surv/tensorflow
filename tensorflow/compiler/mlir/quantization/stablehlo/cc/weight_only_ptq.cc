@@ -26,6 +26,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/Pass/PassManager.h"  // from @llvm-project
 #include "tensorflow/compiler/mlir/quantization/stablehlo/cc/config.h"
@@ -59,7 +60,7 @@ WeightOnlyPtqComponent::WeightOnlyPtqComponent(MLIRContext* absl_nonnull ctx)
 
 absl::StatusOr<ModuleOp> WeightOnlyPtqComponent::Run(
     ModuleOp module_op, const QuantizationConfig& config) {
-  TF_RETURN_IF_ERROR(RunPasses(
+  RETURN_IF_ERROR(RunPasses(
       kName, /*add_passes_func=*/
       [&config](PassManager& pm) {
         // Add instrumentation to save quantization report after quantization.
@@ -95,17 +96,17 @@ absl::Status QuantizeWeightOnlyPtq(
         "Failed to get function alias: ", function_aliases.status().message()));
   }
 
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
       auto module,
       ImportSavedModel(src_saved_model_path, signature_keys, tags,
                        quantization_config, WeightOnlyPtqComponent::kName,
                        *function_aliases, *ctx));
 
   WeightOnlyPtqComponent weight_only_ptq_component(ctx.get());
-  TF_ASSIGN_OR_RETURN(
-      *module, weight_only_ptq_component.Run(*module, quantization_config));
+  ASSIGN_OR_RETURN(*module,
+                   weight_only_ptq_component.Run(*module, quantization_config));
 
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
       const ExportedModel post_calibrated_exported_model,
       CreateExportedModel(signature_keys, tags, quantization_config,
                           WeightOnlyPtqComponent::kName, *function_aliases,

@@ -27,6 +27,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/IR/MLIRContext.h"  // from @llvm-project
 #include "mlir/IR/OwningOpRef.h"  // from @llvm-project
@@ -78,7 +79,7 @@ absl::StatusOr<ModuleOp> StaticRangePtqComponent::Run(
   // Runs sub-components in sequence: PreCalibrationComponent ->
   // CalibrationComponent -> PostCalibrationComponents.
   for (std::unique_ptr<Component>& sub_component : sub_components_) {
-    TF_ASSIGN_OR_RETURN(module_op, sub_component->Run(module_op, config));
+    ASSIGN_OR_RETURN(module_op, sub_component->Run(module_op, config));
   }
 
   return module_op;
@@ -105,7 +106,7 @@ absl::Status QuantizeStaticRangePtq(
         "Failed to get function alias: ", function_aliases.status().message()));
   }
 
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
       OwningOpRef<ModuleOp> module,
       ImportSavedModel(src_saved_model_path, signature_keys, tags,
                        quantization_config, PreCalibrationComponent::kName,
@@ -114,10 +115,10 @@ absl::Status QuantizeStaticRangePtq(
   StaticRangePtqComponent static_range_ptq_component(
       ctx.get(), &py_function_library, src_saved_model_path, signature_keys,
       tags, signature_def_map, *function_aliases);
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
       *module, static_range_ptq_component.Run(*module, quantization_config));
 
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
       const ExportedModel post_calibrated_exported_model,
       CreateExportedModel(signature_keys, tags, quantization_config,
                           PostCalibrationComponent::kName, *function_aliases,

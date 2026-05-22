@@ -31,6 +31,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/Pass/PassManager.h"  // from @llvm-project
@@ -133,15 +134,15 @@ absl::StatusOr<ExportedModel> CreateExportedModel(
     absl::string_view debug_name_prefix,
     const absl::flat_hash_map<FunctionName, FunctionAlias>& function_aliases,
     MLIRContext& ctx ABSL_ATTRIBUTE_LIFETIME_BOUND, ModuleOp module_op) {
-  TF_ASSIGN_OR_RETURN(const std::string checkpoint_dir, GetLocalTmpFileName());
+  ASSIGN_OR_RETURN(const std::string checkpoint_dir, GetLocalTmpFileName());
   const ExportOptions export_opts = {
       /*duplicate_shape_determining_constants=*/true,
       /*unfreeze_constants=*/false, checkpoint_dir,
       /*debug_name=*/
       absl::StrCat(debug_name_prefix, kExportStepSuffix)};
 
-  TF_ASSIGN_OR_RETURN(const SmallVector<AssetFileDef> asset_file_defs,
-                      RunExportPasses(export_opts, ctx, module_op));
+  ASSIGN_OR_RETURN(const SmallVector<AssetFileDef> asset_file_defs,
+                   RunExportPasses(export_opts, ctx, module_op));
 
   return ConvertMlirModuleToExportedModel(
       module_op, checkpoint_dir, function_aliases,
@@ -240,7 +241,7 @@ absl::StatusOr<ExportedModel> ConvertMlirModuleToExportedModel(
                                      FunctionDefLibrary()};
   std::unique_ptr<Graph> graph;
   absl::flat_hash_set<Node*> control_ret_nodes{};
-  TF_RETURN_IF_ERROR(tensorflow::tf2xla::v2::ConvertTfExecutorToGraph(
+  RETURN_IF_ERROR(tensorflow::tf2xla::v2::ConvertTfExecutorToGraph(
       module_op, config, &graph, &flib_def, &control_ret_nodes));
 
   GraphDef graph_def{};
@@ -253,8 +254,8 @@ absl::StatusOr<ExportedModel> ConvertMlirModuleToExportedModel(
   const std::string init_node_name =
       GetNodeName(control_ret_node_names, kTfSavedModelInitializerInitType);
 
-  TF_ASSIGN_OR_RETURN(const std::optional<SaverDef> saver_def,
-                      CreateSaverDef(control_ret_node_names, graph_def));
+  ASSIGN_OR_RETURN(const std::optional<SaverDef> saver_def,
+                   CreateSaverDef(control_ret_node_names, graph_def));
 
   return CreateExportedModelFromGraphDef(std::move(graph_def), init_node_name,
                                          checkpoint_dir, std::move(saver_def),
@@ -264,13 +265,13 @@ absl::StatusOr<ExportedModel> ConvertMlirModuleToExportedModel(
 absl::StatusOr<SmallVector<AssetFileDef>> RunExportPasses(
     const ExportOptions& export_opts, MLIRContext& ctx, ModuleOp module_op) {
   if (export_opts.unfreeze_constants) {
-    TF_RETURN_IF_ERROR(UnfreezeConstantsAndSaveVariables(
+    RETURN_IF_ERROR(UnfreezeConstantsAndSaveVariables(
         export_opts.checkpoint_dir, ctx, module_op));
     LOG(INFO) << "Unfrozen constants and saved variables to checkpoint file: "
               << export_opts.checkpoint_dir;
   }
 
-  TF_RETURN_IF_ERROR(RunPasses(
+  RETURN_IF_ERROR(RunPasses(
       /*name=*/
       export_opts.debug_name,
       /*add_passes_func=*/

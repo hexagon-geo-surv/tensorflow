@@ -20,6 +20,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/Pass/PassManager.h"  // from @llvm-project
 #include "tensorflow/compiler/mlir/quantization/tensorflow/debugging/mlir_dump.h"
@@ -49,7 +50,7 @@ absl::Status RunPasses(const absl::string_view name, FuncT add_passes_func,
   add_passes_func(pm);
 
   mlir::StatusScopedDiagnosticHandler diagnostic_handler{&ctx};
-  TF_RETURN_IF_ERROR(MaybeEnableIrPrinting(pm, name));
+  RETURN_IF_ERROR(MaybeEnableIrPrinting(pm, name));
 
   if (failed(pm.run(module_op))) {
     return absl::InternalError(

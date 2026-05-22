@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/Pass/Pass.h"  // from @llvm-project
 #include "tensorflow/compiler/mlir/tf2xla/api/v2/legalize_tf.h"
 #include "tensorflow/compiler/mlir/tf2xla/internal/utils/test_metadata_config.h"
@@ -51,10 +52,10 @@ absl::StatusOr<XlaCompiler::CompilationResult> CompileMlirModule(
   mlir_to_hlo_args.rollout_state = rollout_state;
   mlir_to_hlo_args.mlir_module = mlir_module_str;
 
-  TF_ASSIGN_OR_RETURN(se::Platform * platform,
-                      se::PlatformManager::PlatformWithName("Host"));
-  TF_ASSIGN_OR_RETURN(
-      auto client, xla::ClientLibrary::GetOrCreateCompileOnlyClient(platform));
+  ASSIGN_OR_RETURN(se::Platform * platform,
+                   se::PlatformManager::PlatformWithName("Host"));
+  ASSIGN_OR_RETURN(auto client,
+                   xla::ClientLibrary::GetOrCreateCompileOnlyClient(platform));
 
   std::vector<TensorShape> arg_shapes;
   TPUCompileMetadataProto metadata_proto;

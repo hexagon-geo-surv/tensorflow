@@ -18,6 +18,7 @@ limitations under the License.
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/StringRef.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
@@ -197,7 +198,7 @@ absl::Status RunLowerClusterToRuntimeOpsPassPipeline(
                                 ? mlir::TF::kMlirPh1BridgeCounterReplicated
                                 : mlir::TF::kMlirPh1BridgeCounterNonReplicated;
   auto result_status = diag_handler.ConsumeStatus();
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       RecordIfErrorStatus(/*error_prefix=*/"lower_cluster_to_runtime",
                           bridge_type, xla_device_type, result_status));
 

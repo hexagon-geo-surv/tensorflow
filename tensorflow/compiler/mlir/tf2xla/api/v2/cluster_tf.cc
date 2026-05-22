@@ -19,6 +19,7 @@ limitations under the License.
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
@@ -190,7 +191,7 @@ absl::Status RunFunctionTf2xlaClusteringBridge(
                                 ? mlir::TF::kMlirPh1BridgeCounterReplicated
                                 : mlir::TF::kMlirPh1BridgeCounterNonReplicated;
   // TODO(b/317798386): add is_supported_by_replicated_brige as a filter.
-  TF_RETURN_IF_ERROR(RecordIfErrorStatus(
+  RETURN_IF_ERROR(RecordIfErrorStatus(
       /*error_prefix=*/"clustering_v2", is_in_fallback_enabled_mode,
       bridge_type, device_type, clustering_status));
 

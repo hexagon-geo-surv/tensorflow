@@ -20,6 +20,7 @@ limitations under the License.
 #include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/Pass/PassManager.h"  // from @llvm-project
@@ -45,7 +46,7 @@ absl::Status ExportFunctionDefs(
         {{"module_name", absl::string_view(module.getName().value_or("?"))}});
   });
 
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       tensorflow::tf2xla::v1::ExportFromTensorflowDialectToExecutor(module));
 
   {
@@ -63,10 +64,10 @@ absl::Status ExportFunctionDefs(
 
   for (auto func : module.getOps<mlir::func::FuncOp>()) {
     tensorflow::FunctionDef function_def;
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         tensorflow::tf2xla::v2::ConvertMlirFunctionToFunctionLibraryDef(
             func, configs, &function_def));
-    TF_RETURN_IF_ERROR(callback(std::move(function_def)));
+    RETURN_IF_ERROR(callback(std::move(function_def)));
   }
 
   return absl::OkStatus();

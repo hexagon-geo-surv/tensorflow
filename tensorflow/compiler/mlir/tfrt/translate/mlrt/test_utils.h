@@ -26,6 +26,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "tensorflow/core/framework/attr_value.pb.h"
@@ -71,9 +72,9 @@ absl::Status TestMlrtKernel(
   mlrt::ExecutionContext execution_context(nullptr);
 
   mlrt::bc::Buffer buffer;
-  TF_ASSIGN_OR_RETURN(auto kernel_and_attrs,
-                      CreateKernelAndAttrs(num_inputs, num_outputs,
-                                           execution_context, &buffer, attrs));
+  ASSIGN_OR_RETURN(auto kernel_and_attrs,
+                   CreateKernelAndAttrs(num_inputs, num_outputs,
+                                        execution_context, &buffer, attrs));
 
   tensorflow::tfrt_stub::SyncResourceState sync_resource_state;
   tfrt::AddSyncContext(execution_context, *host, &sync_resource_state);
@@ -86,7 +87,7 @@ absl::Status TestMlrtKernel(
 
   kernel_fn(frame);
 
-  TF_RETURN_IF_ERROR(execution_context.status());
+  RETURN_IF_ERROR(execution_context.status());
 
   for (int i = 0, j = num_inputs; i < expected_outputs.size(); ++i, ++j) {
     const auto& expected_output = expected_outputs[i];

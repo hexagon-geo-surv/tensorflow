@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
@@ -76,7 +77,7 @@ absl::Status CompileFromMlirToXlaHlo(
   for (const auto& arg_shape : arg_shapes)
     tensor_or_resource_shapes.push_back({arg_shape});
 
-  TF_RETURN_IF_ERROR(CompileMlirToXlaHlo(
+  RETURN_IF_ERROR(CompileMlirToXlaHlo(
       mlir_module_op, tensor_or_resource_shapes, device_type, use_tuple_args,
       /*enable_op_fallback=*/true, /*use_return_tuple=*/true,
       /*use_resource_updates_for_aliases=*/false, shape_determination_fns,

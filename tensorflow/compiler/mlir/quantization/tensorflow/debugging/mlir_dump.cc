@@ -26,6 +26,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/raw_ostream.h"
@@ -79,7 +80,7 @@ class WritableFileWrapper : public llvm::raw_ostream {
   static absl::StatusOr<std::unique_ptr<WritableFileWrapper>> Create(
       const std::string& filepath) {
     std::unique_ptr<tsl::WritableFile> file;
-    TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(filepath, &file));
+    RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(filepath, &file));
     return absl::WrapUnique(new WritableFileWrapper(std::move(file)));
   }
 
@@ -119,12 +120,12 @@ absl::StatusOr<std::unique_ptr<llvm::raw_ostream>> CreateMlirDumpFile(
   }
 
   auto* env = tsl::Env::Default();
-  TF_RETURN_IF_ERROR(env->RecursivelyCreateDir(*dump_dir));
+  RETURN_IF_ERROR(env->RecursivelyCreateDir(*dump_dir));
 
   const std::string dump_file_path =
       tsl::io::JoinPath(*dump_dir, dump_file_name);
-  TF_ASSIGN_OR_RETURN(std::unique_ptr<llvm::raw_ostream> file,
-                      WritableFileWrapper::Create(dump_file_path));
+  ASSIGN_OR_RETURN(std::unique_ptr<llvm::raw_ostream> file,
+                   WritableFileWrapper::Create(dump_file_path));
 
   LOG(INFO) << "IR dump file created: " << dump_file_path;
   return file;

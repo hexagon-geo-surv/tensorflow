@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
@@ -55,8 +56,7 @@ llvm::StringRef ProcessIndexPath(mlir::ArrayAttr index_path) {
 absl::StatusOr<std::pair<tensorflow::DataType, tensorflow::PartialTensorShape>>
 ProcessTensorSpec(mlir::TensorType type) {
   tensorflow::DataType dtype;
-  TF_RETURN_IF_ERROR(
-      ConvertScalarTypeToDataType(type.getElementType(), &dtype));
+  RETURN_IF_ERROR(ConvertScalarTypeToDataType(type.getElementType(), &dtype));
 
   if (!type.hasRank())
     return std::make_pair(dtype, tensorflow::PartialTensorShape());

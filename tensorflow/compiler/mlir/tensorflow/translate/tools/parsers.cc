@@ -26,6 +26,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/STLExtras.h"
 #include "tensorflow/compiler/mlir/tensorflow/translate/mlir_roundtrip_flags.h"
 #include "xla/status_macros.h"
@@ -40,7 +41,7 @@ namespace tensorflow {
 
 absl::Status ParseOutputArrayInfo(absl::string_view array_names,
                                   std::vector<std::string>* outputs) {
-  TF_RETURN_IF_ERROR(ParseNodeNames(array_names, *outputs));
+  RETURN_IF_ERROR(ParseNodeNames(array_names, *outputs));
   return absl::OkStatus();
 }
 
@@ -60,9 +61,9 @@ absl::Status ParseInputArrayInfo(absl::string_view array_names,
   std::vector<std::string> node_names;
   std::vector<std::string> node_dtypes;
   std::vector<std::optional<std::vector<int>>> node_shapes;
-  TF_RETURN_IF_ERROR(ParseNodeNames(array_names, node_names));
-  TF_RETURN_IF_ERROR(ParseNodeDataTypes(data_types, node_dtypes));
-  TF_RETURN_IF_ERROR(ParseNodeShapes(shapes, node_shapes));
+  RETURN_IF_ERROR(ParseNodeNames(array_names, node_names));
+  RETURN_IF_ERROR(ParseNodeDataTypes(data_types, node_dtypes));
+  RETURN_IF_ERROR(ParseNodeShapes(shapes, node_shapes));
   return ParseInputArrayInfo(node_names, node_dtypes, node_shapes, inputs);
 }
 
@@ -95,7 +96,7 @@ static absl::Status HandleSubtype(absl::string_view subtype,
                      " separated with a ':'"));
   } else if (shape_and_type.size() == 2) {
     const auto& shape_str = shape_and_type[0];
-    TF_ASSIGN_OR_RETURN(dims, ParseShapeStr(shape_str));
+    ASSIGN_OR_RETURN(dims, ParseShapeStr(shape_str));
   }
 
   const auto& subtype_str = shape_and_type.back();
@@ -169,7 +170,7 @@ absl::Status ParseInputArrayInfo(
     } else if (parts.size() == 3) {
       // First part is the type, second is the subtype
       ArrayInfo::SubTypeInfo subtype;
-      TF_RETURN_IF_ERROR(HandleSubtype(parts[1], &subtype));
+      RETURN_IF_ERROR(HandleSubtype(parts[1], &subtype));
       info.subtypes.push_back(std::move(subtype));
     }
     if (!DataType_Parse(parts[0], &info.imported_dtype)) {
@@ -201,7 +202,7 @@ absl::Status ParseNodeShapes(
         shapes_vector.push_back(std::nullopt);
         continue;
       }
-      TF_ASSIGN_OR_RETURN(auto shape, ParseShapeStr(node_shapes_str[i]));
+      ASSIGN_OR_RETURN(auto shape, ParseShapeStr(node_shapes_str[i]));
       shapes_vector.push_back(std::move(shape));
     }
   }
@@ -261,7 +262,7 @@ absl::Status ParseNodeDataTypes(absl::string_view data_types_str,
                                 std::vector<std::string>& data_type_vector) {
   data_type_vector.clear();
   if (!data_types_str.empty()) {
-    TF_ASSIGN_OR_RETURN(data_type_vector, ParseDTypesHelper(data_types_str));
+    ASSIGN_OR_RETURN(data_type_vector, ParseDTypesHelper(data_types_str));
   }
   return absl::OkStatus();
 }

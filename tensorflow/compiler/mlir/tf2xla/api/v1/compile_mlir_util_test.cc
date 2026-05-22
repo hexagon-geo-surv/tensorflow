@@ -26,6 +26,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
@@ -227,7 +228,7 @@ absl::StatusOr<std::unique_ptr<Graph>> BuildConstOpGraphWithOutputShapes() {
   shape_proto->add_dim()->set_size(1);
   builder.Attr("_output_shapes", shape_attr);
 
-  TF_RETURN_IF_ERROR(builder.Finalize(&node));
+  RETURN_IF_ERROR(builder.Finalize(&node));
 
   return CreateSingleOpGraph(node, {}, {data_type});
 }
@@ -247,7 +248,7 @@ absl::StatusOr<std::unique_ptr<Graph>> BuildEmptyOpGraph(
                      .Input(FakeInput(DT_INT32))
                      .Attr("dtype", data_type);
 
-  TF_RETURN_IF_ERROR(builder.Finalize(&node));
+  RETURN_IF_ERROR(builder.Finalize(&node));
 
   return CreateSingleOpGraph(node, xla_args, {data_type});
 }
@@ -265,7 +266,7 @@ absl::StatusOr<xla::XlaComputation> BuildHloFromGraph(
                                    "arg" + std::to_string(i)));
   }
   std::vector<xla::XlaOp> returns(1);
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       BuildHloFromGraph(graph, builder, mlir_context, xla_params, returns,
                         use_output_shapes, xla_args,
                         /*control_rets=*/{}, DEVICE_TPU,

@@ -22,6 +22,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/StringRef.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
@@ -81,19 +82,19 @@ absl::StatusOr<mlrt::bc::Buffer> ConvertTfMlirToBytecode(
     mlir::OwningOpRef<mlir::ModuleOp>* module_with_op_keys,
     std::vector<std::string>* added_xla_function_names) {
   mlrt::bc::Buffer bytecode_buffer;
-  TF_RETURN_IF_ERROR(ConvertTfMlirToRuntimeExecutable(
+  RETURN_IF_ERROR(ConvertTfMlirToRuntimeExecutable(
       options, module,
       [&bytecode_buffer, &fallback_state, &model_context,
-       backend_compiler = options.backend_compiler,
-       module_with_op_keys](mlir::PassManager& pm, mlir::ModuleOp module,
-                            const TfrtPipelineOptions& options) {
+       backend_compiler = options.backend_compiler, module_with_op_keys](
+          mlir::PassManager& pm, mlir::ModuleOp module,
+          const TfrtPipelineOptions& options) -> absl::Status {
         if (backend_compiler) {
           if (auto* flib_def = model_context.function_library_definition()) {
             // Copy the module before exporting as exporting to graph will
             // transform the MLIR to TFG dialect.
             mlir::OwningOpRef<mlir::ModuleOp> copy(module.clone());
-            TF_RETURN_IF_ERROR(
-                ExportFunctionDefs(*copy, [flib_def](FunctionDef function_def) {
+            RETURN_IF_ERROR(ExportFunctionDefs(
+                *copy, [flib_def](FunctionDef function_def) -> absl::Status {
                   VLOG(1) << absl::StrCat(
                       "Exporting MLIR function as function_def: ",
                       // NOLINTNEXTLINE
@@ -110,7 +111,7 @@ absl::StatusOr<mlrt::bc::Buffer> ConvertTfMlirToBytecode(
 
                   const auto& name = function_def.signature().name();
                   if (flib_def->Contains(name)) {
-                    TF_RETURN_IF_ERROR(flib_def->RemoveFunction(name));
+                    RETURN_IF_ERROR(flib_def->RemoveFunction(name));
                   }
 
                   return flib_def->AddFunctionDef(function_def);

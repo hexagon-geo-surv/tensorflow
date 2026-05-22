@@ -21,6 +21,7 @@ limitations under the License.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/statusor.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/IR/DialectRegistry.h"  // from @llvm-project
 #include "mlir/IR/MLIRContext.h"  // from @llvm-project
@@ -63,7 +64,7 @@ absl::StatusOr<XlaCompilationResult> CompileMlirModule(bool compile_to_xla_hlo,
   mlir::stablehlo::registerAllDialects(registry);
   mlir::MLIRContext context(registry);
   mlir::OwningOpRef<mlir::ModuleOp> mlir_module;
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       tensorflow::DeserializeMlirModule(module_str, &context, &mlir_module));
 
   std::vector<TensorShape> arg_shapes;
@@ -73,7 +74,7 @@ absl::StatusOr<XlaCompilationResult> CompileMlirModule(bool compile_to_xla_hlo,
   std::vector<std::vector<xla::Shape>> per_core_arg_shapes;
   std::vector<std::unique_ptr<mlir::Pass>> custom_legalization_passes;
 
-  TF_RETURN_IF_ERROR(CompileFromMlirToXlaHlo(
+  RETURN_IF_ERROR(CompileFromMlirToXlaHlo(
       compile_to_xla_hlo, mlir_module.get(), metadata_proto,
       /*device_type=*/"XLA_TPU_JIT",
       /*shape_determination_fns=*/{}, use_tuple_args, &compilation_result,

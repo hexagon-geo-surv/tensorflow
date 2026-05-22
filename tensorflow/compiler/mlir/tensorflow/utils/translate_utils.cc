@@ -25,6 +25,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
@@ -129,7 +130,7 @@ absl::Status SetTypeAttribute(absl::string_view name, ContainerT types,
   auto& type_list = *value.mutable_list();
   for (auto type : types) {
     DataType dtype;
-    TF_RETURN_IF_ERROR(ConvertScalarTypeToDataType(type, &dtype));
+    RETURN_IF_ERROR(ConvertScalarTypeToDataType(type, &dtype));
     type_list.add_type(dtype);
   }
 
@@ -214,8 +215,7 @@ absl::StatusOr<absl::flat_hash_set<absl::string_view>> GetAttributesToIgnore(
   }
 
   if (ignore_unregistered_attrs) {
-    TF_RETURN_IF_ERROR(
-        GetUnregisteredAttrs(inst, op_reg_data, &attrs_to_ignore));
+    RETURN_IF_ERROR(GetUnregisteredAttrs(inst, op_reg_data, &attrs_to_ignore));
   }
 
   if (inst->hasTrait<mlir::OpTrait::AttrSizedOperandSegments>()) {
@@ -304,14 +304,14 @@ absl::Status GetAttrValuesFromOperation(
   mlir::DictionaryAttr derived_attrs = nullptr;
   if (auto interface = llvm::dyn_cast<mlir::DerivedAttributeOpInterface>(inst))
     derived_attrs = interface.materializeDerivedAttributes();
-  TF_ASSIGN_OR_RETURN(auto attrs_to_ignore,
-                      GetAttributesToIgnore(inst, derived_attrs, op_reg_data,
-                                            ignore_unregistered_attrs));
+  ASSIGN_OR_RETURN(auto attrs_to_ignore,
+                   GetAttributesToIgnore(inst, derived_attrs, op_reg_data,
+                                         ignore_unregistered_attrs));
   TF_RETURN_WITH_CONTEXT_IF_ERROR(
       ConvertAttributes(inst->getAttrs(), attrs_to_ignore,
                         /*remove_ref_type=*/false, attributes),
       "while converting attributes for node: ", mlir::StringRefToView(name));
-  TF_RETURN_IF_ERROR(PopulateDerivedAttributes(
+  RETURN_IF_ERROR(PopulateDerivedAttributes(
       inst, name, derived_attrs, ignore_unregistered_attrs, attributes));
 
   //  Explicitly handle XlaHostCompute op which has required function attribute
@@ -338,14 +338,14 @@ absl::Status GetAttrValuesFromOperation(
 absl::StatusOr<std::unique_ptr<NodeDef>> ConvertTFDialectOpToNodeDef(
     mlir::Operation* inst, llvm::StringRef name,
     bool ignore_unregistered_attrs) {
-  TF_ASSIGN_OR_RETURN(auto node_def, GetOperationNodeDef(inst, name));
-  TF_ASSIGN_OR_RETURN(auto op_name,
-                      GetTensorFlowOpName(inst->getName().getStringRef()));
+  ASSIGN_OR_RETURN(auto node_def, GetOperationNodeDef(inst, name));
+  ASSIGN_OR_RETURN(auto op_name,
+                   GetTensorFlowOpName(inst->getName().getStringRef()));
   const tensorflow::OpRegistrationData* op_reg_data =
       tensorflow::OpRegistry::Global()->LookUp(op_name.str());
-  TF_RETURN_IF_ERROR(GetAttrValuesFromOperation(inst, name, op_reg_data,
-                                                ignore_unregistered_attrs,
-                                                node_def->mutable_attr()));
+  RETURN_IF_ERROR(GetAttrValuesFromOperation(inst, name, op_reg_data,
+                                             ignore_unregistered_attrs,
+                                             node_def->mutable_attr()));
   RemoveIdentityCast(node_def.get());
   if (op_reg_data) {
     ::tensorflow::AddDefaultsToNodeDef(op_reg_data->op_def, node_def.get());

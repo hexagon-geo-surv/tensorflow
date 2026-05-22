@@ -33,6 +33,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/Hashing.h"
@@ -3310,7 +3311,7 @@ absl::StatusOr<SmallVector<SmallVector<int64_t>>> ParseArgumentShapes(
   }
 
   std::vector<std::optional<std::vector<int>>> shapes;
-  TF_RETURN_IF_ERROR(::tensorflow::ParseNodeShapes(input_shapes, shapes));
+  RETURN_IF_ERROR(::tensorflow::ParseNodeShapes(input_shapes, shapes));
 
   for (const auto& shape : shapes) {
     if (!shape) {

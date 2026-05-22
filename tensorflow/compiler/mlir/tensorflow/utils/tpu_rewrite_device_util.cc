@@ -26,6 +26,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -387,8 +388,8 @@ GetGeneralTPUExecutionDeviceAssignment(
   const int num_tasks = tpu_devices.size();
   const int num_tpus_per_task = tpu_devices[0].size();
 
-  TF_ASSIGN_OR_RETURN(auto topology, ParseTopologyAttr(topology_attr, num_tasks,
-                                                       num_tpus_per_task));
+  ASSIGN_OR_RETURN(auto topology, ParseTopologyAttr(topology_attr, num_tasks,
+                                                    num_tpus_per_task));
 
   const int expected_device_assignment_size =
       num_replicas * num_cores_per_replica * kTPUTopologyRank;
@@ -695,10 +696,10 @@ absl::StatusOr<TPUDeviceAssignment> GetTPUCompilationAndExecutionDevices(
     llvm::StringRef topology_attr,
     llvm::ArrayRef<int64_t> device_assignment_attr) {
   // Collect TPU_SYSTEM devices.
-  TF_ASSIGN_OR_RETURN(auto system_devices, GetTPUSystemDevices(devices));
+  ASSIGN_OR_RETURN(auto system_devices, GetTPUSystemDevices(devices));
 
   // Collect TPU devices based on TPU_SYSTEM devices collected earlier.
-  TF_ASSIGN_OR_RETURN(auto tpu_devices, GetTPUDevices(devices, system_devices));
+  ASSIGN_OR_RETURN(auto tpu_devices, GetTPUDevices(devices, system_devices));
 
   std::string compilation_device = GetTPUCompilationDevice(system_devices[0]);
 
@@ -708,7 +709,7 @@ absl::StatusOr<TPUDeviceAssignment> GetTPUCompilationAndExecutionDevices(
           absl::StrCat("'", kDeviceAssignmentAttr, "' must not be set when '",
                        kTopologyAttr, "' is not set"));
 
-    TF_ASSIGN_OR_RETURN(
+    ASSIGN_OR_RETURN(
         auto execution_devices,
         GetFullMeshTPUExecutionDeviceAssignment(
             num_replicas, num_cores_per_replica, tpu_devices, devices));
@@ -716,10 +717,10 @@ absl::StatusOr<TPUDeviceAssignment> GetTPUCompilationAndExecutionDevices(
                                std::move(execution_devices));
   }
 
-  TF_ASSIGN_OR_RETURN(auto devices_and_ids,
-                      GetGeneralTPUExecutionDeviceAssignment(
-                          num_replicas, num_cores_per_replica, tpu_devices,
-                          devices, topology_attr, device_assignment_attr));
+  ASSIGN_OR_RETURN(auto devices_and_ids,
+                   GetGeneralTPUExecutionDeviceAssignment(
+                       num_replicas, num_cores_per_replica, tpu_devices,
+                       devices, topology_attr, device_assignment_attr));
   return TPUDeviceAssignment(compilation_device,
                              std::move(devices_and_ids.first),
                              std::move(devices_and_ids.second));

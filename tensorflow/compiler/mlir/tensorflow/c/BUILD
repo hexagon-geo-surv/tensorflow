@@ -45,6 +45,7 @@ tf_cuda_library(
         "//tensorflow/core/lib/llvm_rtti",
         "//tensorflow/core/platform:errors",
         "//tensorflow/core/platform:refcount",
+        "//third_party/gloop/util/status:status_macros",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",

@@ -26,6 +26,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/Support/Casting.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/Dialect/Quant/IR/Quant.h"  // from @llvm-project
@@ -107,10 +108,10 @@ class ConvertTfQuantToMhloIntTest : public Test {
     for (int i = 0; i < arguments.size(); ++i) {
       const xla::Literal* const xla_literal = arguments[i];
       tensorflow::TensorShape shape;
-      TF_ASSIGN_OR_RETURN(auto data_type,
-                          tensorflow::EncodePrimitiveTypeAsDataType(
-                              xla_literal->shape().element_type()));
-      TF_RETURN_IF_ERROR(
+      ASSIGN_OR_RETURN(auto data_type,
+                       tensorflow::EncodePrimitiveTypeAsDataType(
+                           xla_literal->shape().element_type()));
+      RETURN_IF_ERROR(
           tensorflow::XLAShapeToTensorShape(xla_literal->shape(), &shape));
       tensorflow::Tensor tensor(data_type, shape);
       std::memcpy(static_cast<char*>(tensor.data()),
@@ -118,8 +119,7 @@ class ConvertTfQuantToMhloIntTest : public Test {
                   xla::ShapeUtil::ByteSizeOfPrimitiveType(
                       xla_literal->shape().element_type()) *
                       xla_literal->element_count());
-      TF_ASSIGN_OR_RETURN(auto attrs,
-                          tensorflow::ConvertTensor(tensor, &builder));
+      ASSIGN_OR_RETURN(auto attrs, tensorflow::ConvertTensor(tensor, &builder));
       builder.setInsertionPoint(
           &func_op.getFunctionBody().getBlocks().front().front());
       // Use mhlo.Constant when it is consumed by the lowering passes since they
@@ -140,8 +140,8 @@ class ConvertTfQuantToMhloIntTest : public Test {
   absl::StatusOr<std::shared_ptr<xla::Literal>> EvaluateTfFunction(
       absl::string_view program,
       absl::Span<const xla::Literal* const> arguments) {
-    TF_ASSIGN_OR_RETURN(auto module_op,
-                        ReplaceFuncArgsByConstant(program, arguments));
+    ASSIGN_OR_RETURN(auto module_op,
+                     ReplaceFuncArgsByConstant(program, arguments));
     // Constant fold the func.Return op's producer op to evaluate the return
     // value. The evaluation will use TF kernels.
     // This assumes that func.Return is the last op in the function and it
@@ -166,15 +166,15 @@ class ConvertTfQuantToMhloIntTest : public Test {
 
     // Convert output tensor back to xla::Literal.
     tensorflow::Tensor tensor;
-    TF_RETURN_IF_ERROR(tensorflow::ConvertToTensor(
+    RETURN_IF_ERROR(tensorflow::ConvertToTensor(
         llvm::dyn_cast<TF::ConstOp>(fold_results[0].getDefiningOp()).getValue(),
         &tensor));
     xla::Shape xla_shape;
-    TF_RETURN_IF_ERROR(tensorflow::TensorShapeToXLAShape(
+    RETURN_IF_ERROR(tensorflow::TensorShapeToXLAShape(
         tensor.dtype(), tensor.shape(), &xla_shape));
     xla::PjRtClient::HostBufferSemantics host_buffer_semantics =
         xla::PjRtClient::HostBufferSemantics::kImmutableUntilTransferCompletes;
-    TF_ASSIGN_OR_RETURN(
+    ASSIGN_OR_RETURN(
         auto buffer,
         pjrt_client_->BufferFromHostBuffer(
             tensor.data(), xla_shape.element_type(), xla_shape.dimensions(),
@@ -189,7 +189,7 @@ class ConvertTfQuantToMhloIntTest : public Test {
       absl::Span<const xla::Literal* const> arguments) {
     // Replace args by mhlo.constant since the lowering passes can't lower
     // tf.Const.
-    TF_ASSIGN_OR_RETURN(
+    ASSIGN_OR_RETURN(
         auto module_op,
         ReplaceFuncArgsByConstant(program, arguments, /*use_mhlo_const=*/true));
 
@@ -214,14 +214,14 @@ class ConvertTfQuantToMhloIntTest : public Test {
     std::vector<xla::PjRtBuffer*> buffer_ptrs;
     buffers.reserve(arguments.size());
     for (const xla::Literal* argument : arguments) {
-      TF_ASSIGN_OR_RETURN(auto buffer, pjrt_client_->BufferFromHostLiteral(
-                                           *argument, memory_space_));
+      ASSIGN_OR_RETURN(auto buffer, pjrt_client_->BufferFromHostLiteral(
+                                        *argument, memory_space_));
       buffer_ptrs.push_back(buffer.get());
       buffers.push_back(std::move(buffer));
     }
     // Run the executable.
-    TF_ASSIGN_OR_RETURN(auto result,
-                        executable->Execute({buffer_ptrs}, /*options=*/{}));
+    ASSIGN_OR_RETURN(auto result,
+                     executable->Execute({buffer_ptrs}, /*options=*/{}));
     CHECK(result.size() == 1 && result[0].size() == 1);
     return result[0][0]->ToLiteral().Await();
   }
@@ -257,8 +257,8 @@ class ConvertTfQuantToMhloIntTest : public Test {
 
   absl::StatusOr<xla::Literal> CreateRandomF32Literal(
       absl::Span<const int64_t> dims, float min = -100, float max = 100) {
-    TF_ASSIGN_OR_RETURN(auto shape,
-                        xla::ShapeUtil::MakeValidatedShape(xla::F32, dims));
+    ASSIGN_OR_RETURN(auto shape,
+                     xla::ShapeUtil::MakeValidatedShape(xla::F32, dims));
     return xla::LiteralUtil::CreateLiteralWithGenerator<xla::F32, float>(
         shape, [this, min, max](absl::Span<const int64_t> dims) -> float {
           return absl::Uniform(bitgen_, min, max);
@@ -267,8 +267,8 @@ class ConvertTfQuantToMhloIntTest : public Test {
 
   absl::StatusOr<xla::Literal> CreateRandomI8Literal(
       absl::Span<const int64_t> dims, int8_t min = -128, int8_t max = 127) {
-    TF_ASSIGN_OR_RETURN(auto shape,
-                        xla::ShapeUtil::MakeValidatedShape(xla::S8, dims));
+    ASSIGN_OR_RETURN(auto shape,
+                     xla::ShapeUtil::MakeValidatedShape(xla::S8, dims));
     return xla::LiteralUtil::CreateLiteralWithGenerator<xla::S8, int8_t>(
         shape, [this, min, max](absl::Span<const int64_t> dims) -> int8_t {
           return absl::Uniform(bitgen_, min, max);
@@ -277,8 +277,8 @@ class ConvertTfQuantToMhloIntTest : public Test {
 
   absl::StatusOr<xla::Literal> CreateRandomI32Literal(
       absl::Span<const int64_t> dims, int32_t min = -128, int32_t max = 127) {
-    TF_ASSIGN_OR_RETURN(auto shape,
-                        xla::ShapeUtil::MakeValidatedShape(xla::S32, dims));
+    ASSIGN_OR_RETURN(auto shape,
+                     xla::ShapeUtil::MakeValidatedShape(xla::S32, dims));
     return xla::LiteralUtil::CreateLiteralWithGenerator<xla::S32, int32_t>(
         shape, [this, min, max](absl::Span<const int64_t> dims) -> int32_t {
           return absl::Uniform(bitgen_, min, max);

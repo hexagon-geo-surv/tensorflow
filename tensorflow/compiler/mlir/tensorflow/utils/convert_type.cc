@@ -18,6 +18,7 @@ limitations under the License.
 #include <limits>
 
 #include "absl/strings/str_cat.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/Support/Casting.h"
 #include "mlir/IR/BuiltinTypes.h"  // from @llvm-project
 #include "mlir/IR/Types.h"  // from @llvm-project
@@ -205,10 +206,9 @@ absl::Status ConvertScalarTypeToDataType(Type type, DataType* dtype) {
 
 absl::Status ConvertToDataType(Type type, DataType* dtype) {
   if (auto stype = mlir::dyn_cast<ShapedType>(type)) {
-    TF_RETURN_IF_ERROR(
-        ConvertScalarTypeToDataType(stype.getElementType(), dtype));
+    RETURN_IF_ERROR(ConvertScalarTypeToDataType(stype.getElementType(), dtype));
   } else {
-    TF_RETURN_IF_ERROR(ConvertScalarTypeToDataType(type, dtype));
+    RETURN_IF_ERROR(ConvertScalarTypeToDataType(type, dtype));
   }
   return absl::OkStatus();
 }
@@ -238,12 +238,12 @@ absl::Status ConvertToMlirShape(const TensorShapeProto& input_shape,
 absl::StatusOr<mlir::Type> ConvertToMlirTensorType(
     const TensorShapeProto& shape, DataType dtype, mlir::Builder* builder) {
   mlir::Type element_type;
-  TF_RETURN_IF_ERROR(ConvertDataType(dtype, *builder, &element_type));
+  RETURN_IF_ERROR(ConvertDataType(dtype, *builder, &element_type));
   if (shape.unknown_rank()) {
     return mlir::UnrankedTensorType::get(element_type);
   }
   llvm::SmallVector<int64_t, 4> shape_dims;
-  TF_RETURN_IF_ERROR(ConvertToMlirShape(shape, &shape_dims));
+  RETURN_IF_ERROR(ConvertToMlirShape(shape, &shape_dims));
   return GetTypeFromTFTensorShape(shape_dims, element_type);
 }
 

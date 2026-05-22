@@ -20,6 +20,7 @@ limitations under the License.
 #include <string>
 #include <utility>
 
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
@@ -79,10 +80,9 @@ absl::Status DumpTextualIRToFile(const MlirDumpConfig& config,
     GraphDebugInfo debug_info;
     switch (config.dialect) {
       case MlirDumpConfig::Dialect::kTFG: {
-        TF_ASSIGN_OR_RETURN(module,
-                            mlir::tfg::ImportGraphAndFunctionsToMlir(
-                                &context, debug_info, graph,
-                                flib_def ? *flib_def : graph.flib_def()));
+        ASSIGN_OR_RETURN(module, mlir::tfg::ImportGraphAndFunctionsToMlir(
+                                     &context, debug_info, graph,
+                                     flib_def ? *flib_def : graph.flib_def()));
         break;
       }
     }
@@ -92,7 +92,7 @@ absl::Status DumpTextualIRToFile(const MlirDumpConfig& config,
     return status_handler.ConsumeStatus();
   };
 
-  TF_RETURN_IF_ERROR(convert());
+  RETURN_IF_ERROR(convert());
   module->print(os, config.op_printing_flags);
   return absl::OkStatus();
 }

@@ -19,6 +19,7 @@ limitations under the License.
 
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "google/protobuf/io/tokenizer.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -56,7 +57,7 @@ absl::Status ParseTextProto(absl::string_view text_proto,
   // Attempt to parse as text.
   absl::string_view text_proto_without_prefix = text_proto;
   if (!prefix_to_strip.empty()) {
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         ConsumePrefix(text_proto, prefix_to_strip, &text_proto_without_prefix));
   }
   protobuf::io::ArrayInputStream input_stream(text_proto_without_prefix.data(),

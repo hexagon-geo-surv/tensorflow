@@ -25,6 +25,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -219,7 +220,7 @@ absl::StatusOr<std::unique_ptr<NodeDef>> Exporter::GetArgumentNode(
       AttrValue handle_shapes_attr;
       for (mlir::TensorType subtype : subtypes) {
         DataType dtype;
-        TF_RETURN_IF_ERROR(ConvertToDataType(subtype.getElementType(), &dtype));
+        RETURN_IF_ERROR(ConvertToDataType(subtype.getElementType(), &dtype));
         handle_dtypes_attr.mutable_list()->add_type(dtype);
 
         SetTensorShapeProto(subtype,
@@ -231,11 +232,11 @@ absl::StatusOr<std::unique_ptr<NodeDef>> Exporter::GetArgumentNode(
     }
   }
 
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       SetShapeAttribute("_output_shapes", arg_type, node_def->mutable_attr()));
 
   DataType dtype;
-  TF_RETURN_IF_ERROR(ConvertToDataType(arg_type.getElementType(), &dtype));
+  RETURN_IF_ERROR(ConvertToDataType(arg_type.getElementType(), &dtype));
   AttrValue type_attr;
   type_attr.set_type(dtype);
   (*node_def->mutable_attr())["T"] = type_attr;
@@ -252,9 +253,9 @@ absl::StatusOr<std::unique_ptr<NodeDef>> Exporter::GetArgumentNode(
       mlir::function_interface_impl::getArgAttrs(func, index);
   absl::flat_hash_set<absl::string_view> attrs_to_ignore = {kDeviceAttr,
                                                             kAliasingAttr};
-  TF_RETURN_IF_ERROR(ConvertAttributes(func_arg_i_attrs, attrs_to_ignore,
-                                       /*remove_ref_type=*/false,
-                                       node_def->mutable_attr()));
+  RETURN_IF_ERROR(ConvertAttributes(func_arg_i_attrs, attrs_to_ignore,
+                                    /*remove_ref_type=*/false,
+                                    node_def->mutable_attr()));
 
   return node_def;
 }
@@ -270,7 +271,7 @@ absl::StatusOr<std::unique_ptr<NodeDef>> Exporter::GetReturnNode(
 
   node_def->set_op(FunctionLibraryDefinition::kRetOp);
   DataType dtype;
-  TF_RETURN_IF_ERROR(ConvertToDataType(
+  RETURN_IF_ERROR(ConvertToDataType(
       mlir::cast<mlir::TensorType>(operand.getType()).getElementType(),
       &dtype));
   AttrValue type_attr;
@@ -287,9 +288,9 @@ absl::StatusOr<std::unique_ptr<NodeDef>> Exporter::GetReturnNode(
   llvm::ArrayRef<mlir::NamedAttribute> func_res_i_attrs =
       function.getResultAttrs(index);
   absl::flat_hash_set<absl::string_view> attrs_to_ignore = {kDeviceAttr};
-  TF_RETURN_IF_ERROR(ConvertAttributes(func_res_i_attrs, attrs_to_ignore,
-                                       /*remove_ref_type=*/false,
-                                       node_def->mutable_attr()));
+  RETURN_IF_ERROR(ConvertAttributes(func_res_i_attrs, attrs_to_ignore,
+                                    /*remove_ref_type=*/false,
+                                    node_def->mutable_attr()));
 
   return node_def;
 }
@@ -336,7 +337,7 @@ absl::Status Exporter::AddEdge(Operation* inst) {
       if (mlir::isa<mlir::tf_executor::ControlType>(operand.getType())) break;
 
       auto* dst_node = returns_[fetch][operand_and_idx.index()];
-      TF_RETURN_IF_ERROR(AddEdgeBetweenNodes(operand, dst_node, 0));
+      RETURN_IF_ERROR(AddEdgeBetweenNodes(operand, dst_node, 0));
     }
 
     return absl::OkStatus();
@@ -347,12 +348,12 @@ absl::Status Exporter::AddEdge(Operation* inst) {
   if (auto next_iter_sink =
           llvm::dyn_cast<mlir::tf_executor::NextIterationSinkOp>(inst)) {
     auto* dst_node = nodes_[inst];
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         AddEdgeBetweenNodes(next_iter_sink.getInput(), dst_node, 0));
     for (auto control_and_idx :
          llvm::enumerate(next_iter_sink.getControlInputs()))
-      TF_RETURN_IF_ERROR(AddEdgeBetweenNodes(control_and_idx.value(), dst_node,
-                                             control_and_idx.index() + 1));
+      RETURN_IF_ERROR(AddEdgeBetweenNodes(control_and_idx.value(), dst_node,
+                                          control_and_idx.index() + 1));
 
     return absl::OkStatus();
   }
@@ -371,15 +372,15 @@ absl::Status Exporter::AddEdge(Operation* inst) {
   // edges.
   if (auto island = llvm::dyn_cast<mlir::tf_executor::IslandOp>(inst)) {
     for (auto operand_and_idx : llvm::enumerate(op->getOperands()))
-      TF_RETURN_IF_ERROR(AddEdgeBetweenNodes(operand_and_idx.value(), dst_node,
-                                             operand_and_idx.index()));
+      RETURN_IF_ERROR(AddEdgeBetweenNodes(operand_and_idx.value(), dst_node,
+                                          operand_and_idx.index()));
 
     operand_offset = op->getNumOperands();
   }
 
   // For all other ops (including tf_executor.island), add remaining edges.
   for (auto operand_and_idx : llvm::enumerate(inst->getOperands()))
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         AddEdgeBetweenNodes(operand_and_idx.value(), dst_node,
                             operand_and_idx.index() + operand_offset));
 
@@ -422,12 +423,12 @@ absl::Status Exporter::AddInstructionNode(Operation* inst) {
   auto name = op_to_name_.GetUniqueName(inst, graph_hash_value);
   // Convert registered TF ops to NodeDef. Only registered ops are handled to
   // ensure that PopulateDerivedAttrs adds the correct attributes.
-  TF_ASSIGN_OR_RETURN(node_def,
-                      ConvertTFDialectOpToNodeDef(
-                          inst, name, /*ignore_unregistered_attrs=*/false));
+  ASSIGN_OR_RETURN(node_def,
+                   ConvertTFDialectOpToNodeDef(
+                       inst, name, /*ignore_unregistered_attrs=*/false));
   UseOriginalFunctionNames(*node_def);
 
-  TF_ASSIGN_OR_RETURN(Node * node, graph_->AddNode(std::move(*node_def)));
+  ASSIGN_OR_RETURN(Node * node, graph_->AddNode(std::move(*node_def)));
   DCHECK(node != nullptr);
   nodes_[inst] = node;
   return absl::OkStatus();
@@ -441,8 +442,8 @@ bool IsEntryFunctionArg(BlockArgument arg) {
 // name will be used instead of generating a unique name.
 absl::Status Exporter::AddArgumentNode(BlockArgument arg, unsigned index,
                                        llvm::StringRef name) {
-  TF_ASSIGN_OR_RETURN(auto node_def, GetArgumentNode(arg, index, name));
-  TF_ASSIGN_OR_RETURN(Node * node, graph_->AddNode(std::move(*node_def)));
+  ASSIGN_OR_RETURN(auto node_def, GetArgumentNode(arg, index, name));
+  ASSIGN_OR_RETURN(Node * node, graph_->AddNode(std::move(*node_def)));
   args_[arg] = node;
   return absl::OkStatus();
 }
@@ -458,12 +459,12 @@ absl::Status Exporter::AddFetchNode(FuncOp function,
             operand_and_idx.value().getType()))
       break;
 
-    TF_ASSIGN_OR_RETURN(
+    ASSIGN_OR_RETURN(
         auto node_def,
         GetReturnNode(function, operand_and_idx.value(),
                       operand_and_idx.index(),
                       names.empty() ? "" : names[operand_and_idx.index()]));
-    TF_ASSIGN_OR_RETURN(Node * node, graph_->AddNode(std::move(*node_def)));
+    ASSIGN_OR_RETURN(Node * node, graph_->AddNode(std::move(*node_def)));
     return_nodes.push_back(node);
   }
   return absl::OkStatus();
@@ -598,18 +599,18 @@ absl::StatusOr<std::unique_ptr<Graph>> Exporter::Convert(
           mlir::debugString(type), " in function ", function.getName().str()));
     }
 
-    TF_RETURN_IF_ERROR(exporter.AddArgumentNode(
+    RETURN_IF_ERROR(exporter.AddArgumentNode(
         arg, index, !input_names.empty() ? input_names[index] : ""));
   }
 
-  auto convert_called_function = [&](llvm::StringRef name) {
+  auto convert_called_function = [&](llvm::StringRef name) -> absl::Status {
     auto func = symbol_table.lookup<FuncOp>(name);
     if (func != nullptr) {
-      TF_RETURN_IF_ERROR(ConvertLibFunction(configs, tf_dialect, symbol_table,
-                                            func, flib_def, visited_functions));
+      RETURN_IF_ERROR(ConvertLibFunction(configs, tf_dialect, symbol_table,
+                                         func, flib_def, visited_functions));
       // TODO(prakalps): Optimize to only add the requested function to graph
       // library rather than the all the functions exported so far.
-      TF_RETURN_IF_ERROR(graph->mutable_flib_def()->AddLibrary(*flib_def));
+      RETURN_IF_ERROR(graph->mutable_flib_def()->AddLibrary(*flib_def));
     }
     return absl::OkStatus();
   };
@@ -629,7 +630,7 @@ absl::StatusOr<std::unique_ptr<Graph>> Exporter::Convert(
       // tf_executor.NextIteration.Sink will be used instead.
       continue;
     } else if (auto fetch = llvm::dyn_cast<mlir::tf_executor::FetchOp>(inst)) {
-      TF_RETURN_IF_ERROR(
+      RETURN_IF_ERROR(
           exporter.AddFetchNode(function, fetch, unique_output_names));
     } else if (auto island =
                    llvm::dyn_cast<mlir::tf_executor::IslandOp>(inst)) {
@@ -641,24 +642,24 @@ absl::StatusOr<std::unique_ptr<Graph>> Exporter::Convert(
         // definition library
         // TODO(prakalps): If two functions have cyclic dependence, this will
         // introduce an infinite loop.
-        TF_RETURN_IF_ERROR(convert_called_function(op_name.value().str()));
+        RETURN_IF_ERROR(convert_called_function(op_name.value().str()));
       }
 
       if (IsLegacyCallInstruction(&inner_op)) {
-        TF_RETURN_IF_ERROR(convert_called_function(
+        RETURN_IF_ERROR(convert_called_function(
             inner_op.getAttrOfType<mlir::SymbolRefAttr>("f")
                 .getLeafReference()
                 .getValue()));
       }
 
-      TF_RETURN_IF_ERROR(exporter.AddInstructionNode(&inner_op));
+      RETURN_IF_ERROR(exporter.AddInstructionNode(&inner_op));
     } else {
-      TF_RETURN_IF_ERROR(exporter.AddInstructionNode(&inst));
+      RETURN_IF_ERROR(exporter.AddInstructionNode(&inst));
     }
   }
   // Adds edges between the argument, operation and return nodes.
   for (Operation& inst : graph_op.GetBody()) {
-    TF_RETURN_IF_ERROR(exporter.AddEdge(&inst));
+    RETURN_IF_ERROR(exporter.AddEdge(&inst));
   }
   // Fixes the edges between the inserted nodes and special "_SOURCE" and
   // "_SINK".
@@ -666,7 +667,7 @@ absl::StatusOr<std::unique_ptr<Graph>> Exporter::Convert(
 
   FixupInputNamesFromEdges(graph.get());
 
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       exporter.GetControlRetNodes(graph_op.GetFetch(), control_ret_nodes));
 
   return graph;
@@ -685,7 +686,7 @@ absl::Status Exporter::ConvertLibFunction(
 
   // TODO(fengliuai): use a small flib_def to reduce overhead
   absl::flat_hash_set<Node*> control_ret_nodes;
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
       auto sub_graph,
       Exporter::Convert(configs, tf_dialect, symbol_table, function, flib_def,
                         visited_functions, &control_ret_nodes));
@@ -695,7 +696,7 @@ absl::Status Exporter::ConvertLibFunction(
                : std::nullopt;
   };
   FunctionDef func_def;
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       GraphToFunctionDef(*sub_graph, function_name, control_ret, &func_def));
 
   // Checks for gradient attribute. If present converts the gradient function
@@ -704,13 +705,12 @@ absl::Status Exporter::ConvertLibFunction(
   if (auto attr =
           function->getAttrOfType<mlir::FlatSymbolRefAttr>(grad_string)) {
     auto grad_func = symbol_table.lookup<FuncOp>(attr.getValue());
-    TF_RETURN_IF_ERROR(ConvertLibFunction(configs, tf_dialect, symbol_table,
-                                          grad_func, flib_def,
-                                          visited_functions));
+    RETURN_IF_ERROR(ConvertLibFunction(configs, tf_dialect, symbol_table,
+                                       grad_func, flib_def, visited_functions));
     GradientDef grad;
     grad.set_function_name(function_name);
     grad.set_gradient_func(grad_func.getName().str());
-    TF_RETURN_IF_ERROR(flib_def->AddGradientDef(grad));
+    RETURN_IF_ERROR(flib_def->AddGradientDef(grad));
   }
 
   auto stateful_string = mlir::TF::TensorFlowDialect::GetStatefulAttrName();
@@ -725,9 +725,9 @@ absl::Status Exporter::ConvertLibFunction(
       grad_string.data(), stateful_string.data(), kEntryFuncAttr};
   llvm::SmallVector<mlir::NamedAttribute, 8> funcAttrs(
       function->getDialectAttrs());
-  TF_RETURN_IF_ERROR(ConvertAttributes(funcAttrs, attrs_to_ignore,
-                                       /*remove_ref_type=*/false,
-                                       func_def.mutable_attr()));
+  RETURN_IF_ERROR(ConvertAttributes(funcAttrs, attrs_to_ignore,
+                                    /*remove_ref_type=*/false,
+                                    func_def.mutable_attr()));
 
   for (int i = 0, e = function.getNumArguments(); i < e; ++i) {
     if (auto resource_arg_unique_id_attr =
@@ -764,14 +764,14 @@ absl::Status Exporter::Convert(mlir::ModuleOp module,
         !configs.export_entry_func_to_flib) {
       entry_func.emplace(function);
     } else {
-      TF_RETURN_IF_ERROR(ConvertLibFunction(configs, tf_dialect, symbol_table,
-                                            function, &temp_flib_def,
-                                            visited_functions));
+      RETURN_IF_ERROR(ConvertLibFunction(configs, tf_dialect, symbol_table,
+                                         function, &temp_flib_def,
+                                         visited_functions));
     }
   }
 
   if (flib_def != nullptr) {
-    TF_RETURN_IF_ERROR(flib_def->AddLibrary(temp_flib_def));
+    RETURN_IF_ERROR(flib_def->AddLibrary(temp_flib_def));
   }
 
   if (!configs.export_entry_func_to_flib) {
@@ -780,18 +780,18 @@ absl::Status Exporter::Convert(mlir::ModuleOp module,
           "entry function `main` must be present");
 
     // Updates the graph and the function library definition.
-    TF_ASSIGN_OR_RETURN(
-        *graph, Exporter::Convert(configs, tf_dialect, symbol_table,
-                                  entry_func.value(), &temp_flib_def,
-                                  visited_functions, control_ret_nodes));
+    ASSIGN_OR_RETURN(*graph,
+                     Exporter::Convert(configs, tf_dialect, symbol_table,
+                                       entry_func.value(), &temp_flib_def,
+                                       visited_functions, control_ret_nodes));
     // Add FunctionDefs and GradientDefs of MLIR functions to graph's function
     // library. If duplicate FunctionDefs already exist (can happen if exporter
     // had already added some FunctionDefs to the library to support legacy
     // calls), they are ignored.
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         graph->get()->mutable_flib_def()->AddLibrary(temp_flib_def));
   } else if (graph != nullptr) {
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         graph->get()->mutable_flib_def()->AddLibrary(std::move(*flib_def)));
   }
 
@@ -822,7 +822,7 @@ absl::Status ConvertMlirFunctionToFunctionLibraryDef(
   // may have gradient associated which would result in a lookup. This
   // could be made lazy if we find this to be broad.
   SymbolTable symbol_table(func->getParentOfType<mlir::ModuleOp>());
-  TF_RETURN_IF_ERROR(Exporter::ConvertLibFunction(
+  RETURN_IF_ERROR(Exporter::ConvertLibFunction(
       configs, tf_dialect, symbol_table, func, &flib_def, visited_functions));
 
   auto name = FindFunctionName(configs, func);

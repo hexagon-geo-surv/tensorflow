@@ -27,6 +27,7 @@ limitations under the License.
 #include "absl/log/vlog_is_on.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/LogicalResult.h"
@@ -150,11 +151,11 @@ absl::Status PopulateInputOutputAliasing(
   xla::HloInputOutputAliasConfig config(program_shape.result());
   for (auto alias : output_to_input_alias) {
     if (use_tuple_args) {
-      TF_RETURN_IF_ERROR(config.SetUpAlias(
+      RETURN_IF_ERROR(config.SetUpAlias(
           xla::ShapeIndex({alias.first}), 0, xla::ShapeIndex({alias.second}),
           xla::HloInputOutputAliasConfig::AliasKind::kMayAlias));
     } else {
-      TF_RETURN_IF_ERROR(config.SetUpAlias(
+      RETURN_IF_ERROR(config.SetUpAlias(
           xla::ShapeIndex({alias.first}), alias.second, xla::ShapeIndex({}),
           xla::HloInputOutputAliasConfig::AliasKind::kMayAlias));
     }
@@ -264,7 +265,7 @@ absl::Status CompileMLIRTFFunction(
   // Export functions to the library.
   auto flib_def = std::make_unique<FunctionLibraryDefinition>(
       OpRegistry::Global(), FunctionDefLibrary());
-  TF_RETURN_IF_ERROR(PrepareAndExportToLibrary(mlir_module, flib_def.get()));
+  RETURN_IF_ERROR(PrepareAndExportToLibrary(mlir_module, flib_def.get()));
 
   if (VLOG_IS_ON(2)) {
     tensorflow::DumpMlirOpToFile("legalize_with_old_bridge_post_transform",
@@ -282,7 +283,7 @@ absl::Status CompileMLIRTFFunction(
 
   *compilation_result = {};
 
-  TF_RETURN_IF_ERROR(CompileTFFunctionToHlo(
+  RETURN_IF_ERROR(CompileTFFunctionToHlo(
       *flib_def, versions.producer(), shape_determination_funcs, arg_shapes,
       device_type, consts, func, metadata, client, arg_core_mapping,
       per_core_arg_shapes, use_tuple_args, compilation_result));
@@ -315,8 +316,8 @@ absl::Status CompileMLIRTFFunction(
   mlir::MLIRContext context(registry);
 
   mlir::OwningOpRef<mlir::ModuleOp> mlir_module;
-  TF_RETURN_IF_ERROR(DeserializeMlirModule(mlir_computation.mlir_module,
-                                           &context, &mlir_module));
+  RETURN_IF_ERROR(DeserializeMlirModule(mlir_computation.mlir_module, &context,
+                                        &mlir_module));
 
   return CompileMLIRTFFunction(*mlir_module, metadata, use_tuple_args,
                                shape_determination_funcs, arg_shapes,
@@ -349,14 +350,14 @@ absl::Status CompileTensorflowGraphToHlo(
       absl::StrCat("graph_old_bridge_", mlir_string);
 
   if (has_mlir) {
-    TF_RETURN_IF_ERROR(CompileMLIRTFFunction(
+    RETURN_IF_ERROR(CompileMLIRTFFunction(
         std::get<0>(computation), metadata, use_tuple_args,
         shape_determination_funcs, arg_shapes, device_type, arg_core_mapping,
         per_core_arg_shapes, client, compilation_result));
 
   } else {
     FunctionToHloArgs function_computation = std::get<1>(computation);
-    TF_RETURN_IF_ERROR(CompileTFFunctionWithoutMlir(
+    RETURN_IF_ERROR(CompileTFFunctionWithoutMlir(
         function_computation, metadata, use_tuple_args,
         shape_determination_funcs, arg_shapes, device_type, arg_core_mapping,
         per_core_arg_shapes, client, compilation_result));

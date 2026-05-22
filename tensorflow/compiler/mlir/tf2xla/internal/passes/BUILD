@@ -338,6 +338,7 @@ cc_library(
         "//tensorflow/compiler/mlir/tf2xla/transforms:legalize_tf",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
+        "//third_party/gloop/util/status:status_macros",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",

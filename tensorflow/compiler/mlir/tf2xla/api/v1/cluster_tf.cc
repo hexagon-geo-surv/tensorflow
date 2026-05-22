@@ -21,6 +21,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/log/vlog_is_on.h"
 #include "absl/status/status.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
@@ -192,13 +193,13 @@ absl::Status RunClusteringPipelineOnSubmodule(
   if (num_submodules > 1) {
     auto num_submodules_error = absl::InternalError(
         "V1 Compat Bridge has more than one submodule. Erroring out.");
-    TF_RETURN_IF_ERROR(RecordStatusIfError(
+    RETURN_IF_ERROR(RecordStatusIfError(
         /*error_prefix=*/"Bridge has more than one submodule:",
         is_in_fallback_enabled_mode, num_submodules_error));
   }
 
   if (!clustering_pipeline_status.ok()) {
-    TF_RETURN_IF_ERROR(RecordStatusIfError(
+    RETURN_IF_ERROR(RecordStatusIfError(
         /*error_prefix=*/"Bridge Errored running clustering pipeline:",
         is_in_fallback_enabled_mode, clustering_pipeline_status));
   }
@@ -216,11 +217,11 @@ absl::Status RunSessionTf2xlaClusteringBridge(
   absl::Status functional_import_status = RunTFXLABridge(
       module, [](OpPassManager &pm) { CreateReplicatedBridgePipelineV1(pm); },
       /*module_name=*/"", /*dump_prefix=*/"tf_xla_functional_import_bridge_v1");
-  TF_RETURN_IF_ERROR(RecordStatusIfError(
+  RETURN_IF_ERROR(RecordStatusIfError(
       /*error_prefix=*/"Bridge Function Import V1", is_in_fallback_enabled_mode,
       functional_import_status));
 
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       RunClusteringPipelineOnSubmodule(module, is_in_fallback_enabled_mode));
 
   tensorflow::metrics::UpdateTfMlirBridgeFirstPhaseCounter(

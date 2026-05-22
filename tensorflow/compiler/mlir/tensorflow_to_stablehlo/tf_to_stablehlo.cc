@@ -27,6 +27,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/SourceMgr.h"
@@ -89,9 +90,8 @@ absl::StatusOr<OwningOpRef<ModuleOp>> ConvertTFToStablehlo(
   absl::flat_hash_set<std::string> aliased_function_names;
   if (!is_input_mlir_module) {
     std::unordered_set<std::string> tag_set(tag_names.begin(), tag_names.end());
-    TF_ASSIGN_OR_RETURN(
-        auto function_aliases,
-        quant::stablehlo::GetFunctionAliases(input_path, tag_set));
+    ASSIGN_OR_RETURN(auto function_aliases,
+                     quant::stablehlo::GetFunctionAliases(input_path, tag_set));
     quant::stablehlo::UpdateFunctionAliases(function_aliases, *module_op);
     absl::c_for_each(function_aliases, [&](const auto& aliases) {
       return aliased_function_names.insert(aliases.first);
@@ -102,11 +102,11 @@ absl::StatusOr<OwningOpRef<ModuleOp>> ConvertTFToStablehlo(
   if (saved_model_bundle) {
     session = saved_model_bundle->GetSession();
   }
-  TF_ASSIGN_OR_RETURN(auto input_arg_shapes_vec,
-                      TF::ParseArgumentShapes(input_arg_shapes_str));
+  ASSIGN_OR_RETURN(auto input_arg_shapes_vec,
+                   TF::ParseArgumentShapes(input_arg_shapes_str));
   llvm::SmallVector<llvm::ArrayRef<int64_t>> input_arg_shapes(
       input_arg_shapes_vec.begin(), input_arg_shapes_vec.end());
-  TF_RETURN_IF_ERROR(tensorflow::quantization::PreprocessAndFreezeGraph(
+  RETURN_IF_ERROR(tensorflow::quantization::PreprocessAndFreezeGraph(
       /*mlir_dump_file_prefix=*/"", /*is_inliner_run=*/true,
       /*noinline_functions=*/aliased_function_names, *module_op, context,
       session,

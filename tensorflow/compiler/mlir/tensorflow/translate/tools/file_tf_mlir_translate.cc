@@ -26,6 +26,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/Support/Casting.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/IR/Attributes.h"  // from @llvm-project
@@ -120,14 +121,14 @@ static absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> GraphdefToMlirImport(
     const std::vector<std::string>& control_output_arrays,
     const GraphdefToMlirOptions& import_options, mlir::MLIRContext* context) {
   GraphDef graphdef;
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       tensorflow::LoadProtoFromBuffer({input.data(), input.size()}, &graphdef));
   if (!port::kLittleEndian)
-    TF_RETURN_IF_ERROR(ByteSwapTensorContentInGraphDef(&graphdef));
+    RETURN_IF_ERROR(ByteSwapTensorContentInGraphDef(&graphdef));
 
   GraphDebugInfo debug_info;
   if (!import_options.debug_info_file.empty()) {
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         LoadProtoFromFile(import_options.debug_info_file, &debug_info));
   }
 
@@ -142,16 +143,16 @@ static absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> GraphdefToMlirImport(
   specs.xla_compile_device_type = import_options.xla_compile_device_type;
   specs.enable_soft_placement = import_options.enable_soft_placement;
   specs.set_original_tf_func_name = import_options.set_original_tf_func_name;
-  TF_RETURN_IF_ERROR(ParseInputArrayInfo(input_arrays, input_dtypes,
-                                         input_shapes, &specs.inputs));
-  TF_RETURN_IF_ERROR(ParseOutputArrayInfo(output_arrays, &specs.outputs));
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(ParseInputArrayInfo(input_arrays, input_dtypes, input_shapes,
+                                      &specs.inputs));
+  RETURN_IF_ERROR(ParseOutputArrayInfo(output_arrays, &specs.outputs));
+  RETURN_IF_ERROR(
       ParseOutputArrayInfo(control_output_arrays, &specs.control_outputs));
   // TODO(hinsu): Completely deprecate support for LegacyFedInput ops. One
   // solution could be have a tool to let users upgrade old serialized graphs.
   for (auto& node_def : *graphdef.mutable_node()) {
     if (specs.convert_legacy_fed_inputs && node_def.op() == "LegacyFedInput") {
-      TF_RETURN_IF_ERROR(
+      RETURN_IF_ERROR(
           UpdateLegacyFedInputNode(graphdef, specs.inputs, &node_def));
     }
   }
@@ -170,7 +171,7 @@ static absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> GraphdefToMlirImport(
     for (const auto& input : specs.inputs) {
       terminal_nodes.push_back(input.first);
     }
-    TF_RETURN_IF_ERROR(tensorflow::grappler::SetTransitiveFaninGraph(
+    RETURN_IF_ERROR(tensorflow::grappler::SetTransitiveFaninGraph(
         graphdef, &pruned_graph_def, terminal_nodes));
     // TODO(ashwinm): Add a separate utility in grappler utils that abstracts
     // both SetTransitiveFaninGraph and restoring the missing contents from the
@@ -184,7 +185,7 @@ static absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> GraphdefToMlirImport(
   options.upgrade_legacy = specs.upgrade_legacy;
   options.add_default_attributes = true;
   tensorflow::Graph graph(tensorflow::OpRegistry::Global());
-  TF_RETURN_IF_ERROR(::tensorflow::ConvertGraphDefToGraph(
+  RETURN_IF_ERROR(::tensorflow::ConvertGraphDefToGraph(
       options,
       specs.prune_unused_nodes ? std::move(pruned_graph_def)
                                : std::move(graphdef),
@@ -221,11 +222,11 @@ GraphdefToMlirTranslateFunction(
   std::vector<std::optional<std::vector<int>>> input_shapes_vector;
   std::vector<std::string> output_array_vector;
   std::vector<std::string> control_output_array_vector;
-  TF_RETURN_IF_ERROR(ParseNodeNames(input_arrays, input_array_vector));
-  TF_RETURN_IF_ERROR(ParseNodeDataTypes(input_dtypes, input_dtype_vector));
-  TF_RETURN_IF_ERROR(ParseNodeNames(output_arrays, output_array_vector));
-  TF_RETURN_IF_ERROR(ParseNodeShapes(input_shapes, input_shapes_vector));
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(ParseNodeNames(input_arrays, input_array_vector));
+  RETURN_IF_ERROR(ParseNodeDataTypes(input_dtypes, input_dtype_vector));
+  RETURN_IF_ERROR(ParseNodeNames(output_arrays, output_array_vector));
+  RETURN_IF_ERROR(ParseNodeShapes(input_shapes, input_shapes_vector));
+  RETURN_IF_ERROR(
       ParseNodeNames(control_output_arrays, control_output_array_vector));
   return GraphdefToMlirTranslateFunction(
       input, input_array_vector, input_dtype_vector, input_shapes_vector,
@@ -291,11 +292,11 @@ GraphdefToSplattedMlirTranslateFunction(
   std::vector<std::optional<std::vector<int>>> input_shapes_vector;
   std::vector<std::string> output_array_vector;
   std::vector<std::string> control_output_array_vector;
-  TF_RETURN_IF_ERROR(ParseNodeNames(input_arrays, input_array_vector));
-  TF_RETURN_IF_ERROR(ParseNodeDataTypes(input_dtypes, input_dtype_vector));
-  TF_RETURN_IF_ERROR(ParseNodeNames(output_arrays, output_array_vector));
-  TF_RETURN_IF_ERROR(ParseNodeShapes(input_shapes, input_shapes_vector));
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(ParseNodeNames(input_arrays, input_array_vector));
+  RETURN_IF_ERROR(ParseNodeDataTypes(input_dtypes, input_dtype_vector));
+  RETURN_IF_ERROR(ParseNodeNames(output_arrays, output_array_vector));
+  RETURN_IF_ERROR(ParseNodeShapes(input_shapes, input_shapes_vector));
+  RETURN_IF_ERROR(
       ParseNodeNames(control_output_arrays, control_output_array_vector));
   return GraphdefToSplattedMlirTranslateFunction(
       input, input_array_vector, input_dtype_vector, input_shapes_vector,

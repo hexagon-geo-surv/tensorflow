@@ -28,6 +28,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
@@ -89,7 +90,7 @@ uint64_t MlirModuleFingerprint(mlir::ModuleOp module) {
 absl::StatusOr<uint64_t> Tf2HloArg::Fingerprint() const {
   uint64_t fingerprint = tsl::Fingerprint64(platform_name);
   if (topology) {
-    TF_ASSIGN_OR_RETURN(fingerprint, topology->Fingerprint());
+    ASSIGN_OR_RETURN(fingerprint, topology->Fingerprint());
   }
   if (platform_name != xla::CudaName() && !topology) {
     return absl::FailedPreconditionError(
@@ -145,7 +146,7 @@ absl::StatusOr<Tf2HLOResultProto> Tf2HloResult::ToProto() const {
   result.compile_metadata = proto.compile_metadata();
   result.host_compute_metadata = proto.host_compute_metadata();
   for (const auto& shape : proto.xla_input_shapes()) {
-    TF_ASSIGN_OR_RETURN(xla::Shape xla_shape, xla::Shape::FromProto(shape));
+    ASSIGN_OR_RETURN(xla::Shape xla_shape, xla::Shape::FromProto(shape));
     result.xla_input_shapes.push_back(std::move(xla_shape));
   }
   return result;
@@ -217,7 +218,7 @@ absl::StatusOr<tensorflow::tpu::TPUCompileMetadataProto> GetCompileMetadata(
 
   // Create a default device assignment if one is not given by the model.
   if (!metadata.has_device_assignment()) {
-    TF_ASSIGN_OR_RETURN(
+    ASSIGN_OR_RETURN(
         auto device_assignment,
         ifrt_client.GetDefaultDeviceAssignment(
             metadata.num_replicas(), metadata.num_cores_per_replica()));
@@ -244,12 +245,10 @@ absl::StatusOr<Tf2HloResult> CompileTfToHlo(const Tf2HloArg& arg) {
   }
   VLOG(1) << "device_type: " << device_type;
 
-  TF_ASSIGN_OR_RETURN(
-      auto* platform,
-      stream_executor::PlatformManager::PlatformWithName("Host"));
-  TF_ASSIGN_OR_RETURN(
-      auto* client, xla::ClientLibrary::GetOrCreateCompileOnlyClient(platform));
-
+  ASSIGN_OR_RETURN(auto* platform,
+                   stream_executor::PlatformManager::PlatformWithName("Host"));
+  ASSIGN_OR_RETURN(auto* client,
+                   xla::ClientLibrary::GetOrCreateCompileOnlyClient(platform));
 
   std::vector<TensorShape> arg_shapes;
   arg_shapes.reserve(arg.input_dtypes_and_shapes.size());
@@ -263,7 +262,7 @@ absl::StatusOr<Tf2HloResult> CompileTfToHlo(const Tf2HloArg& arg) {
     arg_tensor_or_resource_shapes.push_back({shape});
   }
 
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       tensorflow::RefineShapes(arg_tensor_or_resource_shapes, arg.module));
   tpu::MlirToHloArgs mlir_to_hlo_args;
   std::string module_str = tensorflow::SerializeMlirModule(arg.module);
@@ -277,7 +276,7 @@ absl::StatusOr<Tf2HloResult> CompileTfToHlo(const Tf2HloArg& arg) {
   std::vector<std::vector<xla::Shape>> per_core_arg_shapes;
   std::vector<std::unique_ptr<mlir::Pass>> custom_legalization_passes;
 
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
       tensorflow::XlaCompiler::CompilationResult compilation_result,
       tensorflow::tf2xla::v2::LegalizeMlirToHlo(
           mlir_to_hlo_args, arg.compile_metadata, use_tuple_args, device_type,
@@ -315,7 +314,7 @@ absl::StatusOr<Tf2HloResult> TfToHloCompiler::CompileTfToHlo(Tf2HloArg& arg) {
 }
 
 absl::StatusOr<std::string> TfToHloCompiler::Key(const Tf2HloArg& arg) {
-  TF_ASSIGN_OR_RETURN(uint64_t fingerprint, arg.Fingerprint());
+  ASSIGN_OR_RETURN(uint64_t fingerprint, arg.Fingerprint());
   return absl::StrCat(absl::Hex(fingerprint));
 }
 

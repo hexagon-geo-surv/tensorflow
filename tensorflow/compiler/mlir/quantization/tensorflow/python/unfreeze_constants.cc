@@ -19,6 +19,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/Pass/PassManager.h"  // from @llvm-project
 #include "tensorflow/compiler/mlir/quantization/tensorflow/cc/run_passes.h"
@@ -39,9 +40,9 @@ namespace quantization {
 absl::Status UnfreezeConstantsAndSaveVariables(
     const absl::string_view checkpoint_dir, mlir::MLIRContext &ctx,
     mlir::ModuleOp module_op) {
-  TF_RETURN_IF_ERROR(RunPasses(
+  RETURN_IF_ERROR(RunPasses(
       /*name=*/kTfQuantConstantUnfreezingStepName, /*add_passes_func=*/
-      [](mlir::PassManager &pm) {
+      [](mlir::PassManager& pm) {
         pm.addPass(mlir::quant::CreateUnfreezeConstantsPass());
       },
       ctx, module_op));
@@ -54,8 +55,8 @@ absl::Status UnfreezeConstantsAndSaveVariables(
     return create_dir_status;
   }
 
-  TF_ASSIGN_OR_RETURN(const auto unused_variable_names,
-                      SaveVariablesToCheckpoint(checkpoint_dir, module_op));
+  ASSIGN_OR_RETURN(const auto unused_variable_names,
+                   SaveVariablesToCheckpoint(checkpoint_dir, module_op));
 
   return RunPasses(
       /*name=*/kTfQuantInsertRestoreOpStepName,

@@ -26,6 +26,7 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/CodeGen/CommandFlags.h"
@@ -136,7 +137,7 @@ absl::Status Run(llvm::StringRef input_file, llvm::StringRef output_file,
                  bool jit_compile, bool jit_i64_indexed_for_large_tensors) {
   // Read TF code.
   std::string hlo_code;
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       ReadFileToString(Env::Default(), input_file.str(), &hlo_code));
 
   // Compile.
@@ -147,7 +148,7 @@ absl::Status Run(llvm::StringRef input_file, llvm::StringRef output_file,
   llvm::SourceMgr source_mgr;
   mlir::SourceMgrDiagnosticHandler source_mgr_handler(source_mgr, &context);
 
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
       mlir::OwningOpRef<mlir::ModuleOp> module,
       GenerateKernelForHloCode(context, hlo_code, architectures, tile_sizes,
                                unroll_factors, print_ptx, print_llvmir,
@@ -156,11 +157,10 @@ absl::Status Run(llvm::StringRef input_file, llvm::StringRef output_file,
                                /*apply_cl_options=*/true));
 
   // Get binary.
-  TF_ASSIGN_OR_RETURN(std::string binary, EmitToBinary(host_triple, *module));
+  ASSIGN_OR_RETURN(std::string binary, EmitToBinary(host_triple, *module));
 
   // Write .a file.
-  TF_RETURN_IF_ERROR(
-      WriteStringToFile(Env::Default(), output_file.str(), binary));
+  RETURN_IF_ERROR(WriteStringToFile(Env::Default(), output_file.str(), binary));
   return absl::OkStatus();
 }
 

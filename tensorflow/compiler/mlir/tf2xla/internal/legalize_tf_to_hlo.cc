@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/StringRef.h"
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/IR/DialectRegistry.h"  // from @llvm-project
@@ -82,7 +83,7 @@ absl::StatusOr<XlaCompilationResult> LegalizeTfToHlo(
       custom_legalization_passes, arg_shapes, arg_core_mapping,
       per_core_arg_shapes);
 
-  TF_RETURN_IF_ERROR(CheckAndIncrementCounter(
+  RETURN_IF_ERROR(CheckAndIncrementCounter(
       mlir_compilation, MlirBridgeSecondPhaseMetric::kMlirCombinedMlirFailure));
 
   IncrementTfMlirBridgeSecondPhaseCounter(
@@ -95,7 +96,7 @@ absl::StatusOr<XlaCompilationResult> LegalizeTfToHlo(
       arg_shapes, tsl::DeviceType(device_type.str()), arg_core_mapping,
       per_core_arg_shapes, client, compilation_result);
 
-  TF_RETURN_IF_ERROR(CheckAndIncrementCounter(
+  RETURN_IF_ERROR(CheckAndIncrementCounter(
       old_bridge_status, MlirBridgeSecondPhaseMetric::kMlirCombinedOldFailure));
 
   IncrementTfMlirBridgeSecondPhaseCounter(
@@ -135,7 +136,7 @@ absl::StatusOr<XlaCompilationResult> LegalizeTfToHlo(
   absl::Status deserialization_status = tensorflow::DeserializeMlirModule(
       computation.mlir_module, &context, &mlir_module);
 
-  TF_RETURN_IF_ERROR(CheckAndIncrementCounter(
+  RETURN_IF_ERROR(CheckAndIncrementCounter(
       deserialization_status,
       MlirBridgeSecondPhaseMetric::kMlirCombinedMlirFailure));
 

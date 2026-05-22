@@ -73,6 +73,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
+        "//third_party/gloop/util/status:status_macros",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
         "//tensorflow/core:core_cpu_base",

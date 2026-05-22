@@ -37,6 +37,7 @@ limitations under the License.
 #include "mlir/Transforms/Passes.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVector.h"
@@ -1887,7 +1888,7 @@ static void CreateTfExecutorToTfrtPipelineHelper(
 // export TF_DUMP_GRAPH_PREFIX=/tmp/mlir
 absl::Status CreateTfExecutorToTfrtPipeline(
     mlir::PassManager &pm, const TfrtPipelineOptions &options) {
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       CreateTFExecutorToTFPreInvariantOptimizationPipeline(pm, options));
   CreateTFInvariantOptimizationPipelineHelper(pm, options);
   CreateTfToTfrtPipeline(pm, options);
@@ -1896,7 +1897,7 @@ absl::Status CreateTfExecutorToTfrtPipeline(
 
 absl::Status CreateTFExecutorToTFPipeline(mlir::PassManager &pm,
                                           const TfrtPipelineOptions &options) {
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       CreateTFExecutorToTFPreInvariantOptimizationPipeline(pm, options));
   CreateTFInvariantOptimizationPipelineHelper(pm, options);
   return absl::OkStatus();

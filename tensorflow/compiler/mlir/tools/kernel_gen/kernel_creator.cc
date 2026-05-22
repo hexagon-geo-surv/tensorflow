@@ -24,6 +24,7 @@ limitations under the License.
 #include <string>
 
 #include "absl/status/status.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"  // from @llvm-project
 #include "mlir/Conversion/ComplexToStandard/ComplexToStandard.h"  // from @llvm-project
@@ -466,20 +467,20 @@ absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> GenerateKernelForHloCode(
         "compilation (`jit`) must not be requested together");
   }
 
-  TF_ASSIGN_OR_RETURN(mlir::OwningOpRef<mlir::ModuleOp> module,
-                      SetupContextAndParseModule(context, tf_code));
+  ASSIGN_OR_RETURN(mlir::OwningOpRef<mlir::ModuleOp> module,
+                   SetupContextAndParseModule(context, tf_code));
 
   if (jit_compile) {
     assert(!jit_i64_indexed_for_large_tensors &&
            "expect to have reported an error earlier");
-    TF_RETURN_IF_ERROR(LowerHloToJITInvocation(
+    RETURN_IF_ERROR(LowerHloToJITInvocation(
         module.get(), tile_sizes, unroll_factors, enable_ftz, index_64bit,
         /*jit_i64_indexed_for_large_tensors=*/false, apply_cl_options));
   } else {
-    TF_RETURN_IF_ERROR(LowerHlotoLoops(
+    RETURN_IF_ERROR(LowerHlotoLoops(
         module.get(), tile_sizes, unroll_factors, enable_ftz, index_64bit,
         jit_i64_indexed_for_large_tensors, apply_cl_options));
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         LowerLoopsToGPU(module.get(), index_64bit, apply_cl_options));
 
     // Note: we're just passing the first architecture out of the list. This
@@ -488,16 +489,16 @@ absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> GenerateKernelForHloCode(
     // architecture.
     const std::string& first_architecture =
         !architectures.empty() ? architectures[0] : "";
-    TF_RETURN_IF_ERROR(LowerKernelBodiesToLowLevelIr(
+    RETURN_IF_ERROR(LowerKernelBodiesToLowLevelIr(
         module.get(), apply_cl_options, first_architecture));
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         AmendKernelLLVMIRWithStaticKnowledge(module.get(), apply_cl_options));
-    TF_RETURN_IF_ERROR(GenerateDeviceCode(
-        module.get(), kGpuBinaryAttrName, architectures, print_ptx,
-        print_llvmir, enable_ftz, apply_cl_options));
+    RETURN_IF_ERROR(GenerateDeviceCode(module.get(), kGpuBinaryAttrName,
+                                       architectures, print_ptx, print_llvmir,
+                                       enable_ftz, apply_cl_options));
   }
 
-  TF_RETURN_IF_ERROR(LowerHostSideToFinalForm(module.get(), apply_cl_options));
+  RETURN_IF_ERROR(LowerHostSideToFinalForm(module.get(), apply_cl_options));
 
   return module;
 }

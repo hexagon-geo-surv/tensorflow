@@ -27,6 +27,7 @@ limitations under the License.
 #include "absl/memory/memory.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
@@ -103,7 +104,7 @@ absl::Status ConvertLocation(mlir::Location inst_loc, llvm::StringRef node_name,
       return errors::InvalidArgument("expected experimental debuf info.");
     // skip the first one, which is the name of the node_def.
     for (int i = 0, end = locations.size() - 1; i < end; ++i) {
-      TF_RETURN_IF_ERROR(ConvertLocation(locations[i], node_name, debug_info));
+      RETURN_IF_ERROR(ConvertLocation(locations[i], node_name, debug_info));
     }
   }
   return absl::OkStatus();
@@ -149,11 +150,11 @@ absl::Status ConvertAttribute(const mlir::FlatSymbolRefAttr& attr,
 
 absl::Status ConvertAttribute(const mlir::TF::FuncAttr& attr,
                               bool remove_ref_type, AttrValue* value) {
-  TF_RETURN_IF_ERROR(ConvertAttribute(
+  RETURN_IF_ERROR(ConvertAttribute(
       mlir::cast<mlir::FlatSymbolRefAttr>(attr.getName()), value));
-  TF_RETURN_IF_ERROR(ConvertAttributes(attr.getAttrs().getValue(),
-                                       /*attrs_to_ignore=*/{}, remove_ref_type,
-                                       value->mutable_func()->mutable_attr()));
+  RETURN_IF_ERROR(ConvertAttributes(attr.getAttrs().getValue(),
+                                    /*attrs_to_ignore=*/{}, remove_ref_type,
+                                    value->mutable_func()->mutable_attr()));
   return absl::OkStatus();
 }
 
@@ -166,12 +167,12 @@ absl::Status ConvertAttribute(const mlir::StringAttr& attr, AttrValue* value) {
     }
     case mangling_util::MangledKind::kDataType: {
       DataType dtype;
-      TF_RETURN_IF_ERROR(mangling_util::DemangleDataType(attr_value, &dtype));
+      RETURN_IF_ERROR(mangling_util::DemangleDataType(attr_value, &dtype));
       value->set_type(dtype);
       return absl::OkStatus();
     }
     case mangling_util::MangledKind::kTensorShape:
-      TF_RETURN_IF_ERROR(
+      RETURN_IF_ERROR(
           mangling_util::DemangleShape(attr_value, value->mutable_shape()));
       return absl::OkStatus();
     default:
@@ -183,7 +184,7 @@ absl::Status ConvertAttribute(const mlir::StringAttr& attr, AttrValue* value) {
 absl::Status ConvertAttribute(mlir::Type type, bool remove_ref_type,
                               AttrValue* value) {
   DataType dtype;
-  TF_RETURN_IF_ERROR(ConvertToDataType(type, &dtype));
+  RETURN_IF_ERROR(ConvertToDataType(type, &dtype));
   if (tensorflow::IsRefType(dtype)) dtype = tensorflow::RemoveRefType(dtype);
   value->set_type(dtype);
   return absl::OkStatus();
@@ -211,7 +212,7 @@ absl::Status ConvertAttribute(const mlir::ArrayAttr& attr, bool remove_ref_type,
       list->add_f(attr.getValueAsDouble());
     } else if (auto attr = mlir::dyn_cast<mlir::StringAttr>(a)) {
       AttrValue nested_value;
-      TF_RETURN_IF_ERROR(ConvertAttribute(attr, &nested_value));
+      RETURN_IF_ERROR(ConvertAttribute(attr, &nested_value));
       switch (nested_value.value_case()) {
         case AttrValue::kS:
           list->add_s(nested_value.s());
@@ -227,11 +228,11 @@ absl::Status ConvertAttribute(const mlir::ArrayAttr& attr, bool remove_ref_type,
       }
     } else if (auto attr = mlir::dyn_cast<mlir::ElementsAttr>(a)) {
       TensorProto tensor;
-      TF_RETURN_IF_ERROR(ConvertToTensorProto(attr, &tensor));
+      RETURN_IF_ERROR(ConvertToTensorProto(attr, &tensor));
       *list->add_tensor() = tensor;
     } else if (auto attr = mlir::dyn_cast<mlir::FlatSymbolRefAttr>(a)) {
       AttrValue attr_val;
-      TF_RETURN_IF_ERROR(ConvertAttribute(attr, &attr_val));
+      RETURN_IF_ERROR(ConvertAttribute(attr, &attr_val));
       *list->add_func() = attr_val.func();
     } else if (auto attr = mlir::dyn_cast<mlir::TypeAttr>(a)) {
       AttrValue attr_val;
@@ -240,12 +241,11 @@ absl::Status ConvertAttribute(const mlir::ArrayAttr& attr, bool remove_ref_type,
       if (auto shaped_type = mlir::dyn_cast<mlir::ShapedType>(elt_type)) {
         elt_type = shaped_type.getElementType();
       }
-      TF_RETURN_IF_ERROR(
-          ConvertAttribute(elt_type, remove_ref_type, &attr_val));
+      RETURN_IF_ERROR(ConvertAttribute(elt_type, remove_ref_type, &attr_val));
       list->add_type(attr_val.type());
     } else if (auto attr = mlir::dyn_cast<mlir::TF::ShapeAttr>(a)) {
       AttrValue attr_val;
-      TF_RETURN_IF_ERROR(ConvertAttribute(attr, &attr_val));
+      RETURN_IF_ERROR(ConvertAttribute(attr, &attr_val));
       *list->add_shape() = attr_val.shape();
     } else if (auto attr = mlir::dyn_cast<mlir::ArrayAttr>(a)) {
       std::vector<int64_t> vals;
@@ -260,7 +260,7 @@ absl::Status ConvertAttribute(const mlir::ArrayAttr& attr, bool remove_ref_type,
       mlir::TensorType ty =
           mlir::RankedTensorType::get(vals.size(), builder.getIntegerType(64));
       TensorProto tensor;
-      TF_RETURN_IF_ERROR(ConvertToTensorProto(
+      RETURN_IF_ERROR(ConvertToTensorProto(
           mlir::DenseIntElementsAttr::get(ty, vals), &tensor));
       *list->add_tensor() = tensor;
     } else {
@@ -343,8 +343,8 @@ absl::StatusOr<std::unique_ptr<NodeDef>> GetOperationNodeDef(
     // mapped to tf_executor::EnterOp during import. Check if it is a Ref op to
     // correctly map to the TensorFlow Graph op.
     if (IsRefTypeControlOp(inst)) op_name = "Ref";
-    TF_ASSIGN_OR_RETURN(auto tf_name,
-                        GetTensorFlowOpName(inst->getName().getStringRef()));
+    ASSIGN_OR_RETURN(auto tf_name,
+                     GetTensorFlowOpName(inst->getName().getStringRef()));
     op_name.append(tf_name);
   }
 
@@ -370,8 +370,8 @@ absl::StatusOr<std::unique_ptr<NodeDef>> GetOperationNodeDef(
   }
 
   // Add the node debug info.
-  TF_RETURN_IF_ERROR(ConvertLocation(
-      inst->getLoc(), name, node_def->mutable_experimental_debug_info()));
+  RETURN_IF_ERROR(ConvertLocation(inst->getLoc(), name,
+                                  node_def->mutable_experimental_debug_info()));
 
   return node_def;
 }
@@ -398,13 +398,13 @@ absl::Status ConvertAttributes(
     }
     AttrValue value;
     if (auto symbol_ref = mlir::dyn_cast<mlir::SymbolRefAttr>(attr)) {
-      TF_RETURN_IF_ERROR(ConvertAttribute(
+      RETURN_IF_ERROR(ConvertAttribute(
           mlir::cast<mlir::FlatSymbolRefAttr>(symbol_ref), &value));
       func_call_attrs[std::string(name)] = std::move(value);
       continue;
     }
     if (auto func_attr = mlir::dyn_cast<mlir::TF::FuncAttr>(attr)) {
-      TF_RETURN_IF_ERROR(ConvertAttribute(func_attr, remove_ref_type, &value));
+      RETURN_IF_ERROR(ConvertAttribute(func_attr, remove_ref_type, &value));
       func_call_attrs[std::string(name)] = std::move(value);
       continue;
     }
@@ -413,7 +413,7 @@ absl::Status ConvertAttributes(
       return errors::Unimplemented("AffineMap attribute (needed for '",
                                    name_strref, "') unimplemented");
     }
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR((
         llvm::TypeSwitch<mlir::Attribute, absl::Status>(attr)
             .Case<mlir::BoolAttr, mlir::IntegerAttr, mlir::FloatAttr,
                   mlir::StringAttr, mlir::ElementsAttr, mlir::UnitAttr,
@@ -428,7 +428,7 @@ absl::Status ConvertAttributes(
               return errors::Unimplemented(
                   "Unhandled attribute kind for attribute '", name_strref,
                   '\'');
-            }));
+            })));
 
     // According to the NodeDef proto definition, an attribute name from the
     // input TensorFlow GraphDef shouldn't contain '.'. If it does appear in

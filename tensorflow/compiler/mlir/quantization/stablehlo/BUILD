@@ -338,6 +338,7 @@ tf_cc_test(
         "//tensorflow/core/kernels:nn",
         "//tensorflow/core/kernels/uniform_quant_ops:kernels",
         "//tensorflow/core/ops",
+        "//third_party/gloop/util/status:status_macros",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/status",

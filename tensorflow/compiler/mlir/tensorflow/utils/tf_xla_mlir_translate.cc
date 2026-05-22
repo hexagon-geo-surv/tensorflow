@@ -26,6 +26,7 @@ limitations under the License.
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
@@ -157,15 +158,15 @@ absl::Status ParseArgumentShapes(
     llvm::SmallVectorImpl<TensorOrResourceShape>& arg_shapes) {
   arg_shapes.clear();
   std::vector<std::optional<std::vector<int>>> input_shapes_vector;
-  TF_RETURN_IF_ERROR(ParseNodeShapes(input_shapes_str, input_shapes_vector));
+  RETURN_IF_ERROR(ParseNodeShapes(input_shapes_str, input_shapes_vector));
   arg_shapes.resize(input_shapes_vector.size());
   for (const auto& shape : llvm::enumerate(input_shapes_vector)) {
     if (!shape.value().has_value()) {
-      TF_RETURN_IF_ERROR(TensorShapeUtils::MakeShape(
+      RETURN_IF_ERROR(TensorShapeUtils::MakeShape(
           static_cast<int*>(nullptr), 0, &arg_shapes[shape.index()].shape));
       continue;
     }
-    TF_RETURN_IF_ERROR(TensorShapeUtils::MakeShape(
+    RETURN_IF_ERROR(TensorShapeUtils::MakeShape(
         *shape.value(), &arg_shapes[shape.index()].shape));
   }
 
@@ -176,7 +177,7 @@ absl::Status ParseDataTypes(absl::string_view data_types_str,
                             llvm::SmallVectorImpl<DataType>& data_types) {
   data_types.clear();
   std::vector<std::string> input_dtypes_vector;
-  TF_RETURN_IF_ERROR(ParseNodeDataTypes(data_types_str, input_dtypes_vector));
+  RETURN_IF_ERROR(ParseNodeDataTypes(data_types_str, input_dtypes_vector));
   data_types.resize(input_dtypes_vector.size(), DT_INVALID);
   for (auto data_type : llvm::enumerate(input_dtypes_vector)) {
     if (!DataType_Parse(data_type.value(), &data_types[data_type.index()]))
@@ -226,12 +227,12 @@ absl::Status ParseXlaArguments(
     llvm::SmallVectorImpl<XlaArgument>& xla_arguments) {
   xla_arguments.clear();
   std::vector<std::optional<std::vector<int>>> input_shapes_vector;
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       tensorflow::ParseNodeShapes(input_shapes_str, input_shapes_vector));
   llvm::SmallVector<DataType, 4> dtypes_vector;
-  TF_RETURN_IF_ERROR(ParseDataTypes(input_dtypes_str, dtypes_vector));
+  RETURN_IF_ERROR(ParseDataTypes(input_dtypes_str, dtypes_vector));
   llvm::SmallVector<XlaArgument::Kind, 4> arg_kinds_vector;
-  TF_RETURN_IF_ERROR(ParseArgumentKinds(arg_kinds_str, arg_kinds_vector));
+  RETURN_IF_ERROR(ParseArgumentKinds(arg_kinds_str, arg_kinds_vector));
 
   if (input_shapes_vector.empty())
     input_shapes_vector.resize(dtypes_vector.size());
@@ -256,9 +257,9 @@ absl::Status ParseXlaArguments(
     TensorShape shape;
     auto input_shapes = std::get<1>(arg_components);
     if (input_shapes.has_value()) {
-      TF_RETURN_IF_ERROR(TensorShapeUtils::MakeShape(*input_shapes, &shape));
+      RETURN_IF_ERROR(TensorShapeUtils::MakeShape(*input_shapes, &shape));
     } else {
-      TF_RETURN_IF_ERROR(
+      RETURN_IF_ERROR(
           TensorShapeUtils::MakeShape(static_cast<int*>(nullptr), 0, &shape));
     }
     arg.shape = std::move(shape);
@@ -282,7 +283,7 @@ absl::Status CompileMlirToXlaHloViaBuilder(
   // This call to RefineShapes is redundant with the call in BuildHloFromTf.
   // It's here so xla::Parameters that are created form block.getArguments will
   // have the proper shapes.
-  TF_RETURN_IF_ERROR(RefineShapes(arg_shapes, module_op));
+  RETURN_IF_ERROR(RefineShapes(arg_shapes, module_op));
 
   mlir::func::FuncOp main = module_op.lookupSymbol<mlir::func::FuncOp>("main");
   mlir::Block& block = main.getRegion().front();
@@ -299,9 +300,9 @@ absl::Status CompileMlirToXlaHloViaBuilder(
   }
 
   std::vector<xla::XlaOp> returns(1);
-  TF_RETURN_IF_ERROR(BuildHloFromTf(module_op, builder, xla_params, returns,
-                                    arg_shapes, device_type,
-                                    custom_legalization_passes));
+  RETURN_IF_ERROR(BuildHloFromTf(module_op, builder, xla_params, returns,
+                                 arg_shapes, device_type,
+                                 custom_legalization_passes));
 
   xla::XlaOp return_value;
   if (returns.size() == 1)
@@ -309,7 +310,7 @@ absl::Status CompileMlirToXlaHloViaBuilder(
   else
     return_value = xla::Tuple(&builder, returns);
 
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
       xla::XlaComputation computation,
       return_value.valid() ? builder.Build(return_value) : builder.Build());
   auto hlo_module = computation.proto();

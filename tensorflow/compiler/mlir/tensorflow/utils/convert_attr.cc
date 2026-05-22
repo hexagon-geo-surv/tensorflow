@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "tensorflow/compiler/mlir/tensorflow/utils/convert_attr.h"
 
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/IR/Attributes.h"  // from @llvm-project
 #include "mlir/IR/Builders.h"  // from @llvm-project
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_attributes.h"
@@ -41,7 +42,7 @@ absl::StatusOr<mlir::Attribute> ConvertNonFuncAttributeValue(
       return builder->getBoolAttr(value.b());
     case AttrValue::kType: {
       mlir::Type type;
-      TF_RETURN_IF_ERROR(ConvertDataType(value.type(), *builder, &type));
+      RETURN_IF_ERROR(ConvertDataType(value.type(), *builder, &type));
       return mlir::TypeAttr::get(type);
     }
     case AttrValue::kShape:
@@ -60,16 +61,16 @@ absl::StatusOr<mlir::Attribute> ConvertNonFuncAttributeValue(
         attrs.push_back(builder->getBoolAttr(item));
       for (const auto& item : value.list().type()) {
         mlir::Type type;
-        TF_RETURN_IF_ERROR(ConvertDataType(DataType(item), *builder, &type));
+        RETURN_IF_ERROR(ConvertDataType(DataType(item), *builder, &type));
         attrs.push_back(mlir::TypeAttr::get(type));
       }
       for (const auto& item : value.list().shape()) {
-        TF_ASSIGN_OR_RETURN(
-            auto attr, ConvertTensorShapeProto(item, builder->getContext()));
+        ASSIGN_OR_RETURN(auto attr,
+                         ConvertTensorShapeProto(item, builder->getContext()));
         attrs.push_back(attr);
       }
       for (const auto& item : value.list().tensor()) {
-        TF_ASSIGN_OR_RETURN(auto attr, ConvertTensorProto(item, builder));
+        ASSIGN_OR_RETURN(auto attr, ConvertTensorProto(item, builder));
         attrs.push_back(attr);
       }
       if (!value.list().func().empty()) {
@@ -99,8 +100,8 @@ absl::StatusOr<mlir::Attribute> ConvertAttributeValue(const AttrValue& value,
       // will not use this representation.
       mlir::NamedAttrList attrs;
       for (const auto& func_attr : value.func().attr()) {
-        TF_ASSIGN_OR_RETURN(auto attr,
-                            ConvertAttributeValue(func_attr.second, builder));
+        ASSIGN_OR_RETURN(auto attr,
+                         ConvertAttributeValue(func_attr.second, builder));
         attrs.push_back(builder->getNamedAttr(func_attr.first, attr));
       }
       auto func_attrs = builder->getDictionaryAttr(attrs);

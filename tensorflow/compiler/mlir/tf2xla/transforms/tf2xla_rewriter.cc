@@ -27,6 +27,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_replace.h"
 #include "absl/types/span.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -159,10 +160,10 @@ Tf2XlaRewriter::~Tf2XlaRewriter() {
 absl::StatusOr<stablehlo::TupleOp> Tf2XlaRewriter::ImportXlaComputation(
     XlaComputation& computation) {
   xla::DebugOptions debug_options;
-  TF_ASSIGN_OR_RETURN(auto hlo_module_config,
-                      xla::HloModule::CreateModuleConfigFromProto(
-                          computation.proto(), debug_options));
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(auto hlo_module_config,
+                   xla::HloModule::CreateModuleConfigFromProto(
+                       computation.proto(), debug_options));
+  ASSIGN_OR_RETURN(
       std::unique_ptr<xla::HloModule> hlo_module,
       xla::HloModule::CreateFromProto(computation.proto(), hlo_module_config));
 
@@ -190,7 +191,7 @@ absl::StatusOr<stablehlo::TupleOp> Tf2XlaRewriter::ImportXlaComputation(
   // time when we have a model with thousands of tf2xla op fallbacks. At time
   // of writing, this caused compilation time to be greater than 2x slower.
   // So we have to directly import these instructions.
-  TF_ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
       mlir::Value root_value,
       xla::HloFunctionImporter::ImportInstructions(
           *hlo_module->entry_computation(), arguments, symbol_table, &builder));
@@ -441,9 +442,9 @@ absl::StatusOr<stablehlo::TupleOp> Tf2XlaRewriter::CompileWithHloImporter(
   absl::Span<const xla::XlaOp> return_values(output_values);
   xla::XlaOp root_value = xla::Tuple(&xla_builder_, return_values);
 
-  TF_ASSIGN_OR_RETURN(XlaComputation computation,
-                      xla_builder_.Build(root_value,
-                                         /*remove_dynamic_dimensions=*/false));
+  ASSIGN_OR_RETURN(XlaComputation computation,
+                   xla_builder_.Build(root_value,
+                                      /*remove_dynamic_dimensions=*/false));
 
   return ImportXlaComputation(computation);
 }

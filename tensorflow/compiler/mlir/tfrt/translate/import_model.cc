@@ -27,6 +27,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/Dialect/Func/Extensions/AllExtensions.h"  // from @llvm-project
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/IR/Attributes.h"  // from @llvm-project
@@ -111,7 +112,7 @@ absl::StatusOr<std::vector<FunctionDef>> ExportXlaFunctions(
           absl::StrCat("Function ", func_name, " is not found."));
     }
     FunctionDef func_def;
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         tensorflow::tf2xla::v2::ConvertMlirFunctionToFunctionLibraryDef(
             func_op, GraphExportConfig(), &func_def));
     xla_func_defs.push_back(func_def);
@@ -175,7 +176,7 @@ absl::Status ConvertTfMlirToRuntimeExecutable(
     if (VLOG_IS_ON(1)) {
       tensorflow::DumpMlirOpToFile("tf_dialect_before_backend_compile", module);
     }
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         options.backend_compiler->CompileTensorflow(model_context, module));
   } else if (options.device_target == TfrtDeviceInfraTarget::kTpurt) {
     VLOG(1) << "Running MLIR TPU bridge for tpurt";
@@ -200,15 +201,14 @@ absl::Status ConvertTfMlirToRuntimeExecutable(
       tensorflow::DumpMlirOpToFile("tpu_bct_conversion_after", module);
     }
 
-    TF_RETURN_IF_ERROR(
-        tensorflow::tf2xla::v2::RunFunctionTf2xlaClusteringBridge(
-            module, /*is_supported_by_replicated_brige*/ true,
-            /*is_in_fallback_enabled_mode=*/VLOG_IS_ON(1)));
+    RETURN_IF_ERROR(tensorflow::tf2xla::v2::RunFunctionTf2xlaClusteringBridge(
+        module, /*is_supported_by_replicated_brige*/ true,
+        /*is_in_fallback_enabled_mode=*/VLOG_IS_ON(1)));
     if (VLOG_IS_ON(1)) {
       tensorflow::DumpMlirOpToFile("after_tf2xla_clustering_bridge", module);
     }
 
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         tensorflow::tfrt_compiler::RunLowerClusterToRuntimeOpsPassPipeline(
             module, tsl::DeviceType(DEVICE_TPU_XLA_JIT)));
 
@@ -216,7 +216,7 @@ absl::Status ConvertTfMlirToRuntimeExecutable(
       tensorflow::DumpMlirOpToFile("after_lower_cluster_to_runtime_ops",
                                    module);
     }
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         tensorflow::tf2xla::v2::ExportFromTensorflowDialectToExecutor(module));
   } else if (options.device_target == TfrtDeviceInfraTarget::kTfFallback) {
     auto tpu_partitioned_call_fallback_compat_result =
@@ -226,28 +226,27 @@ absl::Status ConvertTfMlirToRuntimeExecutable(
           "Failed to process TPUPartitionedCallOp for fallback execution"));
     }
   } else if (options.device_target == TfrtDeviceInfraTarget::kGpu) {
-    TF_RETURN_IF_ERROR(
-        tensorflow::tf2xla::v2::RunFunctionTf2xlaClusteringBridge(
-            module, /*is_supported_by_replicated_brige*/ false,
-            /*is_in_fallback_enabled_mode=*/false));
+    RETURN_IF_ERROR(tensorflow::tf2xla::v2::RunFunctionTf2xlaClusteringBridge(
+        module, /*is_supported_by_replicated_brige*/ false,
+        /*is_in_fallback_enabled_mode=*/false));
 
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         tensorflow::tfrt_compiler::RunLowerClusterToRuntimeOpsPassPipeline(
             module, tsl::DeviceType(DEVICE_GPU_XLA_JIT)));
 
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         tensorflow::tf2xla::v2::ExportFromTensorflowDialectToExecutor(module));
 
     if (options.serialize_mlir_module_to_aot_packages) {
       const std::string mlir_string = SerializeMlirModule(module);
-      TF_RETURN_IF_ERROR(WriteStringToFile(
+      RETURN_IF_ERROR(WriteStringToFile(
           tsl::Env::Default(), options.aot_mlir_module_file, mlir_string));
     }
 
     // GPU XLA clusters are wrapped in functions, which could be transformed by
     // bridge. Hence, the MLIR functions for XLA clusters are exported and added
     // to the function library.
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         AddXlaFunctions(fallback_state, module, added_xla_function_names));
   }
 
@@ -264,7 +263,7 @@ absl::Status ConvertTfMlirToRuntimeExecutable(
 
   auto pipeline_options = GetTfrtPipelineOptions(options);
 
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       tensorflow::CreateTFExecutorToTFPreInvariantOptimizationPipeline(
           pm, *pipeline_options));
 
@@ -388,11 +387,10 @@ absl::Status AddXlaFunctions(
     tfrt_stub::FallbackState* fallback_state, mlir::ModuleOp mlir_module,
     std::vector<std::string>* added_xla_function_names) {
   if (fallback_state != nullptr) {
-    TF_ASSIGN_OR_RETURN(
-        const std::vector<FunctionDef> xla_func_defs,
-        ExportXlaFunctions(mlir_module, added_xla_function_names));
+    ASSIGN_OR_RETURN(const std::vector<FunctionDef> xla_func_defs,
+                     ExportXlaFunctions(mlir_module, added_xla_function_names));
     for (const auto& func_def : xla_func_defs) {
-      TF_RETURN_IF_ERROR(fallback_state->AddFunctionDef(func_def));
+      RETURN_IF_ERROR(fallback_state->AddFunctionDef(func_def));
     }
   }
 

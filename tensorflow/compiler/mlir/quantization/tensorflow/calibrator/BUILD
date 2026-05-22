@@ -145,6 +145,7 @@ tf_kernel_library(
         "//tensorflow/compiler/mlir/quantization/tensorflow:quantization_options_proto_cc",
         "//tensorflow/core:framework",
         "//tensorflow/core:protos_all_cc",
+        "//third_party/gloop/util/status:status_macros",
         "@com_google_absl//absl/status",
         "@xla//xla/tsl/platform:errors",
     ],

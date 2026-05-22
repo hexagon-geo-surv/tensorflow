@@ -19,6 +19,7 @@ limitations under the License.
 
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/IR/BuiltinTypes.h"  // from @llvm-project
@@ -54,12 +55,12 @@ absl::Status SetupArguments(mlir::ModuleOp module,
   for (auto input_type : func_type.getInputs()) {
     tensorflow::TensorShape tensor_shape;
     xla::Shape xla_shape = xla::TypeToShape(input_type);
-    TF_RETURN_IF_ERROR(tensorflow::TensorShape::BuildTensorShape(
+    RETURN_IF_ERROR(tensorflow::TensorShape::BuildTensorShape(
         xla_shape.dimensions(), &tensor_shape));
     arg_shapes.emplace_back(tensor_shape);
 
     DataType dtype;
-    TF_RETURN_IF_ERROR(ConvertToDataType(input_type, &dtype));
+    RETURN_IF_ERROR(ConvertToDataType(input_type, &dtype));
 
     auto metadata_arg = metadata_proto.add_args();
     metadata_arg->set_kind(tpu::TPUCompileMetadataProto::Arg::PARAMETER);
@@ -94,10 +95,10 @@ absl::Status ConfigureMetadata(absl::string_view mlir_module_str,
   mlir::MLIRContext context(registry);
   mlir::OwningOpRef<mlir::ModuleOp> mlir_module;
 
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       DeserializeMlirModule(mlir_module_str, &context, &mlir_module));
-  TF_RETURN_IF_ERROR(SetupReturnValues(*mlir_module, metadata_proto));
-  TF_RETURN_IF_ERROR(SetupArguments(*mlir_module, arg_shapes, metadata_proto));
+  RETURN_IF_ERROR(SetupReturnValues(*mlir_module, metadata_proto));
+  RETURN_IF_ERROR(SetupArguments(*mlir_module, arg_shapes, metadata_proto));
 
   return absl::OkStatus();
 }

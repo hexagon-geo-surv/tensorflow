@@ -33,6 +33,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
@@ -122,7 +123,7 @@ absl::StatusOr<TensorShape> GetTensorShapeFromXlaArgument(
     const XlaArgument& arg) {
   if (std::holds_alternative<xla::Shape>(arg.shape)) {
     TensorShape arg_shape;
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         XLAShapeToTensorShape(std::get<xla::Shape>(arg.shape), &arg_shape));
     return arg_shape;
   } else {
@@ -142,8 +143,8 @@ absl::Status MaybeRewriteLayoutWithShardedShape(
         "failed to parse sharding '", sharding.getValue().str(), "'"));
   }
   std::optional<xla::HloSharding> hlo_sharding;
-  TF_ASSIGN_OR_RETURN(hlo_sharding, xla::HloSharding::FromProto(op_sharding));
-  TF_RETURN_IF_ERROR(RewriteLayoutWithShardedShape(
+  ASSIGN_OR_RETURN(hlo_sharding, xla::HloSharding::FromProto(op_sharding));
+  RETURN_IF_ERROR(RewriteLayoutWithShardedShape(
       hlo_sharding, /*use_fast_memory=*/false, shape_determination_fns, shape));
   return absl::OkStatus();
 }
@@ -171,19 +172,19 @@ absl::Status GetXlaInputShapes(
     xla::Shape& xla_shape = individual_arg_shapes.back();
 
     DataType arg_dtype;
-    TF_RETURN_IF_ERROR(ConvertToDataType(func_type.getInput(i), &arg_dtype));
+    RETURN_IF_ERROR(ConvertToDataType(func_type.getInput(i), &arg_dtype));
 
     auto layout_preference = shape_determination_fns.layout_preference_fn(
         arg_shapes[i].shape, arg_dtype, std::nullopt);
-    TF_ASSIGN_OR_RETURN(xla_shape,
-                        shape_determination_fns.shape_representation_fn(
-                            arg_shapes[i].shape, arg_dtype,
-                            /*use_fast_memory=*/false, layout_preference));
+    ASSIGN_OR_RETURN(xla_shape,
+                     shape_determination_fns.shape_representation_fn(
+                         arg_shapes[i].shape, arg_dtype,
+                         /*use_fast_memory=*/false, layout_preference));
 
     // Rewrite layout with sharding, if sharding is set.
     auto sharding =
         main_func.getArgAttrOfType<mlir::StringAttr>(i, "mhlo.sharding");
-    TF_RETURN_IF_ERROR(MaybeRewriteLayoutWithShardedShape(
+    RETURN_IF_ERROR(MaybeRewriteLayoutWithShardedShape(
         sharding, shape_determination_fns, &xla_shape));
   }
   if (use_tuple_args) {
@@ -228,9 +229,9 @@ absl::Status GetOutputInfo(
       [shape_determination_fns](
           const xla::Shape& xla_shape) -> absl::StatusOr<xla::Shape> {
     TensorShape shape;
-    TF_RETURN_IF_ERROR(XLAShapeToTensorShape(xla_shape, &shape));
-    TF_ASSIGN_OR_RETURN(DataType dtype, EncodePrimitiveTypeAsDataType(
-                                            xla_shape.element_type()));
+    RETURN_IF_ERROR(XLAShapeToTensorShape(xla_shape, &shape));
+    ASSIGN_OR_RETURN(DataType dtype,
+                     EncodePrimitiveTypeAsDataType(xla_shape.element_type()));
     auto layout_preference = shape_determination_fns.layout_preference_fn(
         shape, dtype, std::nullopt);
     return shape_determination_fns.shape_representation_fn(
@@ -283,7 +284,7 @@ absl::Status GetOutputInfo(
     if (shape.element_type() == xla::PRIMITIVE_TYPE_INVALID) {
       return absl::InvalidArgumentError("XLA conversion failed for MLIR type.");
     }
-    TF_ASSIGN_OR_RETURN(shape, shape_representation_fn_no_fast_memory(shape));
+    ASSIGN_OR_RETURN(shape, shape_representation_fn_no_fast_memory(shape));
 
     if (!result_ty.hasStaticShape()) {
       int64_t rank = result_ty.getRank();
@@ -296,7 +297,7 @@ absl::Status GetOutputInfo(
 
     auto sharding = main_func.getResultAttrOfType<mlir::StringAttr>(
         type_and_idx.index(), "mhlo.sharding");
-    TF_RETURN_IF_ERROR(MaybeRewriteLayoutWithShardedShape(
+    RETURN_IF_ERROR(MaybeRewriteLayoutWithShardedShape(
         sharding, shape_determination_fns, &shape));
 
     auto tensor_type =
@@ -310,17 +311,17 @@ absl::Status GetOutputInfo(
       XlaResourceUpdate& resource_update = resource_updates->back();
       resource_update.input_index = it->getSecond();
       resource_update.modified = true;
-      TF_RETURN_IF_ERROR(ConvertToDataType(tensor_type, &resource_update.type));
-      TF_RETURN_IF_ERROR(XLAShapeToTensorShape(shape, &resource_update.shape));
+      RETURN_IF_ERROR(ConvertToDataType(tensor_type, &resource_update.type));
+      RETURN_IF_ERROR(XLAShapeToTensorShape(shape, &resource_update.shape));
       continue;
     }
     // Construct OutputDescription for result.
     outputs->emplace_back();
     XlaOutputDescription& out_desc = outputs->back();
-    TF_RETURN_IF_ERROR(ConvertToDataType(tensor_type, &out_desc.type));
+    RETURN_IF_ERROR(ConvertToDataType(tensor_type, &out_desc.type));
     // TODO(ycao): Support constant output.
     out_desc.is_constant = false;
-    TF_RETURN_IF_ERROR(XLAShapeToTensorShape(shape, &out_desc.shape));
+    RETURN_IF_ERROR(XLAShapeToTensorShape(shape, &out_desc.shape));
     // Input_index is only meaningful for resource output. Setting it to
     // meaningless value -1 for non resource outputs.
     out_desc.input_index =
@@ -677,10 +678,10 @@ absl::Status BuildHloFromTfInner(
     llvm::StringRef device_type,
     llvm::MutableArrayRef<std::unique_ptr<mlir::Pass>>
         custom_legalization_passes) {
-  TF_RETURN_IF_ERROR(CreateAndRunMlirBridge(module_op, device_type,
-                                            /*enable_op_fallback=*/false,
-                                            custom_legalization_passes,
-                                            /*lower_to_xla_hlo=*/true));
+  RETURN_IF_ERROR(CreateAndRunMlirBridge(module_op, device_type,
+                                         /*enable_op_fallback=*/false,
+                                         custom_legalization_passes,
+                                         /*lower_to_xla_hlo=*/true));
 
   return mlir::BuildHloFromMlirHlo(module_op, builder, xla_params, returns);
 }
@@ -693,7 +694,7 @@ absl::Status ConvertMLIRWithOptionalXlaComputation(
     llvm::MutableArrayRef<std::unique_ptr<mlir::Pass>>
         custom_legalization_passes,
     llvm::StringRef module_name, bool lower_to_xla_hlo) {
-  TF_RETURN_IF_ERROR(CreateAndRunMlirBridge(
+  RETURN_IF_ERROR(CreateAndRunMlirBridge(
       module_op, device_type, enable_op_fallback, custom_legalization_passes,
       lower_to_xla_hlo, module_name));
 
@@ -701,9 +702,9 @@ absl::Status ConvertMLIRWithOptionalXlaComputation(
   options.layout_preference_fn = [&](const xla::Shape& xla_shape)
       -> absl::StatusOr<mlir::XlaLayoutPreference> {
     TensorShape shape;
-    TF_RETURN_IF_ERROR(XLAShapeToTensorShape(xla_shape, &shape));
-    TF_ASSIGN_OR_RETURN(DataType dtype, EncodePrimitiveTypeAsDataType(
-                                            xla_shape.element_type()));
+    RETURN_IF_ERROR(XLAShapeToTensorShape(xla_shape, &shape));
+    ASSIGN_OR_RETURN(DataType dtype,
+                     EncodePrimitiveTypeAsDataType(xla_shape.element_type()));
     return shape_determination_fns.layout_preference_fn(shape, dtype,
                                                         std::nullopt);
   };
@@ -712,16 +713,16 @@ absl::Status ConvertMLIRWithOptionalXlaComputation(
           mlir::XlaLayoutPreference layout_preference)
       -> absl::StatusOr<xla::Shape> {
     TensorShape shape;
-    TF_RETURN_IF_ERROR(XLAShapeToTensorShape(xla_shape, &shape));
-    TF_ASSIGN_OR_RETURN(DataType dtype, EncodePrimitiveTypeAsDataType(
-                                            xla_shape.element_type()));
+    RETURN_IF_ERROR(XLAShapeToTensorShape(xla_shape, &shape));
+    ASSIGN_OR_RETURN(DataType dtype,
+                     EncodePrimitiveTypeAsDataType(xla_shape.element_type()));
     return shape_determination_fns.shape_representation_fn(
         shape, dtype, fast_mem, layout_preference);
   };
   xla::HloProto hlo_proto;
 
   if (lower_to_xla_hlo) {
-    TF_RETURN_IF_ERROR(mlir::ConvertMlirHloToHlo(
+    RETURN_IF_ERROR(mlir::ConvertMlirHloToHlo(
         module_op, &hlo_proto, use_tuple_args, return_tuple, options));
     *xla_computation = xla::XlaComputation(hlo_proto.hlo_module());
   }
@@ -747,7 +748,7 @@ absl::Status CompileMlirSetup(
     mlir::ModuleOp module_op,
     llvm::ArrayRef<TensorOrResourceShape> arg_shapes) {
   // Use arg_shapes to improve the mlir type information of `main` in module_op.
-  TF_RETURN_IF_ERROR(RefineShapes(arg_shapes, module_op));
+  RETURN_IF_ERROR(RefineShapes(arg_shapes, module_op));
 
   if (VLOG_IS_ON(2))
     tensorflow::DumpMlirOpToFile("compile_mlir_shape_refiner", module_op);
@@ -765,12 +766,11 @@ absl::Status BuildHloFromTf(mlir::ModuleOp module_op, xla::XlaBuilder& builder,
   if (VLOG_IS_ON(2))
     tensorflow::DumpMlirOpToFile("build_hlo_tf_before", module_op);
 
-  TF_RETURN_IF_ERROR(CompileMlirSetup(module_op, arg_shapes));
+  RETURN_IF_ERROR(CompileMlirSetup(module_op, arg_shapes));
 
   // Convert MLIR module to XLA HLO proto contained in XlaComputation.
-  TF_RETURN_IF_ERROR(BuildHloFromTfInner(module_op, builder, xla_params,
-                                         returns, device_type,
-                                         custom_legalization_passes));
+  RETURN_IF_ERROR(BuildHloFromTfInner(module_op, builder, xla_params, returns,
+                                      device_type, custom_legalization_passes));
 
   if (VLOG_IS_ON(2))
     tensorflow::DumpMlirOpToFile("build_hlo_tf_after", module_op);
@@ -815,9 +815,9 @@ absl::Status PopulateResultIOInfo(
   GetInputMappingForMlir(arg_shapes.size(), &compilation_result->input_mapping);
 
   // Compute all input shapes.
-  TF_RETURN_IF_ERROR(GetXlaInputShapes(module_op, arg_shapes, use_tuple_args,
-                                       shape_determination_fns,
-                                       &compilation_result->xla_input_shapes));
+  RETURN_IF_ERROR(GetXlaInputShapes(module_op, arg_shapes, use_tuple_args,
+                                    shape_determination_fns,
+                                    &compilation_result->xla_input_shapes));
 
   // Compute all output descriptions and resource writes
   return GetOutputInfo(
@@ -843,11 +843,11 @@ absl::Status CompileMlirToXlaHlo(
     return CompileToHloGraphAnalysisFailedError();
   }
 
-  TF_RETURN_IF_ERROR(CompileMlirSetup(module_op, arg_shapes));
+  RETURN_IF_ERROR(CompileMlirSetup(module_op, arg_shapes));
 
   // Convert MLIR module to XLA HLO proto contained in XlaComputation.
   compilation_result->computation = std::make_shared<xla::XlaComputation>();
-  TF_RETURN_IF_ERROR(ConvertMLIRWithOptionalXlaComputation(
+  RETURN_IF_ERROR(ConvertMLIRWithOptionalXlaComputation(
       module_op, device_type, compilation_result->computation.get(),
       use_tuple_args, enable_op_fallback, use_return_tuple,
       shape_determination_fns, custom_legalization_passes, module_name,
@@ -860,7 +860,7 @@ absl::Status CompileMlirToXlaHlo(
 
   // Only attempt to fill in the compilation result's IO info if lowering.
   if (lower_to_xla_hlo) {
-    TF_RETURN_IF_ERROR(PopulateCollectiveInfo(module_op, compilation_result));
+    RETURN_IF_ERROR(PopulateCollectiveInfo(module_op, compilation_result));
 
     auto populate_result = PopulateResultIOInfo(
         module_op, arg_shapes, use_tuple_args, use_resource_updates_for_aliases,
@@ -883,7 +883,7 @@ absl::StatusOr<std::string> CompileMlirToXlaHloAndSerialize(
     llvm::MutableArrayRef<std::unique_ptr<mlir::Pass>>
         custom_legalization_passes,
     llvm::StringRef module_name, bool lower_to_xla_hlo) {
-  TF_RETURN_IF_ERROR(CompileMlirToXlaHlo(
+  RETURN_IF_ERROR(CompileMlirToXlaHlo(
       module_op, arg_shapes, device_type, use_tuple_args, enable_op_fallback,
       use_return_tuple, use_resource_updates_for_aliases,
       shape_determination_fns, compilation_result, custom_legalization_passes,
@@ -905,7 +905,7 @@ absl::StatusOr<std::string> CompileSerializedMlirToXlaHlo(
   mlir::MLIRContext mlir_context(mlir_registry);
   mlir::OwningOpRef<mlir::ModuleOp> mlir_module;
 
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       DeserializeMlirModule(mlir_module_string, &mlir_context, &mlir_module));
   llvm::SmallVector<TensorOrResourceShape, 4> tensor_or_resource_shapes;
   tensor_or_resource_shapes.reserve(arg_shapes.size());
@@ -943,9 +943,9 @@ static absl::StatusOr<std::vector<int>> RewriteWithArgs(
             " is an uninitialized resource variable which is currently"
             " unsupported in the MLIR-based TPU bridge"));
       }
-      TF_RETURN_IF_ERROR(ConvertDataType(xla_arg.type, builder, &element_type));
-      TF_ASSIGN_OR_RETURN(TensorShape arg_shape,
-                          GetTensorShapeFromXlaArgument(xla_arg));
+      RETURN_IF_ERROR(ConvertDataType(xla_arg.type, builder, &element_type));
+      ASSIGN_OR_RETURN(TensorShape arg_shape,
+                       GetTensorShapeFromXlaArgument(xla_arg));
       auto resource_shape = arg_shape.dim_sizes();
       llvm::SmallVector<int64_t, 4> resource_subtype_shape(
           resource_shape.begin(), resource_shape.end());
@@ -968,8 +968,8 @@ static absl::StatusOr<std::vector<int>> RewriteWithArgs(
       continue;
     }
 
-    TF_ASSIGN_OR_RETURN(auto value_attr,
-                        ConvertTensor(xla_arg.constant_value, &builder));
+    ASSIGN_OR_RETURN(auto value_attr,
+                     ConvertTensor(xla_arg.constant_value, &builder));
     // TODO(hinsu): Use the actual location of the constant.
     auto constant = mlir::TF::ConstOp::create(
         builder, mlir::UnknownLoc::get(module_op.getContext()), value_attr);
@@ -999,12 +999,11 @@ absl::Status CompileGraphSetup(
     mlir::ModuleOp module_op, llvm::ArrayRef<XlaArgument> args,
     std::vector<int>* remaining_params,
     llvm::SmallVector<TensorOrResourceShape, 4>& arg_shapes) {
-  TF_ASSIGN_OR_RETURN(*remaining_params, RewriteWithArgs(module_op, args));
+  ASSIGN_OR_RETURN(*remaining_params, RewriteWithArgs(module_op, args));
   arg_shapes.reserve(remaining_params->size());
   for (unsigned idx : *remaining_params) {
     const auto& arg = args[idx];
-    TF_ASSIGN_OR_RETURN(TensorShape arg_shape,
-                        GetTensorShapeFromXlaArgument(arg));
+    ASSIGN_OR_RETURN(TensorShape arg_shape, GetTensorShapeFromXlaArgument(arg));
     arg_shapes.push_back({arg_shape,
                           /*is_resource=*/arg.kind == XlaArgument::kResource});
   }
@@ -1040,11 +1039,11 @@ absl::Status BuildHloFromModule(mlir::ModuleOp module_op,
                                 llvm::StringRef device_type) {
   std::vector<int> remaining_params;
   llvm::SmallVector<TensorOrResourceShape, 4> arg_shapes;
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       CompileGraphSetup(module_op, args, &remaining_params, arg_shapes));
   llvm::SmallVector<xla::XlaOp, 2> remaining_xla_params;
   for (auto i : remaining_params) remaining_xla_params.push_back(xla_params[i]);
-  TF_RETURN_IF_ERROR(CompileMlirSetup(module_op, arg_shapes));
+  RETURN_IF_ERROR(CompileMlirSetup(module_op, arg_shapes));
 
   mlir::PassManager tf2xla(module_op.getContext());
   CreateMlirLoweringPassesPipeline(tf2xla);
@@ -1052,10 +1051,10 @@ absl::Status BuildHloFromModule(mlir::ModuleOp module_op,
   MaybeDumpMlirModuleAndPasses(tf2xla, module_op, /*module_name=*/"",
                                /*tag=*/"legalize_hlo_before");
 
-  TF_RETURN_IF_ERROR(RunMlirPipelineAndMaybeDumpResults(tf2xla, module_op));
+  RETURN_IF_ERROR(RunMlirPipelineAndMaybeDumpResults(tf2xla, module_op));
 
-  TF_RETURN_IF_ERROR(mlir::BuildHloFromMlirHlo(module_op, builder,
-                                               remaining_xla_params, returns));
+  RETURN_IF_ERROR(mlir::BuildHloFromMlirHlo(module_op, builder,
+                                            remaining_xla_params, returns));
 
   if (VLOG_IS_ON(2)) {
     tensorflow::DumpMlirOpToFile("build_hlo_tf_after", module_op);
@@ -1074,7 +1073,7 @@ absl::Status CompileGraphToXlaHlo(
         custom_legalization_passes) {
   std::vector<int> remaining_params;
   llvm::SmallVector<TensorOrResourceShape, 4> arg_shapes;
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       CompileGraphSetup(module_op, args, &remaining_params, arg_shapes));
 
   auto compile_mlir_result = CompileMlirToXlaHlo(
@@ -1118,9 +1117,9 @@ absl::Status BuildHloFromGraph(
     std::vector<xla::XlaOp>& returns, bool unconditionally_use_output_shapes,
     llvm::ArrayRef<XlaArgument> args, llvm::ArrayRef<std::string> control_rets,
     llvm::StringRef device_type, const FunctionLibraryDefinition& flib_def) {
-  TF_ASSIGN_OR_RETURN(mlir::OwningOpRef<mlir::ModuleOp> module,
-                      GraphToModule(unconditionally_use_output_shapes, graph,
-                                    control_rets, flib_def, &mlir_context));
+  ASSIGN_OR_RETURN(mlir::OwningOpRef<mlir::ModuleOp> module,
+                   GraphToModule(unconditionally_use_output_shapes, graph,
+                                 control_rets, flib_def, &mlir_context));
   return BuildHloFromModule(module.get(), builder, xla_params, returns, args,
                             device_type);
 }

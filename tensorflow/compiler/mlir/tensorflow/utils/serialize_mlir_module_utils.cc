@@ -23,6 +23,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/Support/raw_ostream.h"
 #include "mlir/Bytecode/BytecodeWriter.h"  // from @llvm-project
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
@@ -70,9 +71,9 @@ absl::StatusOr<std::string> SerializeMlirModuleToCompressedBytecode(
       tsl::io::ZlibCompressionOptions::GZIP();
   tsl::io::ZlibOutputBuffer buffer(&f, options.input_buffer_size,
                                    options.output_buffer_size, options);
-  TF_RETURN_IF_ERROR(buffer.Init());
-  TF_RETURN_IF_ERROR(buffer.Append(bytecode));
-  TF_RETURN_IF_ERROR(buffer.Close());
+  RETURN_IF_ERROR(buffer.Init());
+  RETURN_IF_ERROR(buffer.Append(bytecode));
+  RETURN_IF_ERROR(buffer.Close());
   return compressed_bytecode;
 }
 

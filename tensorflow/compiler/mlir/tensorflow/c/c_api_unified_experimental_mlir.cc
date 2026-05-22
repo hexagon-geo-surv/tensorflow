@@ -24,6 +24,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/types/span.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/raw_ostream.h"
@@ -309,8 +310,7 @@ Status MlirAbstractOp::Reset(const char* op, const char* device_name) {
   if (state_) {
     return absl::FailedPreconditionError("Reset called on already built op.");
   }
-  TF_RETURN_IF_ERROR(
-      tensorflow::OpRegistry::Global()->LookUpOpDef(op, &op_def_));
+  RETURN_IF_ERROR(tensorflow::OpRegistry::Global()->LookUpOpDef(op, &op_def_));
   assert(op_def_);
 
   tf_op_type_ = op;
@@ -328,7 +328,7 @@ Status MlirAbstractOp::SetAttrType(const char* attr_name,
         "op_type must be specified before specifying attrs.");
   Type mlir_type;
   Builder builder(context_);
-  TF_RETURN_IF_ERROR(ConvertDataType(dtype, builder, &mlir_type));
+  RETURN_IF_ERROR(ConvertDataType(dtype, builder, &mlir_type));
   attrs_[attr_name] = TypeAttr::get(mlir_type);
   return absl::OkStatus();
 }
@@ -403,8 +403,7 @@ Status MlirAbstractOp::Create(ArrayRef<Value> operands,
       } else if (output_arg.type() != tensorflow::DT_INVALID) {
         for (int i = 0; i < repeats; ++i) {
           Type type;
-          TF_RETURN_IF_ERROR(
-              ConvertDataType(output_arg.type(), builder, &type));
+          RETURN_IF_ERROR(ConvertDataType(output_arg.type(), builder, &type));
           state_->types.push_back(type);
         }
       } else {
@@ -449,7 +448,7 @@ Status MlirAbstractOp::Create(ArrayRef<Value> operands,
     } else if (output_arg.type() != tensorflow::DT_INVALID) {
       Type type;
       Builder builder(context_);
-      TF_RETURN_IF_ERROR(ConvertDataType(output_arg.type(), builder, &type));
+      RETURN_IF_ERROR(ConvertDataType(output_arg.type(), builder, &type));
       state_->types.push_back(type);
     } else {
       return absl::InvalidArgumentError(
@@ -460,7 +459,7 @@ Status MlirAbstractOp::Create(ArrayRef<Value> operands,
       for (Type& type : llvm::make_range(&state_->types[original_size],
                                          state_->types.end())) {
         Type output_type;
-        TF_RETURN_IF_ERROR(AddRef(type, &output_type));
+        RETURN_IF_ERROR(AddRef(type, &output_type));
         type = output_type;
       }
     }
@@ -556,7 +555,7 @@ Status MlirAbstractOp::SetAttrFunctionList(
 
 Status MlirFunction::GetFunctionDef(const tensorflow::FunctionDef** f) {
   if (!func_record_) {
-    TF_ASSIGN_OR_RETURN(auto func_record, GetFunctionRecord());
+    ASSIGN_OR_RETURN(auto func_record, GetFunctionRecord());
   }
   *f = &func_record_->fdef();
   return absl::OkStatus();
@@ -578,12 +577,12 @@ MlirFunction::GetFunctionRecord() {
   StatusScopedDiagnosticHandler diag_handler(func_.getContext());
   LogicalResult result = pm.run(func_->getParentOfType<ModuleOp>());
   (void)result;
-  TF_RETURN_IF_ERROR(diag_handler.ConsumeStatus());
+  RETURN_IF_ERROR(diag_handler.ConsumeStatus());
 
   tensorflow::GraphExportConfig configs;
 
   tensorflow::FunctionDef fdef;
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       tensorflow::tf2xla::v2::ConvertMlirFunctionToFunctionLibraryDef(
           func_, configs, &fdef));
   func_record_ = tensorflow::core::RefCountPtr<tensorflow::FunctionRecord>(
@@ -595,7 +594,7 @@ MlirFunction::GetFunctionRecord() {
 Status MlirAbstractOp::Execute(absl::Span<AbstractTensorHandle*> retvals,
                                int* num_retvals) {
   OperationState* state;
-  TF_RETURN_IF_ERROR(Create(operands_, &state));
+  RETURN_IF_ERROR(Create(operands_, &state));
   Operation* op = function_context_->CreateOperationFromState(*state);
   *num_retvals = op->getNumResults();
   for (int i = 0; i < *num_retvals; i++)
@@ -614,7 +613,7 @@ Status MlirFunctionContext::AddParameter(
   // TODO(b/173073199): Use shape. Enable tests in unified_api_test.cc once
   // resolved.
   Type type;
-  TF_RETURN_IF_ERROR(ConvertDataTypeToTensor(dtype, builder_, &type));
+  RETURN_IF_ERROR(ConvertDataTypeToTensor(dtype, builder_, &type));
   *handle =
       new MlirTensor(func_.getBody().front().addArgument(type, func_.getLoc()));
   return absl::OkStatus();
@@ -639,11 +638,11 @@ Status MlirAbstractOp::AddInput(AbstractTensorHandle* input) {
   Type expected_type;
   if (arg_def.type() != tensorflow::DT_INVALID) {
     Builder builder(context_);
-    TF_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
         tensorflow::ConvertDataType(arg_def.type(), builder, &expected_type));
     if (arg_def.is_ref()) {
       Type output_type;
-      TF_RETURN_IF_ERROR(AddRef(expected_type, &output_type));
+      RETURN_IF_ERROR(AddRef(expected_type, &output_type));
       expected_type = output_type;
     }
   } else {
@@ -680,8 +679,7 @@ Status MlirAbstractOp::AddInputList(
     if (arg_def.type() != tensorflow::DT_INVALID) {
       // TODO(aminim): check type wrt input
       Type arg_def_type;
-      TF_RETURN_IF_ERROR(
-          ConvertDataType(arg_def.type(), builder, &arg_def_type));
+      RETURN_IF_ERROR(ConvertDataType(arg_def.type(), builder, &arg_def_type));
       // Ensure each of the type in the list matches the op def type.
       // TODO(aminim): can we improve the error message with the actual types?
       for (AbstractTensorHandle* input : inputs)

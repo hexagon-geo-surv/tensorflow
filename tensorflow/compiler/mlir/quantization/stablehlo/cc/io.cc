@@ -21,6 +21,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
@@ -41,7 +42,7 @@ absl::StatusOr<std::string> GetLocalTmpFileName() {
 }
 
 absl::StatusOr<std::string> CreateTmpDir(tsl::Env* const env) {
-  TF_ASSIGN_OR_RETURN(std::string tmp_dir, GetLocalTmpFileName(env));
+  ASSIGN_OR_RETURN(std::string tmp_dir, GetLocalTmpFileName(env));
 
   if (!env->RecursivelyCreateDir(tmp_dir).ok()) {
     return absl::InternalError(
@@ -79,7 +80,7 @@ absl::StatusOr<std::string> ReadFileToString(
 absl::StatusOr<std::vector<std::string>> ListDirectory(
     absl::string_view directory) {
   std::vector<std::string> children;
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       tsl::Env::Default()->GetChildren(std::string(directory), &children));
   return children;
 }

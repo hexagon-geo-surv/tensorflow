@@ -18,6 +18,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "tensorflow/compiler/mlir/quantization/tensorflow/quantization_options.pb.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
@@ -39,7 +40,7 @@ absl::Status SaveSerializedProtoToFile(const absl::string_view serialized_proto,
                                        const absl::string_view file_path,
                                        tsl::Env* env) {
   std::unique_ptr<tsl::WritableFile> file;
-  TF_RETURN_IF_ERROR(env->NewWritableFile(std::string(file_path), &file));
+  RETURN_IF_ERROR(env->NewWritableFile(std::string(file_path), &file));
   absl::Status append_result = file->Append(serialized_proto);
   absl::Status close_result = file->Close();
 

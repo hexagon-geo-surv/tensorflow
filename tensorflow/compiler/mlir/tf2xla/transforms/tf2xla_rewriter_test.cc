@@ -21,6 +21,7 @@ limitations under the License.
 #include <gtest/gtest.h>
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
@@ -122,7 +123,7 @@ class Tf2XlaRewriterTest : public ::testing::Test {
   }
 
   Status CreateMlirModule(std::string module_string = kMlirModuleStr) {
-    TF_ASSIGN_OR_RETURN(
+    ASSIGN_OR_RETURN(
         module_, hlo::test::GetMlirModuleFromString(module_string, &context_));
 
     context_.loadAllAvailableDialects();

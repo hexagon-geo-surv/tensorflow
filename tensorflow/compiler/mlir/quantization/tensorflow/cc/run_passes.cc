@@ -20,6 +20,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/Pass/PassManager.h"  // from @llvm-project
 #include "tensorflow/compiler/mlir/quantization/tensorflow/debugging/mlir_dump.h"
@@ -37,7 +38,7 @@ absl::Status RunPassesOnModuleOp(
 
   absl::StatusOr<std::unique_ptr<llvm::raw_ostream>> dump_file;
   if (mlir_dump_file_name) {
-    TF_RETURN_IF_ERROR(tensorflow::quantization::MaybeEnableIrPrinting(
+    RETURN_IF_ERROR(tensorflow::quantization::MaybeEnableIrPrinting(
         pass_manager, mlir_dump_file_name.value()));
   }
 

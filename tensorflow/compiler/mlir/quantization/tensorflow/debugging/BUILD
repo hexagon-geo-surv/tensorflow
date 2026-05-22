@@ -20,6 +20,7 @@ cc_library(
     hdrs = ["mlir_dump.h"],
     compatible_with = get_compatible_with_portable(),
     deps = [
+        "//third_party/gloop/util/status:status_macros",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",
@@ -73,6 +74,7 @@ tf_kernel_library(
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
         "//tensorflow/core/platform:path",
+        "//third_party/gloop/util/status:status_macros",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",

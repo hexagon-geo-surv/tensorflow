@@ -67,6 +67,7 @@ cc_library(
         "//tensorflow/core:test_main",
         "//tensorflow/core/protobuf/tpu:compile_metadata_proto_cc",
         "//tensorflow/core/tpu/kernels/xla:host_compute_ops",
+        "//third_party/gloop/util/status:status_macros",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings:string_view",
         "@llvm-project//mlir:FuncDialect",

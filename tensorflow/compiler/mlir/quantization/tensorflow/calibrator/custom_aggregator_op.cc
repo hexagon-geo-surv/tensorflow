@@ -17,6 +17,7 @@ limitations under the License.
 #include <string>
 
 #include "absl/status/status.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "tensorflow/compiler/mlir/quantization/stablehlo/cc/calibration/calibration_parameters.h"
 #include "tensorflow/compiler/mlir/quantization/stablehlo/quantization_config.pb.h"
 #include "tensorflow/compiler/mlir/quantization/tensorflow/quantization_options.pb.h"
@@ -53,17 +54,18 @@ REGISTER_OP("CustomAggregator")
     .Attr("num_bins: int = 0")
     .Attr("min_percentile: float = 0.0")
     .Attr("max_percentile: float = 0.0")
-    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
-      c->set_output(0, c->input(0));
-      c->set_output(1, c->Scalar());
-      c->set_output(2, c->Scalar());
+    .SetShapeFn(
+        [](::tensorflow::shape_inference::InferenceContext* c) -> absl::Status {
+          c->set_output(0, c->input(0));
+          c->set_output(1, c->Scalar());
+          c->set_output(2, c->Scalar());
 
-      const tensorflow::AttrValue* num_bins_attr;
-      TF_RETURN_IF_ERROR(c->GetAttr("num_bins", &num_bins_attr));
-      c->set_output(3, c->MakeShape({num_bins_attr->i()}));
+          const tensorflow::AttrValue* num_bins_attr;
+          RETURN_IF_ERROR(c->GetAttr("num_bins", &num_bins_attr));
+          c->set_output(3, c->MakeShape({num_bins_attr->i()}));
 
-      return absl::OkStatus();
-    });
+          return absl::OkStatus();
+        });
 
 class CustomAggregatorOp : public OpKernel {
  public:

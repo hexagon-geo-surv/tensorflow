@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "tensorflow/compiler/mlir/tensorflow/utils/parse_text_proto.h"
 #include "tensorflow/core/framework/tensor.pb.h"
 #include "tensorflow/core/framework/tensor_shape.pb.h"
@@ -88,7 +89,7 @@ std::string MangleDataType(const DataType& dtype) {
 
 absl::Status DemangleDataType(absl::string_view str, DataType* proto) {
   absl::string_view pbtxt;
-  TF_RETURN_IF_ERROR(ConsumePrefix(str, kDataTypePrefix, &pbtxt));
+  RETURN_IF_ERROR(ConsumePrefix(str, kDataTypePrefix, &pbtxt));
   if (!DataType_Parse(pbtxt, proto)) {
     return errors::FailedPrecondition(
         "Could not parse TFDataType mangled proto");

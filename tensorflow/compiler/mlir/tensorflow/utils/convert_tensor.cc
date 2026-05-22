@@ -29,6 +29,7 @@ limitations under the License.
 #include "absl/strings/cord.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
@@ -129,35 +130,35 @@ absl::StatusOr<ElementsAttr> ConvertFlatTensor(const Tensor& input_tensor,
           blob = mlir::HeapAsmResourceBlob::allocate(num_elements,
                                                      /*align=*/64,
                                                      /*dataIsMutable=*/true);
-          TF_RETURN_IF_ERROR(CopyDataIntoBlob<uint8_t>(blob, tensor_data));
+          RETURN_IF_ERROR(CopyDataIntoBlob<uint8_t>(blob, tensor_data));
           return mlir::DenseResourceElementsAttr::get(
               shaped_type, "dense_elements_i1", std::move(blob));
         case 8:
           blob = mlir::HeapAsmResourceBlob::allocate(num_elements,
                                                      /*align=*/64,
                                                      /*dataIsMutable=*/true);
-          TF_RETURN_IF_ERROR(CopyDataIntoBlob<ElementType>(blob, tensor_data));
+          RETURN_IF_ERROR(CopyDataIntoBlob<ElementType>(blob, tensor_data));
           return mlir::DenseResourceElementsAttr::get(
               shaped_type, "dense_elements_i8", std::move(blob));
         case 16:
           blob = mlir::HeapAsmResourceBlob::allocate(2 * num_elements,
                                                      /*align=*/64,
                                                      /*dataIsMutable=*/true);
-          TF_RETURN_IF_ERROR(CopyDataIntoBlob<ElementType>(blob, tensor_data));
+          RETURN_IF_ERROR(CopyDataIntoBlob<ElementType>(blob, tensor_data));
           return mlir::DenseResourceElementsAttr::get(
               shaped_type, "dense_elements_i16", std::move(blob));
         case 32:
           blob = mlir::HeapAsmResourceBlob::allocate(4 * num_elements,
                                                      /*align=*/64,
                                                      /*dataIsMutable=*/true);
-          TF_RETURN_IF_ERROR(CopyDataIntoBlob<ElementType>(blob, tensor_data));
+          RETURN_IF_ERROR(CopyDataIntoBlob<ElementType>(blob, tensor_data));
           return mlir::DenseResourceElementsAttr::get(
               shaped_type, "dense_elements_i32", std::move(blob));
         case 64:
           blob = mlir::HeapAsmResourceBlob::allocate(8 * num_elements,
                                                      /*align=*/64,
                                                      /*dataIsMutable=*/true);
-          TF_RETURN_IF_ERROR(CopyDataIntoBlob<ElementType>(blob, tensor_data));
+          RETURN_IF_ERROR(CopyDataIntoBlob<ElementType>(blob, tensor_data));
           return mlir::DenseResourceElementsAttr::get(
               shaped_type, "dense_elements_i64", std::move(blob));
         default:
@@ -169,21 +170,21 @@ absl::StatusOr<ElementsAttr> ConvertFlatTensor(const Tensor& input_tensor,
         case 8:
           blob = mlir::HeapAsmResourceBlob::allocate(num_elements, /*align=*/64,
                                                      /*dataIsMutable=*/true);
-          TF_RETURN_IF_ERROR(CopyDataIntoBlob<uint8_t>(blob, tensor_data));
+          RETURN_IF_ERROR(CopyDataIntoBlob<uint8_t>(blob, tensor_data));
           return mlir::DenseResourceElementsAttr::get(
               shaped_type, "dense_elements_f8", std::move(blob));
         case 16:
           blob = mlir::HeapAsmResourceBlob::allocate(2 * num_elements,
                                                      /*align=*/64,
                                                      /*dataIsMutable=*/true);
-          TF_RETURN_IF_ERROR(CopyDataIntoBlob<uint16_t>(blob, tensor_data));
+          RETURN_IF_ERROR(CopyDataIntoBlob<uint16_t>(blob, tensor_data));
           return mlir::DenseResourceElementsAttr::get(
               shaped_type, "dense_elements_f16", std::move(blob));
         case 32: {
           blob = mlir::HeapAsmResourceBlob::allocate(4 * num_elements,
                                                      /*align=*/64,
                                                      /*dataIsMutable=*/true);
-          TF_RETURN_IF_ERROR(CopyDataIntoBlob<float>(blob, tensor_data));
+          RETURN_IF_ERROR(CopyDataIntoBlob<float>(blob, tensor_data));
           return mlir::DenseResourceElementsAttr::get(
               shaped_type, "dense_elements_f32", std::move(blob));
         }
@@ -191,7 +192,7 @@ absl::StatusOr<ElementsAttr> ConvertFlatTensor(const Tensor& input_tensor,
           blob = mlir::HeapAsmResourceBlob::allocate(8 * num_elements,
                                                      /*align=*/64,
                                                      /*dataIsMutable=*/true);
-          TF_RETURN_IF_ERROR(CopyDataIntoBlob<uint64_t>(blob, tensor_data));
+          RETURN_IF_ERROR(CopyDataIntoBlob<uint64_t>(blob, tensor_data));
           return mlir::DenseResourceElementsAttr::get(
               shaped_type, "dense_elements_f64", std::move(blob));
         default:
@@ -247,7 +248,7 @@ absl::StatusOr<ElementsAttr> ConvertTensor(const Tensor& input_tensor,
   const auto& input_dtype = input_tensor.dtype();
   const auto& input_shape = input_tensor.shape();
   Type elt_type;
-  TF_RETURN_IF_ERROR(ConvertDataType(input_dtype, *builder, &elt_type));
+  RETURN_IF_ERROR(ConvertDataType(input_dtype, *builder, &elt_type));
   SmallVector<int64_t, 4> shape;
   ConvertToMlirShape(input_shape, &shape);
   auto type = RankedTensorType::get(shape, elt_type);
@@ -358,8 +359,8 @@ absl::StatusOr<ElementsAttr> ConvertTensorProto(
     shape->clear_dim();
     shape->add_dim()->set_size(1);
 
-    TF_ASSIGN_OR_RETURN(ElementsAttr single_attr,
-                        ConvertTensorProto(tensor_copy, builder));
+    ASSIGN_OR_RETURN(ElementsAttr single_attr,
+                     ConvertTensorProto(tensor_copy, builder));
 
     llvm::SmallVector<int64_t> original_dimensions;
     for (auto dim : input_tensor_shape) original_dimensions.push_back(dim.size);
@@ -416,7 +417,7 @@ mlir::TF::ShapeAttr ConvertTypeToTensorShapeAttr(const mlir::Type& type) {
 absl::StatusOr<TensorSpecProto> ConvertTypeToTensorSpecProto(
     const mlir::Type& type) {
   DataType dtype;
-  TF_RETURN_IF_ERROR(ConvertToDataType(type, &dtype));
+  RETURN_IF_ERROR(ConvertToDataType(type, &dtype));
   TensorSpecProto tensor_spec;
   tensor_spec.set_dtype(dtype);
   *tensor_spec.mutable_shape() = ConvertTypeToTensorShape(type).AsProto();
@@ -667,7 +668,7 @@ absl::Status ConvertToTensorProto(const ElementsAttr attr,
   auto type = attr.getShapedType();
   auto shape = type.getShape();
   DataType output_dtype;
-  TF_RETURN_IF_ERROR(ConvertToDataType(type, &output_dtype));
+  RETURN_IF_ERROR(ConvertToDataType(type, &output_dtype));
   output->set_dtype(output_dtype);
   ConvertToTensorShapeProto(shape, output->mutable_tensor_shape());
 
@@ -676,107 +677,108 @@ absl::Status ConvertToTensorProto(const ElementsAttr attr,
 
   switch (output_dtype) {
     case DT_BOOL:
-      TF_RETURN_IF_ERROR(ConvertElementsAttr(attr, output->mutable_bool_val()));
+      RETURN_IF_ERROR(ConvertElementsAttr(attr, output->mutable_bool_val()));
       break;
     case DT_BFLOAT16:
-      TF_RETURN_IF_ERROR(
+      RETURN_IF_ERROR(
           ConvertBfloat16ElementsAttr(attr, output->mutable_half_val()));
       break;
     case DT_COMPLEX64:
-      TF_RETURN_IF_ERROR(
+      RETURN_IF_ERROR(
           ConvertComplexElementsAttr(attr, output->mutable_scomplex_val()));
       break;
     case DT_COMPLEX128:
-      TF_RETURN_IF_ERROR(
+      RETURN_IF_ERROR(
           ConvertComplexElementsAttr(attr, output->mutable_dcomplex_val()));
       break;
     case DT_DOUBLE:
-      TF_RETURN_IF_ERROR(
+      RETURN_IF_ERROR(
           ConvertFloatElementsAttr(attr, output->mutable_double_val(),
                                    output->mutable_tensor_content()));
       break;
     case DT_HALF:
-      TF_RETURN_IF_ERROR(
+      RETURN_IF_ERROR(
           ConvertHalfElementsAttr(attr, output->mutable_half_val()));
       break;
     case DT_FLOAT:
-      TF_RETURN_IF_ERROR(ConvertFloatElementsAttr(
+      RETURN_IF_ERROR(ConvertFloatElementsAttr(
           attr, output->mutable_float_val(), output->mutable_tensor_content()));
       break;
     case DT_FLOAT8_E5M2:
-      TF_RETURN_IF_ERROR(ConvertFloat8ElementsAttr<tsl::float8_e5m2>(
+      RETURN_IF_ERROR(ConvertFloat8ElementsAttr<tsl::float8_e5m2>(
           attr, output->mutable_float8_val()));
       break;
     case DT_FLOAT8_E4M3FN:
-      TF_RETURN_IF_ERROR(ConvertFloat8ElementsAttr<tsl::float8_e4m3fn>(
+      RETURN_IF_ERROR(ConvertFloat8ElementsAttr<tsl::float8_e4m3fn>(
           attr, output->mutable_float8_val()));
       break;
     case DT_FLOAT8_E4M3FNUZ:
-      TF_RETURN_IF_ERROR(ConvertFloat8ElementsAttr<tsl::float8_e4m3fnuz>(
+      RETURN_IF_ERROR(ConvertFloat8ElementsAttr<tsl::float8_e4m3fnuz>(
           attr, output->mutable_float8_val()));
       break;
     case DT_FLOAT8_E4M3B11FNUZ:
-      TF_RETURN_IF_ERROR(ConvertFloat8ElementsAttr<tsl::float8_e4m3b11fnuz>(
+      RETURN_IF_ERROR(ConvertFloat8ElementsAttr<tsl::float8_e4m3b11fnuz>(
           attr, output->mutable_float8_val()));
       break;
     case DT_FLOAT8_E5M2FNUZ:
-      TF_RETURN_IF_ERROR(ConvertFloat8ElementsAttr<tsl::float8_e5m2fnuz>(
+      RETURN_IF_ERROR(ConvertFloat8ElementsAttr<tsl::float8_e5m2fnuz>(
           attr, output->mutable_float8_val()));
       break;
     case tensorflow::DT_INT4:
-      TF_RETURN_IF_ERROR(ConvertIntElementsAttr<int, tsl::int4>(
-          attr, output->mutable_int_val(), output->mutable_tensor_content()));
+      RETURN_IF_ERROR((ConvertIntElementsAttr<int, tsl::int4>(
+          attr, output->mutable_int_val(), output->mutable_tensor_content())));
       break;
     case tensorflow::DT_UINT4:
-      TF_RETURN_IF_ERROR(ConvertUIntElementsAttr<int, tsl::uint4>(
-          attr, output->mutable_int_val(), output->mutable_tensor_content()));
+      RETURN_IF_ERROR((ConvertUIntElementsAttr<int, tsl::uint4>(
+          attr, output->mutable_int_val(), output->mutable_tensor_content())));
       break;
     case tensorflow::DT_INT2:
-      TF_RETURN_IF_ERROR(ConvertIntElementsAttr<int, tsl::int2>(
-          attr, output->mutable_int_val(), output->mutable_tensor_content()));
+      RETURN_IF_ERROR((ConvertIntElementsAttr<int, tsl::int2>(
+          attr, output->mutable_int_val(), output->mutable_tensor_content())));
       break;
     case tensorflow::DT_UINT2:
-      TF_RETURN_IF_ERROR(ConvertUIntElementsAttr<int, tsl::uint2>(
-          attr, output->mutable_int_val(), output->mutable_tensor_content()));
+      RETURN_IF_ERROR((ConvertUIntElementsAttr<int, tsl::uint2>(
+          attr, output->mutable_int_val(), output->mutable_tensor_content())));
       break;
     case DT_QUINT8:
     case DT_INT8:
-      TF_RETURN_IF_ERROR(ConvertIntElementsAttr<int, int8_t>(
-          attr, output->mutable_int_val(), output->mutable_tensor_content()));
+      RETURN_IF_ERROR((ConvertIntElementsAttr<int, int8_t>(
+          attr, output->mutable_int_val(), output->mutable_tensor_content())));
       break;
     case DT_QUINT16:
     case DT_INT16:
-      TF_RETURN_IF_ERROR(ConvertIntElementsAttr<int, int16_t>(
-          attr, output->mutable_int_val(), output->mutable_tensor_content()));
+      RETURN_IF_ERROR((ConvertIntElementsAttr<int, int16_t>(
+          attr, output->mutable_int_val(), output->mutable_tensor_content())));
       break;
     case DT_INT32:
-      TF_RETURN_IF_ERROR(ConvertIntElementsAttr(
-          attr, output->mutable_int_val(), output->mutable_tensor_content()));
+      RETURN_IF_ERROR((ConvertIntElementsAttr(
+          attr, output->mutable_int_val(), output->mutable_tensor_content())));
       break;
     case DT_INT64:
-      TF_RETURN_IF_ERROR(ConvertIntElementsAttr(
-          attr, output->mutable_int64_val(), output->mutable_tensor_content()));
+      RETURN_IF_ERROR(
+          (ConvertIntElementsAttr(attr, output->mutable_int64_val(),
+                                  output->mutable_tensor_content())));
       break;
     case DT_STRING:
-      TF_RETURN_IF_ERROR(
+      RETURN_IF_ERROR(
           ConvertStringElementsAttr(mlir::cast<DenseStringElementsAttr>(attr),
                                     output->mutable_string_val()));
       break;
     case DT_UINT8:
-      TF_RETURN_IF_ERROR(ConvertUIntElementsAttr<int, uint8_t>(
-          attr, output->mutable_int_val(), output->mutable_tensor_content()));
+      RETURN_IF_ERROR((ConvertUIntElementsAttr<int, uint8_t>(
+          attr, output->mutable_int_val(), output->mutable_tensor_content())));
       break;
     case DT_UINT16:
-      TF_RETURN_IF_ERROR(ConvertUIntElementsAttr<int, uint16_t>(
-          attr, output->mutable_int_val(), output->mutable_tensor_content()));
+      RETURN_IF_ERROR((ConvertUIntElementsAttr<int, uint16_t>(
+          attr, output->mutable_int_val(), output->mutable_tensor_content())));
       break;
     case DT_UINT32:
-      TF_RETURN_IF_ERROR(
+      RETURN_IF_ERROR(
           ConvertUIntElementsAttr(attr, output->mutable_uint32_val(),
                                   output->mutable_tensor_content()));
       break;
     case DT_UINT64:
-      TF_RETURN_IF_ERROR(
+      RETURN_IF_ERROR(
           ConvertUIntElementsAttr(attr, output->mutable_uint64_val(),
                                   output->mutable_tensor_content()));
       break;
@@ -790,7 +792,7 @@ absl::Status ConvertToTensorProto(const ElementsAttr attr,
 absl::Status ConvertToTensor(const mlir::ElementsAttr attr,
                              Tensor* output_tensor) {
   TensorProto tensor_proto;
-  TF_RETURN_IF_ERROR(ConvertToTensorProto(attr, &tensor_proto));
+  RETURN_IF_ERROR(ConvertToTensorProto(attr, &tensor_proto));
   if (!output_tensor->FromProto(tensor_proto)) {
     return InvalidArgument("Couldn't convert tensor proto to tensor.");
   }

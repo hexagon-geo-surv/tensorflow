@@ -21,6 +21,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 
@@ -63,7 +64,7 @@ absl::StatusOr<std::vector<std::string>> ListDirectory(
 template <class MessageT>
 absl::StatusOr<MessageT> ReadBinaryProto(const std::string& binary_file_path) {
   MessageT message;
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       tsl::ReadBinaryProto(tsl::Env::Default(), binary_file_path, &message));
   return message;
 }

@@ -25,6 +25,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "tensorflow/core/framework/attr_value.pb.h"
@@ -129,7 +130,7 @@ absl::Status EncodeAttributes(AttributeTable& attributes,
 
   for (int i = 0; i < attrs.size(); ++i) {
     const tensorflow::AttrValue& attr = attrs[i].second;
-    TF_ASSIGN_OR_RETURN(auto attr_str, EncodeAttribute(attr));
+    ASSIGN_OR_RETURN(auto attr_str, EncodeAttribute(attr));
     if (CanBeInlined(attr)) {
       attributes.AddInline(absl::StrCat(i), attr_str);
     } else {
@@ -148,7 +149,7 @@ CreateKernelAndAttrs(int num_inputs, int num_outputs,
   auto attributes_ctor = mlrt::bc::New<mlrt::bc::Vector<mlrt::bc::String>>(
       &allocator, attrs.size());
   AttributeTable attribute_table(attributes_ctor);
-  TF_RETURN_IF_ERROR(EncodeAttributes(attribute_table, attrs));
+  RETURN_IF_ERROR(EncodeAttributes(attribute_table, attrs));
 
   auto kernel_ctor = mlrt::bc::New<mlrt::bc::Kernel>(&allocator);
   kernel_ctor.set_code(0);

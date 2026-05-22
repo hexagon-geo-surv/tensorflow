@@ -20,6 +20,7 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
@@ -147,7 +148,7 @@ class GpuKernelToBlobPass
     std::vector<tensorflow::se::CubinOrPTXImage> images;
     auto gpu_asm_opts = xla::gpu::PtxOptsFromDebugOptions(options);
     for (const std::string& arch_str : architectures_) {
-      TF_ASSIGN_OR_RETURN(auto arch_pair, ParseCudaArch(arch_str));
+      ASSIGN_OR_RETURN(auto arch_pair, ParseCudaArch(arch_str));
       bool is_compute_profile = arch_pair.first;
       int arch = arch_pair.second;
       int cc_major = arch / 10;
@@ -161,7 +162,7 @@ class GpuKernelToBlobPass
         target->Options.AllowFPOpFusion =
             llvm::FPOpFusion::FPOpFusionMode::Fast;
       };
-      TF_ASSIGN_OR_RETURN(
+      ASSIGN_OR_RETURN(
           std::string ptx,
           xla::gpu::nvptx::CompileToPtx(
               llvm_module_copy.get(), stream_executor::GpuComputeCapability(cc),

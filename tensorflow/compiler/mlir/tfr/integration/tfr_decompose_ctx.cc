@@ -23,6 +23,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/LogicalResult.h"
@@ -80,12 +81,12 @@ absl::StatusOr<std::unique_ptr<TFRDecomposeContext>> TFRDecomposeContext::Get(
     mlir::MLIRContext* mlir_ctx) {
   Env* env = Env::Default();
   std::string tfr_lib_dir;
-  TF_RETURN_IF_ERROR(ReadStringFromEnvVar(
+  RETURN_IF_ERROR(ReadStringFromEnvVar(
       kTFRLibEnv, "tensorflow/compiler/mlir/tfr/resources", &tfr_lib_dir));
   std::string composite_mlir_dir =
       io::JoinPath(env->GetRunfilesDir(), tfr_lib_dir);
   std::vector<std::string> files;
-  TF_RETURN_IF_ERROR(env->GetChildren(composite_mlir_dir, &files));
+  RETURN_IF_ERROR(env->GetChildren(composite_mlir_dir, &files));
   if (files.empty()) {
     return absl::InternalError(absl::StrCat(
         "Failed to find the decomposition lib from path ", composite_mlir_dir));
@@ -95,7 +96,7 @@ absl::StatusOr<std::unique_ptr<TFRDecomposeContext>> TFRDecomposeContext::Get(
     std::string fullpath = io::JoinPath(composite_mlir_dir, file);
     if (env->MatchPath(fullpath, io::JoinPath(composite_mlir_dir, "*.mlir"))) {
       std::string text;
-      TF_RETURN_IF_ERROR(ReadFileToString(env, fullpath, &text));
+      RETURN_IF_ERROR(ReadFileToString(env, fullpath, &text));
       tfr_raw_text.append(text);
     }
   }
@@ -144,30 +145,30 @@ std::unique_ptr<TFRDecomposeContext> TFRDecomposeContext::GetFromText(
 absl::StatusOr<FunctionDef> TFRDecomposeContext::ExpandNode(
     const NodeDef& node_def, absl::string_view func_name) {
   const OpDef* op_def;
-  TF_RETURN_IF_ERROR(OpRegistry::Global()->LookUpOpDef(node_def.op(), &op_def));
+  RETURN_IF_ERROR(OpRegistry::Global()->LookUpOpDef(node_def.op(), &op_def));
   DataTypeVector input_dtys, output_dtys;
-  TF_RETURN_IF_ERROR(InputTypesForNode(node_def, *op_def, &input_dtys));
-  TF_RETURN_IF_ERROR(OutputTypesForNode(node_def, *op_def, &output_dtys));
+  RETURN_IF_ERROR(InputTypesForNode(node_def, *op_def, &input_dtys));
+  RETURN_IF_ERROR(OutputTypesForNode(node_def, *op_def, &output_dtys));
 
   mlir::MLIRContext* context = tfr_module_.getContext();
   llvm::SmallVector<mlir::Type, 4> input_tys, output_tys;
   mlir::Builder builder(context);
   for (auto ty : input_dtys) {
     mlir::Type elt_ty;
-    TF_RETURN_IF_ERROR(ConvertDataType(ty, builder, &elt_ty));
+    RETURN_IF_ERROR(ConvertDataType(ty, builder, &elt_ty));
     mlir::TensorType mlir_ty = mlir::UnrankedTensorType::get(elt_ty);
     input_tys.push_back(mlir_ty);
   }
   for (auto ty : output_dtys) {
     mlir::Type elt_ty;
-    TF_RETURN_IF_ERROR(ConvertDataType(ty, builder, &elt_ty));
+    RETURN_IF_ERROR(ConvertDataType(ty, builder, &elt_ty));
     mlir::TensorType mlir_ty = mlir::UnrankedTensorType::get(elt_ty);
     output_tys.push_back(mlir_ty);
   }
   llvm::SmallVector<mlir::NamedAttribute, 4> attrs;
   for (const auto& attr : node_def.attr()) {
-    TF_ASSIGN_OR_RETURN(auto mlir_attr,
-                        ConvertAttributeValue(attr.second, &builder));
+    ASSIGN_OR_RETURN(auto mlir_attr,
+                     ConvertAttributeValue(attr.second, &builder));
     attrs.push_back({mlir::StringAttr::get(context, attr.first), mlir_attr});
   }
 
@@ -191,11 +192,11 @@ absl::StatusOr<FunctionDef> TFRDecomposeContext::ExpandNode(
   mlir::func::ReturnOp::create(op_builder, loc, tf_op->getResults());
 
   // Run the decompose passes on the module
-  TF_RETURN_IF_ERROR(DecomposeGraph(module));
+  RETURN_IF_ERROR(DecomposeGraph(module));
 
   // Export the result as a FunctionDef.
   FunctionDef func_def;
-  TF_RETURN_IF_ERROR(
+  RETURN_IF_ERROR(
       tensorflow::tf2xla::v2::ConvertMlirFunctionToFunctionLibraryDef(
           func, export_confs_, &func_def));
   module.erase();
@@ -233,13 +234,13 @@ void TFRDecomposeContext::Destroy() { tfr_module_.erase(); }
 absl::StatusOr<FunctionDef> ExpandNode(const NodeDef& node_def,
                                        absl::string_view func_name) {
   mlir::MLIRContext mlir_ctx;
-  TF_ASSIGN_OR_RETURN(auto ctx, TFRDecomposeContext::Get(&mlir_ctx));
+  ASSIGN_OR_RETURN(auto ctx, TFRDecomposeContext::Get(&mlir_ctx));
   return ctx->ExpandNode(node_def, func_name);
 }
 
 absl::Status DecomposeGraph(mlir::ModuleOp user_module) {
   mlir::MLIRContext* mlir_ctx = user_module.getContext();
-  TF_ASSIGN_OR_RETURN(auto ctx, TFRDecomposeContext::Get(mlir_ctx));
+  ASSIGN_OR_RETURN(auto ctx, TFRDecomposeContext::Get(mlir_ctx));
   return ctx->DecomposeGraph(user_module);
 }
 

@@ -25,6 +25,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "third_party/gloop/util/status/status_macros.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -324,7 +325,7 @@ std::optional<llvm::StringRef> AssignLogicalDeviceFromTPUReplicatedCoreAttr(
 
 absl::StatusOr<std::optional<llvm::StringRef>> GetXlaShardingFromShardingOp(
     mlir::TF::XlaShardingOp sharding) {
-  TF_ASSIGN_OR_RETURN(auto attr, GetXlaShardingAttrFromShardingOp(sharding));
+  ASSIGN_OR_RETURN(auto attr, GetXlaShardingAttrFromShardingOp(sharding));
   return attr ? ::std::optional<::llvm::StringRef>(attr.getValue())
               : (::std::nullopt);
 }
@@ -443,8 +444,8 @@ absl::Status IdentifyXlaShardingForComputationInputs(
     }
 
     if (infer_from_computation) {
-      TF_ASSIGN_OR_RETURN(auto arg_sharding,
-                          GetXlaShardingFromArg(arg, logical_device_vec));
+      ASSIGN_OR_RETURN(auto arg_sharding,
+                       GetXlaShardingFromArg(arg, logical_device_vec));
       if (arg_sharding) {
         sharding_for_args.push_back(arg_sharding.value());
         continue;
@@ -608,7 +609,7 @@ absl::Status IdentifyXlaShardingForComputationOutputs(
     }
 
     if (infer_from_computation) {
-      TF_ASSIGN_OR_RETURN(
+      ASSIGN_OR_RETURN(
           auto retval_sharding,
           GetXlaShardingFromRetval(retval.get(), logical_device_vec));
       if (retval_sharding) {
@@ -672,20 +673,20 @@ absl::Status IdentifyXlaShardingForInputsAndOutputs(
     OpShardingVector& output_sharding) {
   OptionalOpShardingVector optional_input_sharding;
   OptionalOpShardingVector optional_output_sharding;
-  TF_RETURN_IF_ERROR(IdentifyXlaShardingForComputationInputs(
+  RETURN_IF_ERROR(IdentifyXlaShardingForComputationInputs(
       logical_device_vec, infer_from_computation, cluster_func, func, builder,
       optional_input_sharding));
-  TF_RETURN_IF_ERROR(IdentifyXlaShardingForComputationOutputs(
+  RETURN_IF_ERROR(IdentifyXlaShardingForComputationOutputs(
       logical_device_vec, infer_from_computation, cluster_func, func, builder,
       optional_output_sharding));
-  TF_RETURN_IF_ERROR(DetermineShardingFromAlias(func, optional_input_sharding,
-                                                optional_output_sharding));
+  RETURN_IF_ERROR(DetermineShardingFromAlias(func, optional_input_sharding,
+                                             optional_output_sharding));
   SetReplicatedOrMaximalShardingIfNoShardingFound(logical_device_vec, use_spmd,
                                                   optional_input_sharding);
   SetReplicatedOrMaximalShardingIfNoShardingFound(logical_device_vec, use_spmd,
                                                   optional_output_sharding);
-  TF_RETURN_IF_ERROR(MoveSharding(optional_input_sharding, input_sharding));
-  TF_RETURN_IF_ERROR(MoveSharding(optional_output_sharding, output_sharding));
+  RETURN_IF_ERROR(MoveSharding(optional_input_sharding, input_sharding));
+  RETURN_IF_ERROR(MoveSharding(optional_output_sharding, output_sharding));
 
   return absl::OkStatus();
 }
