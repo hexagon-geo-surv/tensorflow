@@ -16,6 +16,7 @@ limitations under the License.
 #include "xla/backends/gpu/autotuner/triton/cost_model_config_optimization.h"
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -35,6 +36,8 @@ limitations under the License.
 #include "xla/tsl/platform/status_macros.h"
 #include "mlir/IR/MLIRContext.h"
 #include "xla/backends/gpu/transforms/convert_triton_gemm_config.h"
+#include "xla/codegen/tiling/experimental/tiled_hlo.h"
+#include "xla/codegen/tiling/experimental/tiling_space.h"
 #include "xla/codegen/tiling/symbolic_tile_analysis.h"
 #include "xla/codegen/tiling/tiled_hlo_computation.h"
 #include "xla/codegen/tiling/tiling_specification.h"
@@ -52,7 +55,6 @@ limitations under the License.
 #include "xla/service/hlo_cost_analysis.h"
 #include "xla/service/instruction_fusion.h"
 #include "xla/stream_executor/device_description.h"
-#include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/util/sorted_range.h"
 #include "xla/xla_data.pb.h"
 
@@ -94,6 +96,35 @@ absl::StatusOr<absl::Duration> EstimateRunTimeWithConfig(
   return estimate.exec_time;
 }
 
+absl::StatusOr<absl::Duration> EstimateRunTimeWithConfigWithTilingSpace(
+    const HloFusionAdaptor& fusion_adaptor, const EstimationContext& context,
+    const TritonGemmConfig& config,
+    GpuPerformanceModelWithIndexingAnalysis& cost_model,
+    mlir::MLIRContext* mlir_context) {
+  ASSIGN_OR_RETURN(BlockLevelParameters block_params,
+                   FindBlockLevelParameters(context.dot, config, mlir_context,
+                                            context.device_description));
+
+  using TilingSpace = experimental::TilingSpace;
+
+  std::unique_ptr<TilingSpace> ts =
+      TilingSpace::Create(fusion_adaptor, mlir_context);
+
+  RETURN_IF_ERROR(AssignTileSizesForGemmFusion(ts.get(), context.dot,
+                                               block_params, config.block_k));
+
+  ASSIGN_OR_RETURN(
+      experimental::TiledHloComputation tiled_hlo_computation,
+      experimental::TiledHloComputation::Tile(fusion_adaptor, std::move(ts)));
+
+  ASSIGN_OR_RETURN(
+      EstimateRunTimeData estimate,
+      cost_model.EstimateRunTimeForTiledHloComputation(
+          fusion_adaptor, tiled_hlo_computation, block_params.num_warps));
+
+  return estimate.exec_time;
+}
+
 absl::StatusOr<OrderedEstimatesAndConfigs> EstimateConfigs(
     const EstimationContext& context,
     const std::vector<TritonGemmConfig>& configs,
@@ -104,6 +135,27 @@ absl::StatusOr<OrderedEstimatesAndConfigs> EstimateConfigs(
       HloCostAnalysis::DefaultShapeSize, mlir_context};
 
   auto fusion_adaptor = HloFusionAdaptor::ForInstruction(context.fusion);
+
+  OrderedEstimatesAndConfigs estimates_and_confs;
+  if (context.dot->GetModule()
+          ->config()
+          .debug_options()
+          .xla_gpu_experimental_enable_tiling_propagation()) {
+    for (const TritonGemmConfig& config : configs) {
+      absl::StatusOr<absl::Duration> estimate =
+          EstimateRunTimeWithConfigWithTilingSpace(
+              *fusion_adaptor, context, config, cost_model, mlir_context);
+      if (estimate.ok()) {
+        VLOG(10) << "Estimated cost for config: " << config.ToString() << " is "
+                 << *estimate;
+        estimates_and_confs.insert({*estimate, config});
+      } else {
+        VLOG(10) << "Failed to estimate cost for config: " << config.ToString()
+                 << " - " << estimate.status();
+      }
+    }
+    return estimates_and_confs;
+  }
 
   SymbolicTileAnalysisOrError analysis_or_error =
       SymbolicTileAnalysis::AnalyzeFusion(
@@ -119,7 +171,6 @@ absl::StatusOr<OrderedEstimatesAndConfigs> EstimateConfigs(
   SymbolicTileAnalysis analysis =
       std::get<SymbolicTileAnalysis>(std::move(analysis_or_error));
 
-  OrderedEstimatesAndConfigs estimates_and_confs;
   for (const TritonGemmConfig& config : configs) {
     absl::StatusOr<absl::Duration> estimate = EstimateRunTimeWithConfig(
         analysis, *fusion_adaptor, context, config, cost_model, mlir_context);
