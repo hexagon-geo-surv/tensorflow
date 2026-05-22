@@ -123,11 +123,11 @@ class ShapeTracker {
   std::string DebugString() const;
 
  private:
-  struct ViewMapping;
+  struct BufferView;
 
   void TryFoldProjection();
 
-  std::vector<ViewMapping> projections_;
+  std::vector<BufferView> projections_;
   xla::Shape input_shape_;
   xla::Shape output_shape_;
 };
