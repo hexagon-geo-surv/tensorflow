@@ -249,6 +249,9 @@ class HloRunnerPjRtExecutable : public OpaqueExecutable {
     }
     return loaded_executable_.get();
   }
+  PjRtLoadedExecutable* loaded_executable() const {
+    return loaded_executable_.get();
+  }
 
   static absl::StatusOr<HloRunnerPjRtExecutable*> TryUnwrap(
       const HloRunnerPjRt& runner,
@@ -919,7 +922,29 @@ absl::StatusOr<Literal> HloRunnerPjRt::TransferLiteralFromDevice(
   return std::move(*literal);
 }
 
-absl::string_view HloRunnerPjRt::Name() const { return "HloRunnerPjRt"; }
+absl::string_view HloRunnerPjRt::Name() const {
+  return pjrt_client_->platform_name();
+}
+
+HloEvaluatorInterface* HloRunnerPjRt::GetEvaluator(
+    OpaqueExecutable* executable) const {
+  if (executable == nullptr) {
+    return nullptr;
+  }
+  auto unwrapped = HloRunnerPjRtExecutable::TryUnwrap(*this, executable);
+  if (!unwrapped.ok()) {
+    return nullptr;
+  }
+  auto loaded_status = (*unwrapped)->GetOrLoadExecutable(pjrt_client_.get());
+  if (!loaded_status.ok()) {
+    return nullptr;
+  }
+  auto* loaded = *loaded_status;
+  if (loaded == nullptr) {
+    return nullptr;
+  }
+  return loaded->evaluator();
+}
 
 bool HloRunnerPjRt::HasProperty(const HloRunnerPropertyTag::Type tag) const {
   if (tag == HloRunnerPropertyTag::kUsingGpuRocm) {

@@ -74,6 +74,7 @@ limitations under the License.
 
 namespace xla {
 
+class HloEvaluatorInterface;
 class PjRtBuffer;
 class PjRtClient;
 class PjRtDevice;
@@ -1415,6 +1416,9 @@ class PjRtLoadedExecutable {
 
   // Returns the PjRtExecutable that this PjRtLoadedExecutable wraps.
   virtual PjRtExecutable* GetExecutable() const;
+
+  // Returns the reference evaluator if this is an interpreter executable.
+  virtual HloEvaluatorInterface* evaluator() const { return nullptr; }
 
   // Returns named values for cost properties of this executable (such as
   // operations, size of input/outputs, and run time estimate). Properties may

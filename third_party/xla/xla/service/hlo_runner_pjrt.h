@@ -41,6 +41,8 @@ limitations under the License.
 
 namespace xla {
 
+class HloEvaluatorInterface;
+
 // A base class for running an HloModule using the PjRt API. This class
 // abstracts execution for a given HloModule using PjRt interfaces.
 // HloModule can be explicitly built, or loaded from a serialization file (e.g.,
@@ -124,6 +126,9 @@ class HloRunnerPjRt : public HloRunnerInterface {
   int device_count() const override { return pjrt_client_->device_count(); }
 
   bool HasProperty(HloRunnerPropertyTag::Type tag) const override;
+
+  HloEvaluatorInterface* GetEvaluator(
+      OpaqueExecutable* executable) const override;
 
   absl::StatusOr<const HloModule* absl_nonnull> HloModuleFromWrapped(
       const OpaqueExecutable* wrapped) const override;

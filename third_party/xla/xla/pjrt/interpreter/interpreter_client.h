@@ -321,6 +321,11 @@ class InterpreterLoadedExecutable final : public PjRtLoadedExecutable {
     }
   }
 
+  HloEvaluatorInterface* evaluator() const override {
+    absl::MutexLock lock(&hlo_evaluator_lock_);
+    return hlo_evaluator_.get();
+  }
+
   int num_replicas() const override {
     return hlo_module_->config().replica_count();
   }

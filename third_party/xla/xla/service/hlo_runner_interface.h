@@ -41,6 +41,7 @@ namespace xla {
 
 class HloRunnerInterface;
 class BufferAssignmentProto;
+class HloEvaluatorInterface;
 
 // Tags to identify particular properties of a HloRunnerInterface
 // implementation.
@@ -215,6 +216,13 @@ class HloRunnerInterface {
 
   HloRunnerInterface() = default;
   virtual ~HloRunnerInterface() = default;
+
+  // If the runner uses a reference HLO evaluator, returns it. Otherwise,
+  // returns nullptr.
+  virtual HloEvaluatorInterface* GetEvaluator(
+      OpaqueExecutable* executable) const {
+    return nullptr;
+  }
 
   // Creates a runner-internal executable object given an HLO module and returns
   // a OpaqueExecutable. If run_hlo_passes is true, the HLO passes will be run
