@@ -36,8 +36,10 @@ inline constexpr absl::string_view kMultiModuleCustomCallTarget =
 class HloModuleStitcher final : public HloModulePass {
  public:
   explicit HloModuleStitcher(
-      const absl::flat_hash_map<std::string, HloModule*>& optimized_modules)
-      : optimized_modules_(optimized_modules) {}
+      const absl::flat_hash_map<std::string, HloModule*>& optimized_modules,
+      bool unique_cloning = false)
+      : optimized_modules_(optimized_modules),
+        unique_cloning_(unique_cloning) {}
   ~HloModuleStitcher() override = default;
 
   absl::string_view name() const final { return "hlo-module-stitcher"; }
@@ -49,6 +51,7 @@ class HloModuleStitcher final : public HloModulePass {
 
  private:
   const absl::flat_hash_map<std::string, HloModule*>& optimized_modules_;
+  bool unique_cloning_;
 };
 
 }  // namespace xla

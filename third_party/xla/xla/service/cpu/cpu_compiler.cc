@@ -1279,7 +1279,8 @@ absl::StatusOr<std::unique_ptr<HloModule>> CpuCompiler::RunHloPasses(
                             const CompileOptions& opts) {
           return this->RunHloPasses(std::move(m), stream_exec, opts);
         },
-        GetCpuCompilationThreadPool());
+        GetCpuCompilationThreadPool(),
+        /*unique_cloning=*/true);
     return driver.Compile(std::move(module), {stream_exec}, options);
   }
   auto& config = module->config();

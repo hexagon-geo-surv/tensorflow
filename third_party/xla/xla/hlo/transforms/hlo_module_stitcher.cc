@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xla/hlo/transforms/hlo_module_stitcher.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -43,7 +44,11 @@ absl::StatusOr<bool> HloModuleStitcher::RunImpl(
   std::vector<HloComputation*> computations =
       module->MakeComputationPostOrder(execution_threads);
 
-  HloCloneContext context(module);
+  std::unique_ptr<HloCloneContext> shared_context;
+  if (!unique_cloning_) {
+    shared_context = std::make_unique<HloCloneContext>(module);
+  }
+
   for (HloComputation* comp : computations) {
     std::vector<HloInstruction*> instructions =
         comp->MakeInstructionPostOrder();
@@ -72,9 +77,20 @@ absl::StatusOr<bool> HloModuleStitcher::RunImpl(
               sub_entry->num_parameters()));
         }
 
-        HloComputation* cloned_sub_entry = context.FindComputation(sub_entry);
+        HloCloneContext* context_ptr = nullptr;
+        std::unique_ptr<HloCloneContext> local_context;
+        if (unique_cloning_) {
+          local_context = std::make_unique<HloCloneContext>(module);
+          context_ptr = local_context.get();
+        } else {
+          context_ptr = shared_context.get();
+        }
+
+        HloComputation* cloned_sub_entry =
+            context_ptr->FindComputation(sub_entry);
         if (cloned_sub_entry == nullptr) {
-          cloned_sub_entry = module->DeepCloneComputation(sub_entry, &context);
+          cloned_sub_entry =
+              module->DeepCloneComputation(sub_entry, context_ptr);
         }
 
         std::vector<HloInstruction*> operands;

@@ -113,7 +113,7 @@ absl::StatusOr<std::unique_ptr<HloModule>> MultiModuleDriver::Compile(
         optimized_submodules.back().get();
   }
 
-  xla::HloModuleStitcher stitcher(optimized_modules_map);
+  xla::HloModuleStitcher stitcher(optimized_modules_map, unique_cloning_);
   RETURN_IF_ERROR(stitcher.Run(module.get()).status());
 
   return module;

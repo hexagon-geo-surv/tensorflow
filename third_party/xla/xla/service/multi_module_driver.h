@@ -41,8 +41,11 @@ class MultiModuleDriver {
       std::unique_ptr<HloModule>, const Compiler::CompileOptions&)>;
 
   explicit MultiModuleDriver(CompileFn compile_fn,
-                             tsl::Executor* executor = nullptr)
-      : compile_fn_(std::move(compile_fn)), executor_(executor) {}
+                             tsl::Executor* executor = nullptr,
+                             bool unique_cloning = false)
+      : compile_fn_(std::move(compile_fn)),
+        executor_(executor),
+        unique_cloning_(unique_cloning) {}
 
   // Returns true if the module contains any non-inlineable computations and
   // should be processed by the multi-module driver.
@@ -68,6 +71,7 @@ class MultiModuleDriver {
  private:
   CompileFn compile_fn_;
   tsl::Executor* executor_;
+  bool unique_cloning_;
   static std::atomic<int> compile_count_;
 };
 
