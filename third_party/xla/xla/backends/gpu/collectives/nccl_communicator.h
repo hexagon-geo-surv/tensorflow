@@ -67,14 +67,10 @@ class NcclCommunicator : public GpuCommunicator {
   // make_comm should construct and return a new ncclComm_t. For example, it
   // could call ncclCommInitRank. make_comm should not return a ncclComm_t that
   // was created by a different thread.
-  //
-  // If is_async is true, all collective methods (e.g., AllReduce) are performed
-  // asynchronously on a separate thread. Otherwise, they are performed
-  // synchronously on the calling thread.
   static absl::StatusOr<std::unique_ptr<NcclCommunicator>> Create(
       se::StreamExecutor* stream_executor,
       absl::AnyInvocable<absl::StatusOr<ncclComm_t>()> make_comm,
-      std::shared_ptr<CancellationToken> cancel, bool is_async = false,
+      std::shared_ptr<CancellationToken> cancel,
       tsl::Env& env = *tsl::Env::Default());
 
   ~NcclCommunicator() override;
@@ -273,7 +269,7 @@ class NcclCommunicator : public GpuCommunicator {
   // ncclComm_t is accessed from multiple threads. Empirically, the lack of
   // thread safety only manifests as buggy behavior when using non-blocking
   // communicators.
-  std::unique_ptr<tsl::Executor> executor_;
+  std::shared_ptr<tsl::Executor> executor_;
 
   // Should all pending collectives cancel?
   std::shared_ptr<CancellationToken> cancel_;
