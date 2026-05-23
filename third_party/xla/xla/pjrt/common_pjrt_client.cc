@@ -55,6 +55,7 @@ limitations under the License.
 #include "xla/pjrt/abstract_tracked_device_buffer.h"
 #include "xla/pjrt/device_event.h"
 #include "xla/pjrt/device_event_utils.h"
+#include "xla/pjrt/dynamic_shapes.h"
 #include "xla/pjrt/host_callback.h"
 #include "xla/pjrt/pjrt_client.h"
 #include "xla/pjrt/pjrt_compiler.h"
@@ -750,9 +751,13 @@ absl::Status CommonPjRtClient::PrepareArguments(
         if (on_device_shape.is_dynamic() && !expected_shape.is_dynamic()) {
           ASSIGN_OR_RETURN(auto handle_logical_device_shape,
                            handle->logical_on_device_shape());
-          auto status_or_buffer =
-              actual_buffer->RemoveDynamicShapeMetadataIfPresent(
-                  on_device_shape, handle_logical_device_shape);
+          auto* client = absl::down_cast<CommonPjRtClient*>(
+              actual_buffer->memory_space()->client());
+          auto ds_kind = client->GetDynamicShapeKind(
+              actual_buffer->memory_space()->kind_id());
+          auto status_or_buffer = xla::RemoveDynamicShapeMetadataIfPresent(
+              actual_buffer, on_device_shape, handle_logical_device_shape,
+              ds_kind);
 
           if (!status_or_buffer.ok()) {
             absl::Status status = status_or_buffer.status();
@@ -2362,11 +2367,12 @@ absl::StatusOr<Shape> CommonPjRtBufferImpl::logical_on_device_shape() {
       [&](PjRtRawBufferRef raw_buffer,
           std::vector<PjRtDeviceEventRef> definition_events)
           -> absl::StatusOr<PjRtDeviceEventRef> {
+        auto ds_kind = client()->GetDynamicShapeKind(memory_space()->kind_id());
         xla::ExecuteWhenReady(
             absl::MakeSpan(definition_events), buf_client->async_work_runner(),
             [definition_events = std::move(definition_events),
              raw_buffer = raw_buffer, output_shape = output_shape,
-             device_shape = std::move(device_shape)]() mutable {
+             device_shape = std::move(device_shape), ds_kind]() mutable {
               tsl::profiler::TraceMe traceme("D2H Read Shape Metadata");
               absl::Status status = xla::GetErrors(definition_events);
               if (!status.ok()) {
@@ -2376,8 +2382,8 @@ absl::StatusOr<Shape> CommonPjRtBufferImpl::logical_on_device_shape() {
                                  status.message())));
                 return;
               }
-              raw_buffer->ReadDynamicShape(output_shape,
-                                           std::move(device_shape));
+              xla::ReadDynamicShape(raw_buffer, output_shape,
+                                    std::move(device_shape), ds_kind);
             });
         tsl::BlockUntilReady(output_shape.CopyRCRef().get());
         if (auto* error = output_shape.GetErrorIfPresent()) {
