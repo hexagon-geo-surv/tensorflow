@@ -350,6 +350,7 @@ EXPORTS
  ?ForEachPayload@StatusRep@status_internal@lts_20260107@absl@@QEBAXV?$FunctionRef@$$A6AXV?$basic_string_view@DU?$char_traits@D@std@@@std@@AEBVCord@lts_20260107@absl@@@Z@34@@Z
  ?FormatConvertImpl@str_format_internal@lts_20260107@absl@@YA?AU?$ArgConvertResult@$0IAAAE@@123@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@VFormatConversionSpecImpl@123@PEAVFormatSinkImpl@123@@Z
  ?FormatPack@str_format_internal@lts_20260107@absl@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@VUntypedFormatSpecImpl@123@V?$Span@$$CBVFormatArgImpl@str_format_internal@lts_20260107@absl@@@23@@Z
+ ?ForwardNonIntrinsicAttributes@util@tfg@mlir@@YAXPEAVOperation@3@0@Z
  ?FromProto@Layout@dtensor@tensorflow@@SA?AV?$StatusOr@VLayout@dtensor@tensorflow@@@lts_20260107@absl@@AEBVLayoutProto@23@@Z
  ?FromString@Layout@dtensor@tensorflow@@SA?AV?$StatusOr@VLayout@dtensor@tensorflow@@@lts_20260107@absl@@V?$basic_string_view@DU?$char_traits@D@std@@@std@@@Z
  ?FromString@Mesh@dtensor@tensorflow@@SA?AV?$StatusOr@VMesh@dtensor@tensorflow@@@lts_20260107@absl@@V?$basic_string_view@DU?$char_traits@D@std@@@std@@@Z
@@ -496,6 +497,8 @@ EXPORTS
  ?LookUpDebugEventsWriter@DebugEventsWriter@tfdbg@tensorflow@@SA?AVStatus@lts_20260107@absl@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@PEAPEAV123@@Z
  ?LookUpOpDef@OpRegistryInterface@tensorflow@@QEBA?AVStatus@lts_20260107@absl@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@PEAPEBVOpDef@2@@Z
  ?Lookup@PyExceptionRegistry@tensorflow@@SAPEAU_object@@W4TSL_Code@@@Z
+ ?LoopRegionAddArgument@util@tfg@mlir@@YA?AULoopRegionArgumentUpdate@123@AEAVRegion@3@VType@3@@Z
+ ?LoopRegionResultAdded@util@tfg@mlir@@YAXAEAVRegion@3@I@Z
  ?Main@tfcompile@tensorflow@@YA?AVStatus@lts_20260107@absl@@AEBUMainFlags@12@@Z
  ?MainOpsFanin@GrapplerItem@grappler@tensorflow@@QEBA?AV?$vector@PEBVNodeDef@tensorflow@@V?$allocator@PEBVNodeDef@tensorflow@@@std@@@std@@XZ
  ?MakeCheckFailString@status_internal@lts_20260107@absl@@YAPEBDPEBVStatus@23@PEBD@Z
@@ -537,6 +540,7 @@ EXPORTS
  ?NumTasks@WorkerGrpcDataServer@data@tensorflow@@QEAA?AVStatus@lts_20260107@absl@@PEAH@Z
  ?NumWorkers@DispatchGrpcDataServer@data@tensorflow@@QEAA?AVStatus@lts_20260107@absl@@PEAH@Z
  ?OpDeterminismRequired@tsl@@YA_NXZ
+ ?OpHasDevice@util@tfg@mlir@@YA_NPEAVOperation@3@PEBD@Z
  ?OptimizeConsumeItem@MetaOptimizer@grappler@tensorflow@@QEAA?AVStatus@lts_20260107@absl@@PEAVCluster@23@$$QEAUGrapplerItem@23@PEAVGraphDef@3@@Z
  ?Output@OpDefBuilder@tensorflow@@QEAAAEAV12@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
  ?Pack@dtensor@tensorflow@@YAPEAUTFE_TensorHandle@@PEAUTFE_Context@@HPEAPEAU3@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@PEAXPEAUTSL_Status@@@Z
