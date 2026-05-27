@@ -3835,6 +3835,8 @@ def batch_to_space(input, crops, block_size, name=None, block_shape=None):  # py
   block_size = deprecation.deprecated_argument_lookup("block_shape",
                                                       block_shape, "block_size",
                                                       block_size)
+  if isinstance(block_size, (int, np.integer)) and block_size < 2:
+    raise ValueError(f"Block size should be > 1: {block_size}")
   result = batch_to_space_nd(
       input,
       crops=crops,
