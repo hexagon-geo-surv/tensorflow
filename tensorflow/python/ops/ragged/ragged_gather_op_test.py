@@ -178,11 +178,11 @@ class RaggedGatherOpTest(test_util.TensorFlowTestCase, parameterized.TestCase):
       dict(testcase_name='Params4DRagged_Indices1DTensor_batch_1_axis_2',
            params=[[[['a', 'b'], ['c', 'd', 'e']]],
                    [[['f', 'g']], [['h', 'i', 'j'], ['k', 'l']]]],
-           indices=[0, 1],
+           indices=[0, 0],
            axis=2,
            batch_dims=1,
            expected=[[['a', 'b']],
-                     [['h', 'i', 'j'], ['k', 'l']]]),
+                     [['f', 'g'], ['h', 'i', 'j']]]),
   ])  # pyformat: disable
   def testRaggedGather(self,
                        params,

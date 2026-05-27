@@ -256,6 +256,19 @@ def _ragged_segment_aggregate(unsorted_segment_op,
     data_val_to_out_val_index = range(data_row_to_out_row_start,
                                       data_row_to_out_row_limit).values
 
+    # Filter out negative segment IDs by mapping their output indices to -1.
+    # This ensures they are dropped natively by underlying segment ops.
+    row_indices = data.value_rowids()
+    val_segment_ids = array_ops.gather(segment_ids, row_indices)
+    data_val_to_out_val_index = array_ops.where(
+        val_segment_ids < 0,
+        array_ops.fill(
+            array_ops.shape(data_val_to_out_val_index),
+            math_ops.cast(-1, data_val_to_out_val_index.dtype),
+        ),
+        data_val_to_out_val_index,
+    )
+
     # Recursively aggregate the values.
     output_values = _ragged_segment_aggregate(unsorted_segment_op, data.values,
                                               data_val_to_out_val_index,

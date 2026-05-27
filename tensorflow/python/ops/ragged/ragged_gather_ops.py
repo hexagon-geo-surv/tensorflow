@@ -19,6 +19,7 @@ from tensorflow.python.framework import indexed_slices
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import tensor_shape
 from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import check_ops
 from tensorflow.python.ops import gen_ragged_array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops.ragged import ragged_array_ops
@@ -111,6 +112,11 @@ def gather(params: ragged_tensor.RaggedOrDense,
 
 def _gather(params, indices, axis, batch_dims):
   """Helper that implements the body for ragged gather().
+
+  if isinstance(params, ragged_tensor.RaggedTensor):
+    params = params.with_row_splits_dtype(dtypes.int64)
+  if isinstance(indices, ragged_tensor.RaggedTensor):
+    indices = indices.with_row_splits_dtype(dtypes.int64)
 
   Assumes that `params` and `indices` have been converted to tensors or
   ragged tensors, and that `axis` and `batch_dims` have been normalized to
@@ -246,10 +252,40 @@ def _batch_gather(params, indices, axis, batch_dims):
   # We construct `output` by flattening `params`, adjusting the `indices` to
   # point into that flattened list, and recursively calling `gather`.
   flat_params = _flatten_dims_0_and_1(params)
-  adjustments = _row_starts(params, indices.dtype)  # offset for each batch
+  row_lengths = math_ops.cast(_row_lengths(params), dtypes.int64)
+  row_lengths = _increase_rank_to(row_lengths, indices.shape.ndims)
+
+  # Cast indices to match row_lengths type.
+  cast_indices = math_ops.cast(indices, row_lengths.dtype)
+
+  # Broadcast row_lengths symbolically to match indices shape.
+  broadcast_row_lengths = array_ops.broadcast_to(
+      row_lengths, array_ops.shape(cast_indices, out_type=dtypes.int64))
+  broadcast_row_lengths = _match_row_splits_dtype(
+      broadcast_row_lengths, cast_indices)
+
+  # Wrap negative indices.
+  wrapped_indices = array_ops.where(
+      cast_indices < 0, cast_indices + broadcast_row_lengths, cast_indices)
+
+  # Assert bounds.
+  check_bounds = [
+      check_ops.assert_greater_equal(
+          wrapped_indices,
+          math_ops.cast(0, broadcast_row_lengths.dtype),
+          message='indices out of bounds'),
+      check_ops.assert_less(
+          wrapped_indices,
+          broadcast_row_lengths,
+          message='indices out of bounds')
+  ]
+  with ops.control_dependencies(check_bounds):
+    wrapped_indices = array_ops.identity(wrapped_indices)
+
+  adjustments = _row_starts(params, row_lengths.dtype)  # offset for each batch
   # increase adjustments's rank so it broadcasts w/ the outer dim of indices
   adjustments = _increase_rank_to(adjustments, indices.shape.ndims)
-  adjusted_indices = indices + adjustments
+  adjusted_indices = wrapped_indices + adjustments
   return _gather(flat_params, adjusted_indices, axis - 1, 0)
 
 
@@ -287,9 +323,46 @@ def _axis_gather(params, indices, axis):
   # have one additional dimension, and to point into that flattened list, and
   # recursively calling `gather`.
   flat_params = _flatten_dims_0_and_1(params)
-  adjustments = _row_starts(params, indices.dtype)  # offset for each batch
+  row_lengths = math_ops.cast(_row_lengths(params), dtypes.int64)
+  row_lengths = _increase_rank_to(row_lengths, indices.shape.ndims + 1)
+
+  # Cast indices to match row_lengths type.
+  cast_indices = math_ops.cast(indices, row_lengths.dtype)
+  expanded_indices = array_ops.expand_dims(cast_indices, 0)
+
+  # Broadcast symbolically to their common shape.
+  broadcast_shape = array_ops.broadcast_dynamic_shape(
+      array_ops.shape(expanded_indices, out_type=dtypes.int64),
+      array_ops.shape(row_lengths, out_type=dtypes.int64))
+  broadcast_indices = array_ops.broadcast_to(expanded_indices, broadcast_shape)
+  broadcast_row_lengths = array_ops.broadcast_to(row_lengths, broadcast_shape)
+  broadcast_row_lengths = _match_row_splits_dtype(
+      broadcast_row_lengths, cast_indices)
+  broadcast_indices = _match_row_splits_dtype(broadcast_indices, cast_indices)
+
+  # Wrap negative indices.
+  wrapped_indices = array_ops.where(
+      broadcast_indices < 0,
+      broadcast_indices + broadcast_row_lengths,
+      broadcast_indices)
+
+  # Assert bounds.
+  check_bounds = [
+      check_ops.assert_greater_equal(
+          wrapped_indices,
+          math_ops.cast(0, broadcast_row_lengths.dtype),
+          message='indices out of bounds'),
+      check_ops.assert_less(
+          wrapped_indices,
+          broadcast_row_lengths,
+          message='indices out of bounds')
+  ]
+  with ops.control_dependencies(check_bounds):
+    wrapped_indices = array_ops.identity(wrapped_indices)
+
+  adjustments = _row_starts(params, row_lengths.dtype)  # offset for each batch
   adjustments = _increase_rank_to(adjustments, indices.shape.ndims + 1)
-  adjusted_indices = indices + adjustments
+  adjusted_indices = wrapped_indices + adjustments
   return _gather(flat_params, adjusted_indices, axis - 1, 0)
 
 
@@ -309,6 +382,22 @@ def _row_starts(t, dtype):
   else:
     t_shape = array_ops.shape(t, out_type=dtype)
     return math_ops.range(t_shape[0]) * t_shape[1]
+
+
+def _row_lengths(t):
+  """Returns the row lengths of the outer dimension of `t`."""
+  if isinstance(t, ragged_tensor.RaggedTensor):
+    return t.row_lengths()
+  else:
+    t_shape = array_ops.shape(t)
+    return array_ops.repeat(t_shape[1], t_shape[0])
+
+
+def _match_row_splits_dtype(t, target):
+  if (isinstance(t, ragged_tensor.RaggedTensor)
+      and isinstance(target, ragged_tensor.RaggedTensor)):
+    return t.with_row_splits_dtype(target.row_splits.dtype)
+  return t
 
 
 def _increase_rank_to(t, rank):
@@ -468,9 +557,29 @@ def gather_nd(
       indices = math_ops.cast(indices, params.row_splits.dtype)
 
       # Flatten the outermost 2 dimensions of the index tuples & params.
-      flattened_index_tuples = array_ops.gather(params.row_splits,
-                                                indices[..., 0])
-      flattened_index_tuples += indices[..., 1]
+      row_ids = indices[..., 0]
+      local_indices = indices[..., 1]
+
+      gather_row_lengths = array_ops.gather(params.row_lengths(), row_ids)
+      local_indices = math_ops.cast(local_indices, gather_row_lengths.dtype)
+      wrapped_local_indices = array_ops.where(
+          local_indices < 0, local_indices + gather_row_lengths, local_indices)
+
+      check_bounds = [
+          check_ops.assert_greater_equal(
+              wrapped_local_indices,
+              math_ops.cast(0, gather_row_lengths.dtype),
+              message='indices out of bounds'),
+          check_ops.assert_less(
+              wrapped_local_indices,
+              gather_row_lengths,
+              message='indices out of bounds')
+      ]
+      with ops.control_dependencies(check_bounds):
+        wrapped_local_indices = array_ops.identity(wrapped_local_indices)
+
+      flattened_index_tuples = array_ops.gather(params.row_splits, row_ids)
+      flattened_index_tuples += wrapped_local_indices
       flattened_params = params.values
 
       # Flatten any remaining dimensions.
@@ -482,9 +591,31 @@ def gather_nd(
               [flattened_index_tuples, indices[..., dim:]], axis=1)
           return array_ops.gather_nd(flattened_params, flattened_index_tuples)
 
+        gather_row_lengths = array_ops.gather(
+            flattened_params.row_lengths(), flattened_index_tuples)
+        local_indices = indices[..., dim]
+        local_indices = math_ops.cast(local_indices, gather_row_lengths.dtype)
+        wrapped_local_indices = array_ops.where(
+            local_indices < 0,
+            local_indices + gather_row_lengths,
+            local_indices)
+
+        check_bounds = [
+            check_ops.assert_greater_equal(
+                wrapped_local_indices,
+                math_ops.cast(0, gather_row_lengths.dtype),
+                message='indices out of bounds'),
+            check_ops.assert_less(
+                wrapped_local_indices,
+                gather_row_lengths,
+                message='indices out of bounds')
+        ]
+        with ops.control_dependencies(check_bounds):
+          wrapped_local_indices = array_ops.identity(wrapped_local_indices)
+
         flattened_index_tuples = array_ops.gather(
             flattened_params.row_starts(), flattened_index_tuples)
-        flattened_index_tuples += indices[..., dim]
+        flattened_index_tuples += wrapped_local_indices
         flattened_params = flattened_params.values
 
       # Gather using the flattened index tuples and params.

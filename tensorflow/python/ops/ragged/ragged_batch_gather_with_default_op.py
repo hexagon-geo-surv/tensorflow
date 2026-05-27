@@ -128,7 +128,7 @@ def batch_gather_with_default(params,
       # Adjust the indices by substituting out-of-bound indices to the
       # default-value index (which is the first element)
       shifted_indices = indices + 1
-      is_out_of_bounds = (indices < 0) | (indices > upper_bounds)
+      is_out_of_bounds = (indices < 0) | (indices >= upper_bounds)
       adjusted_indices = ragged_where_op.where(
           is_out_of_bounds,
           x=array_ops.zeros_like(indices), y=shifted_indices,
