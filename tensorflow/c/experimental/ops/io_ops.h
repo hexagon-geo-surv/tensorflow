@@ -23,23 +23,22 @@ limitations under the License.
 #include "tensorflow/c/eager/abstract_context.h"
 #include "tensorflow/c/eager/abstract_tensor_handle.h"
 #include "tensorflow/core/framework/types.pb.h"
-#include "tensorflow/core/platform/status.h"
 
 namespace tensorflow {
 namespace ops {
 
 // Restores tensors from a V2 checkpoint.
-absl::Status RestoreV2(AbstractContext* ctx, AbstractTensorHandle* const prefix,
-                       AbstractTensorHandle* const tensor_names,
-                       AbstractTensorHandle* const shape_and_slices,
+absl::Status RestoreV2(AbstractContext* ctx, AbstractTensorHandle* prefix,
+                       AbstractTensorHandle* tensor_names,
+                       AbstractTensorHandle* shape_and_slices,
                        absl::Span<AbstractTensorHandle*> tensors,
                        absl::Span<DataType> dtypes, const char* name = nullptr,
                        const char* raw_device_name = nullptr);
 
 // Saves tensors in V2 checkpoint format.
-absl::Status SaveV2(AbstractContext* ctx, AbstractTensorHandle* const prefix,
-                    AbstractTensorHandle* const tensor_names,
-                    AbstractTensorHandle* const shape_and_slices,
+absl::Status SaveV2(AbstractContext* ctx, AbstractTensorHandle* prefix,
+                    AbstractTensorHandle* tensor_names,
+                    AbstractTensorHandle* shape_and_slices,
                     absl::Span<AbstractTensorHandle* const> tensors,
                     const char* name = nullptr,
                     const char* raw_device_name = nullptr);

@@ -70,7 +70,8 @@ absl::Status MatMulModel(AbstractContext* ctx,
                          absl::Span<AbstractTensorHandle*> outputs) {
   return ops::MatMul(ctx, inputs[0], inputs[1], &outputs[0],
                      /*transpose_a=*/false,
-                     /*transpose_b=*/false, "MatMul");
+                     /*transpose_b=*/false,
+                     /*grad_a=*/false, /*grad_b=*/false, "MatMul");
 }
 
 absl::Status MulModel(AbstractContext* ctx,

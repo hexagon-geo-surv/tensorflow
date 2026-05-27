@@ -38,7 +38,7 @@ std::string AttrView::VariableType() const {
     return "const char*";
   }
   if (attr_.full_type() == "list(string)") {
-    return "absl::Span<string const>";
+    return "absl::Span<std::string const>";
   }
 
   // Normal path: translate base type to C++ ...
