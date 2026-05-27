@@ -177,10 +177,19 @@ def _FilterGoldenFilesByPrefix(golden_file_list, package_prefixes):
   filtered_package_prefixes = ['tensorflow.%s.' % p for p in package_prefixes]
   for f in golden_file_list:
     if any(
-        f.rsplit('/')[-1].startswith(pre) for pre in filtered_package_prefixes):
+        os.path.basename(f).startswith(pre)
+        for pre in filtered_package_prefixes):
       continue
     filtered_file_list.append(f)
   return filtered_file_list
+
+
+def _GetModuleOrClass(api_object):
+  if api_object.HasField('tf_module'):
+    return api_object.tf_module
+  if api_object.HasField('tf_class'):
+    return api_object.tf_class
+  return None
 
 
 def _FilterGoldenProtoDict(golden_proto_dict, omit_golden_symbols_map):
@@ -192,11 +201,7 @@ def _FilterGoldenProtoDict(golden_proto_dict, omit_golden_symbols_map):
     api_object = api_objects_pb2.TFAPIObject()
     api_object.CopyFrom(filtered_proto_dict[key])
     filtered_proto_dict[key] = api_object
-    module_or_class = None
-    if api_object.HasField('tf_module'):
-      module_or_class = api_object.tf_module
-    elif api_object.HasField('tf_class'):
-      module_or_class = api_object.tf_class
+    module_or_class = _GetModuleOrClass(api_object)
     if module_or_class is not None:
       if 'is_instance' in symbol_list:
         del module_or_class.is_instance[:]
