@@ -18,6 +18,7 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 
 #include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/platform/mem.h"
@@ -84,7 +85,8 @@ absl::Status MessageToBuffer(const tensorflow::protobuf::MessageLite& in,
 
 absl::Status BufferToMessage(const TF_Buffer* in,
                              tensorflow::protobuf::MessageLite* out) {
-  if (in == nullptr || !out->ParseFromArray(in->data, in->length)) {
+  if (in == nullptr || in->length > std::numeric_limits<int>::max() ||
+      !out->ParseFromArray(in->data, in->length)) {
     return absl::InvalidArgumentError(
         absl::StrCat("Unparseable ", out->GetTypeName(), " proto"));
   }

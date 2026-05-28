@@ -27,10 +27,10 @@ tf_kernel_library(
     name = "summary_op",
     prefix = "summary_op",
     deps = [
+        ":tensor_shape_utils",
         "//tensorflow/c:kernels",
         "//tensorflow/c:tf_status",
         "//tensorflow/c:tf_tensor",
-        "//tensorflow/c/kernels:tensor_shape_utils",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
