@@ -75,13 +75,46 @@ absl::Status GradientRegistry::Lookup(
 }
 
 TapeTensor::TapeTensor(AbstractTensorHandle* handle) : handle_(handle) {
-  handle_->Ref();
+  if (handle_) {
+    handle_->Ref();
+  }
 }
 TapeTensor::TapeTensor(const TapeTensor& other) {
   handle_ = other.handle_;
-  handle_->Ref();
+  if (handle_) {
+    handle_->Ref();
+  }
 }
-TapeTensor::~TapeTensor() { handle_->Unref(); }
+TapeTensor& TapeTensor::operator=(const TapeTensor& other) {
+  if (this != &other) {
+    if (other.handle_) {
+      other.handle_->Ref();
+    }
+    if (handle_) {
+      handle_->Unref();
+    }
+    handle_ = other.handle_;
+  }
+  return *this;
+}
+TapeTensor::TapeTensor(TapeTensor&& other) noexcept : handle_(other.handle_) {
+  other.handle_ = nullptr;
+}
+TapeTensor& TapeTensor::operator=(TapeTensor&& other) noexcept {
+  if (this != &other) {
+    if (handle_) {
+      handle_->Unref();
+    }
+    handle_ = other.handle_;
+    other.handle_ = nullptr;
+  }
+  return *this;
+}
+TapeTensor::~TapeTensor() {
+  if (handle_) {
+    handle_->Unref();
+  }
+}
 
 int64_t TapeTensor::GetID() const { return ToId(handle_); }
 
