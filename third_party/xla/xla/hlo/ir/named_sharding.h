@@ -99,7 +99,6 @@ class NamedSharding {
     }
     return mesh_.DeviceAssignmentEquals(other.mesh_) &&
            dim_shardings_ == other.dim_shardings_ &&
-           replicated_axes_ == other.replicated_axes_ &&
            unreduced_axes_ == other.unreduced_axes_ &&
            manual_axes_ == other.manual_axes_;
   }

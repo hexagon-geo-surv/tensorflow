@@ -786,6 +786,20 @@ TEST(SPMDPartitionerUtilTest, GetPartitionGroupsAcrossTargetDimsGating) {
             groups_v3->flattened_replica_groups());
 }
 
+TEST(SPMDPartitionerUtilTest,
+     CanReshardWithCollectivePermuteImplicitAndExplicitReplication) {
+  Mesh mesh({2, 2, 2, 1}, {"d", "f", "e", "c"});
+  HloSharding source =
+      HloSharding(test_utils::FromAxisNames(mesh, {{"f"}, {}, {}}));
+  HloSharding target =
+      HloSharding(test_utils::FromAxisNames(mesh, {{"f"}, {}, {}},
+                                            /*replicated_axes=*/{"d"}));
+
+  // We don't want to collectively permute to a logically identical sharding as
+  // this would be a copy / identity operation.
+  EXPECT_FALSE(CanReshardWithCollectivePermute(source, target));
+}
+
 }  // namespace
 }  // namespace spmd
 }  // namespace xla
