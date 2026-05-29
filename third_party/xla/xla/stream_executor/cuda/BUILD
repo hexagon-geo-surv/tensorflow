@@ -2936,7 +2936,6 @@ cuda_library(
     ],
     deps = [
         ":cuda_platform_id",
-        "//xla/stream_executor:device_address",
         "//xla/stream_executor/gpu:gpu_kernel_registry",
         "//xla/stream_executor/gpu:ragged_all_to_all_kernel",
         "//xla/tsl/cuda:nccl",
