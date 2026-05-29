@@ -138,6 +138,7 @@ message AssignmentAlgorithmForComputationsWithoutOrderingProto {
     // If DEFAULT, performs a linear scan over tracked allocations to reuse the
     // smallest fitting buffer.
     DEFAULT = 0;
+    FAST_MERGE = 1;
   }
 }
 
