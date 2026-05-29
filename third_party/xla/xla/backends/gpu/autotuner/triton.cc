@@ -61,8 +61,6 @@ limitations under the License.
 #include "xla/stream_executor/cuda/cuda_compute_capability.h"
 #include "xla/stream_executor/device_description.h"
 #include "xla/tsl/platform/env.h"
-#include "xla/tsl/platform/errors.h"
-#include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
 #include "xla/xla_data.pb.h"
 
@@ -271,7 +269,8 @@ absl::StatusOr<std::unique_ptr<BackendConfig>> TritonBackend::GetDefaultConfig(
 
   if (configs.empty()) {
     return absl::InvalidArgumentError(
-        "TritonBackend does not support this instruction.");
+        absl::StrCat("TritonBackend has no supported configs for '",
+                     instr.name(), "' instruction"));
   }
   return std::move(configs[0]);
 }
@@ -351,7 +350,8 @@ bool TritonBackend::IsSupported(const HloInstruction& instr) {
   // Bail out here if that's the case.
   if (backend_config.kind() == kTritonGemmFusionKind) {
     auto fusion = Cast<HloFusionInstruction>(&instr);
-    auto fusion_adaptor = HloFusionAdaptor::ForInstruction(fusion);
+    std::unique_ptr<HloFusionAdaptor> fusion_adaptor =
+        HloFusionAdaptor::ForInstruction(fusion);
     if (instr.GetModule()
             ->config()
             .debug_options()
@@ -367,12 +367,8 @@ bool TritonBackend::IsSupported(const HloInstruction& instr) {
       }
       return true;
     }
-
-    auto device_info = target_config().device_description;
     SymbolicTileAnalysisOrError analysis_or_error =
-        SymbolicTileAnalysis::AnalyzeFusion(
-            *fusion_adaptor, mlir_context_,
-            TritonEmitterConstraints::GetBuilder(device_info));
+        SymbolicTileAnalysis::AnalyzeFusion(*fusion_adaptor, mlir_context_);
     if (const auto* fusion_decision =
             std::get_if<FusionDecision>(&analysis_or_error)) {
       VLOG(1) << "Fusion not tileable: " << fusion_decision->Explain();
