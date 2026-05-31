@@ -315,7 +315,25 @@ int GetBuiltinOperatorVersion(const OpSignature& op_sig) {
       }
       return 1;
 
+    case BuiltinOperator_SIN:
+      if (!op_sig.inputs.empty() &&
+          op_sig.inputs.at(0).type == kTfLiteFloat16) {
+        return 2;
+      }
+      return 1;
+
+    case BuiltinOperator_COS:
+      if (!op_sig.inputs.empty() &&
+          op_sig.inputs.at(0).type == kTfLiteFloat16) {
+        return 2;
+      }
+      return 1;
+
     case BuiltinOperator_MUL:
+      if (!op_sig.inputs.empty() &&
+          op_sig.inputs.at(0).type == kTfLiteFloat16) {
+        return 8;
+      }
       // Version 7 supports int16 and uint32 inputs
       if ((op_sig.inputs.at(0).type == kTfLiteInt16 &&
            !op_sig.ext_options.mul.input_quantized) ||
@@ -473,6 +491,10 @@ int GetBuiltinOperatorVersion(const OpSignature& op_sig) {
       return 1;
 
     case BuiltinOperator_SLICE:
+      if (!op_sig.inputs.empty() &&
+          op_sig.inputs.at(0).type == kTfLiteFloat16) {
+        return 8;
+      }
       if (op_sig.inputs.at(0).type == kTfLiteInt4) {
         return 7;
       }
@@ -723,6 +745,10 @@ int GetBuiltinOperatorVersion(const OpSignature& op_sig) {
       return 1;
 
     case BuiltinOperator_ADD: {
+      if (!op_sig.inputs.empty() &&
+          op_sig.inputs.at(0).type == kTfLiteFloat16) {
+        return 6;
+      }
       if (!op_sig.inputs.empty() && op_sig.inputs.at(0).type == kTfLiteInt16 &&
           !op_sig.ext_options.add.input_quantized) {
         return 5;
@@ -889,6 +915,10 @@ int GetBuiltinOperatorVersion(const OpSignature& op_sig) {
       return 1;
 
     case BuiltinOperator_CONCATENATION:
+      if (!op_sig.inputs.empty() &&
+          op_sig.inputs.at(0).type == kTfLiteFloat16) {
+        return 6;
+      }
       if (op_sig.inputs.at(0).type == kTfLiteInt4) {
         return 5;
       }
