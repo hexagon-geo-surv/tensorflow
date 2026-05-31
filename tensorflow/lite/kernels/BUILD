@@ -1763,6 +1763,7 @@ cc_test(
         "//tensorflow/lite/core/c:common",
         "//tensorflow/lite/kernels/internal:tensor_utils_no_eigen",
         "//tensorflow/lite/schema:schema_fbs",
+        "//tensorflow/lite/types:half",
         "@com_google_googletest//:gtest",
     ],
 )
