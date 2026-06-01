@@ -1501,6 +1501,11 @@ message DebugOptions {
   // This will log the values for all thunks affected by float checks.
   optional bool xla_gpu_log_minmax = 453;
 
+  // Whether to enable runtime instrumentation (float check, checksum, buffer
+  // saver) on all output buffers of an XLA module after all computation is
+  // finished.
+  optional bool xla_gpu_experimental_thunk_buffer_debug_module_outputs = 600;
+
   // If true, large constants will be printed out when dumping HLOs.
   optional bool xla_dump_large_constants = 290;
 

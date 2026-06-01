@@ -742,7 +742,6 @@ cc_library(
         "//xla/core/collectives",
         "//xla/core/collectives:clique_key",
         "//xla/core/collectives:collectives_registry",
-        "//xla/core/collectives:communicator",
         "//xla/hlo/ir:hlo",
         "//xla/pjrt/proto:compile_options_proto_cc",
         "//xla/runtime:buffer_use",

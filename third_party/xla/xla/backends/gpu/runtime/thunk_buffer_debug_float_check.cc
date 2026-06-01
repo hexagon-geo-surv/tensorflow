@@ -35,6 +35,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "xla/tsl/platform/status_macros.h"
 #include "xla/backends/gpu/ffi.h"
 #include "xla/backends/gpu/runtime/buffer_debug_log.pb.h"
@@ -45,6 +46,7 @@ limitations under the License.
 #include "xla/backends/gpu/runtime/sequential_thunk.h"
 #include "xla/backends/gpu/runtime/thunk.h"
 #include "xla/backends/gpu/runtime/thunk_buffer_debug_filter.h"
+#include "xla/backends/gpu/runtime/thunk_buffer_debug_pass.h"
 #include "xla/backends/gpu/runtime/thunk_pass_pipeline.h"
 #include "xla/ffi/api/c_api.h"
 #include "xla/ffi/attribute_map.h"
@@ -62,7 +64,6 @@ limitations under the License.
 #include "xla/stream_executor/device_description.h"
 #include "xla/stream_executor/gpu/buffer_debug_log.h"
 #include "xla/stream_executor/stream.h"
-#include "xla/tsl/platform/errors.h"
 #include "xla/util.h"
 #include "xla/xla.pb.h"
 #include "xla/xla_data.pb.h"
@@ -412,10 +413,11 @@ CreateBufferDebugFloatCheckThunk(
 
 }  // namespace
 
-absl::Status RunFloatCheckPassInternal(ThunkSequence* thunk_sequence,
-                                       const DebugOptions& debug_options,
-                                       const HloModule* absl_nonnull hlo_module,
-                                       ThunkPassBufferAllocator& allocator) {
+absl::Status RunFloatCheckPassInternal(
+    ThunkSequence* thunk_sequence, const DebugOptions& debug_options,
+    const HloModule* absl_nonnull hlo_module,
+    const BufferAssignment* buffer_assignment,
+    ThunkPassBufferAllocator& allocator) {
   std::shared_ptr<BufferDebugLogEntryMetadataStore> metadata_store =
       std::make_shared<BufferDebugLogEntryMetadataStore>();
 
@@ -446,9 +448,67 @@ absl::Status RunFloatCheckPassInternal(ThunkSequence* thunk_sequence,
 
   RETURN_IF_ERROR(thunk_sequence->TransformNested(transform_callback));
 
-  thunk_sequence->reserve(thunk_sequence->size() + 2);
+  std::unique_ptr<BuffersDebugFloatCheckThunk> output_buffers_check_thunk;
+  if (debug_options.xla_gpu_experimental_thunk_buffer_debug_module_outputs() &&
+      buffer_assignment != nullptr) {
+    absl::flat_hash_map<size_t, ShapedSlice> buffers_to_check_shaped;
+    ASSIGN_OR_RETURN(buffers_to_check_shaped,
+                     GetOutputShapedBuffers(hlo_module, buffer_assignment));
+
+    std::vector<std::pair<size_t, ShapedSlice>> sorted_buffers;
+    sorted_buffers.reserve(buffers_to_check_shaped.size());
+    sorted_buffers.assign(buffers_to_check_shaped.begin(),
+                          buffers_to_check_shaped.end());
+    absl::c_sort(sorted_buffers, [](const auto& a, const auto& b) {
+      return a.first < b.first;
+    });
+
+    absl::flat_hash_map<size_t, BufferAllocation::Slice> buffers_to_check;
+    buffers_to_check.reserve(sorted_buffers.size());
+    size_t max_buffer_size_bytes = 0;
+
+    for (const auto& [idx, shaped_slice] : sorted_buffers) {
+      const BufferAllocation::Slice& slice = shaped_slice.slice;
+      if (slice.element_type() == PrimitiveType::F32 ||
+          slice.element_type() == PrimitiveType::BF16 ||
+          slice.element_type() == PrimitiveType::F64) {
+        buffers_to_check.emplace(idx, slice);
+        max_buffer_size_bytes =
+            std::max<size_t>(max_buffer_size_bytes, slice.size());
+      }
+    }
+
+    if (!buffers_to_check.empty()) {
+      const size_t size_elems =
+          xla::CeilOfRatio(max_buffer_size_bytes, sizeof(uint32_t));
+      const size_t sqrt_size_elems = std::sqrt(size_elems);
+      const size_t num_elements =
+          std::clamp(xla::CeilOfRatio(size_elems, sqrt_size_elems), 1024UL,
+                     1024UL * 1024UL);
+      const size_t temp_buffer_size_bytes =
+          num_elements * sizeof(xla::gpu::FloatCheckResult);
+
+      ASSIGN_OR_RETURN(BufferAllocation * tmp_alloc,
+                       allocator.NewEmptyAllocation(temp_buffer_size_bytes));
+      BufferAllocation::Slice tmp_slice(tmp_alloc, 0, tmp_alloc->size());
+
+      Thunk::ThunkInfo checked_thunk_info;
+      checked_thunk_info.profile_annotation =
+          absl::StrCat("Module ", hlo_module->name(), " Output Check");
+
+      output_buffers_check_thunk =
+          std::make_unique<BuffersDebugFloatCheckThunk>(
+              Thunk::ThunkInfo(), checked_thunk_info, log_slice, tmp_slice,
+              std::move(buffers_to_check), metadata_store);
+    }
+  }
+
+  thunk_sequence->reserve(thunk_sequence->size() + 3);
   thunk_sequence->insert(thunk_sequence->begin(),
                          std::move(buffer_debug_init_thunk));
+  if (output_buffers_check_thunk != nullptr) {
+    thunk_sequence->push_back(std::move(output_buffers_check_thunk));
+  }
   thunk_sequence->push_back(std::move(buffer_debug_dump_thunk));
   return absl::OkStatus();
 }
