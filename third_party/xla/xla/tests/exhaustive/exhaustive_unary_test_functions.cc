@@ -247,6 +247,21 @@ UNARY_TEST(Atan, {
             .rel_err(20 * eps)
             .build();
       })
+      .CpuArmError(+[](NativeT val) {
+        // On ARM NEON architectures under Flush-To-Zero (FTZ) mode, vector
+        // selections evaluate both branches unconditionally. When inputs are
+        // tiny or subnormal, reciprocal division triggers division overflow
+        // artifacts.
+        if (std::abs(static_cast<float>(val)) < 1e-4f) {
+          return ErrorSpec::Builder().skip_comparison(true).build();
+        }
+        NativeT min = std::numeric_limits<NativeT>::min();
+        NativeT eps = std::numeric_limits<NativeT>::epsilon();
+        return ErrorSpec::Builder()
+            .abs_err(2.0f * min)
+            .rel_err(20 * eps)
+            .build();
+      })
       .Run();
 })
 

@@ -19,12 +19,15 @@ limitations under the License.
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "benchmark/state.h"
 #include "xla/backends/cpu/benchmarks/hlo_benchmark_runner.h"
 #include "xla/backends/cpu/benchmarks/multi_benchmark_config.h"
 #include "xla/literal.h"
 #include "xla/literal_util.h"
 #include "xla/shape_util.h"
 #include "xla/tsl/platform/logging.h"
+#include "xla/tsl/platform/statusor.h"
+#include "xla/tsl/platform/test.h"
 #include "xla/tsl/platform/test_benchmark.h"
 #include "xla/xla_data.pb.h"
 
@@ -45,14 +48,14 @@ static void BM_TanhF32(benchmark::State& state, HloBenchmarkOptions options) {
   std::minstd_rand0 engine;
 
   auto input_shape = ShapeUtil::MakeShape(F32, {d0});
-  auto p0 =
-      *LiteralUtil::CreateRandomLiteral<F32>(input_shape, &engine, 1.0f, 0.1f);
+  TF_ASSERT_OK_AND_ASSIGN(auto p0, LiteralUtil::CreateRandomLiteral<F32>(
+                                       input_shape, &engine, 1.0f, 0.1f));
   std::vector<const Literal*> args = {&p0};
   CHECK_OK(
       RunHloBenchmark(state, hlo, args, {{"$d0", absl::StrCat(d0)}}, options));
 }
 
-static void BM_TanhF16(benchmark::State& state) {
+static void BM_TanhF16(benchmark::State& state, HloBenchmarkOptions options) {
   int64_t d0 = state.range(0);
 
   absl::string_view hlo = R"(
@@ -67,10 +70,33 @@ static void BM_TanhF16(benchmark::State& state) {
   std::minstd_rand0 engine;
 
   auto input_shape = ShapeUtil::MakeShape(F16, {d0});
-  auto p0 =
-      *LiteralUtil::CreateRandomLiteral<F16>(input_shape, &engine, 1.0f, 0.1f);
+  TF_ASSERT_OK_AND_ASSIGN(auto p0, LiteralUtil::CreateRandomLiteral<F16>(
+                                       input_shape, &engine, 1.0f, 0.1f));
   std::vector<const Literal*> args = {&p0};
-  CHECK_OK(RunHloBenchmark(state, hlo, args, {{"$d0", absl::StrCat(d0)}}));
+  CHECK_OK(
+      RunHloBenchmark(state, hlo, args, {{"$d0", absl::StrCat(d0)}}, options));
+}
+
+static void BM_TanhBF16(benchmark::State& state, HloBenchmarkOptions options) {
+  int64_t d0 = state.range(0);
+
+  absl::string_view hlo = R"(
+    HloModule tanh_bf16_$d0
+
+    ENTRY e {
+      input = bf16[$d0] parameter(0)
+      ROOT output = tanh(input)
+    }
+  )";
+
+  std::minstd_rand0 engine;
+
+  auto input_shape = ShapeUtil::MakeShape(BF16, {d0});
+  TF_ASSERT_OK_AND_ASSIGN(auto p0, LiteralUtil::CreateRandomLiteral<BF16>(
+                                       input_shape, &engine, 1.0f, 0.1f));
+  std::vector<const Literal*> args = {&p0};
+  CHECK_OK(
+      RunHloBenchmark(state, hlo, args, {{"$d0", absl::StrCat(d0)}}, options));
 }
 
 static void BM_TanhF64(benchmark::State& state, HloBenchmarkOptions options) {
@@ -88,8 +114,8 @@ static void BM_TanhF64(benchmark::State& state, HloBenchmarkOptions options) {
   std::minstd_rand0 engine;
 
   auto input_shape = ShapeUtil::MakeShape(F64, {d0});
-  auto p0 =
-      *LiteralUtil::CreateRandomLiteral<F64>(input_shape, &engine, 1.0f, 0.1f);
+  TF_ASSERT_OK_AND_ASSIGN(auto p0, LiteralUtil::CreateRandomLiteral<F64>(
+                                       input_shape, &engine, 1.0f, 0.1f));
   std::vector<const Literal*> args = {&p0};
   CHECK_OK(
       RunHloBenchmark(state, hlo, args, {{"$d0", absl::StrCat(d0)}}, options));
@@ -109,14 +135,7 @@ static void BM_TanhF64(benchmark::State& state, HloBenchmarkOptions options) {
 
 REGISTER_TANH_BENCHMARK(BM_TanhF32);
 REGISTER_TANH_BENCHMARK(BM_TanhF64);
-
-// TODO(b/406431945): add AOT for f16 tanh
-BENCHMARK(BM_TanhF16)
-    ->MeasureProcessCPUTime()
-    ->Arg(128)
-    ->Arg(256)
-    ->Arg(512)
-    ->Arg(1024)
-    ->Arg(4096);
+REGISTER_TANH_BENCHMARK(BM_TanhF16);
+REGISTER_TANH_BENCHMARK(BM_TanhBF16);
 
 }  // namespace xla::cpu
