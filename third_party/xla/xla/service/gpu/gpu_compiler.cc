@@ -3451,6 +3451,7 @@ GpuCompiler::LoadExecutableFromAotResult(
                      xla::cpu::TargetMachineOptions::FromProto(
                          proto.cpu_target_machine_options()));
   }
+  BufferAssignmentProto buffer_assignment_proto = buffer_assignment->ToProto();
   {
     tsl::profiler::TraceMe traceme("CreateGpuExecutable");
     std::unique_ptr<GpuAliasInfo> alias_info = GetAliasInfo(device_description);
@@ -3466,8 +3467,8 @@ GpuCompiler::LoadExecutableFromAotResult(
         /*output_info=*/std::move(output_info),
         /*module_name=*/std::move(hlo_module_name),
         /*program_shape=*/std::move(program_shape),
-        /*mlir_allocations=*/std::nullopt,
-        /*buffer_assignment=*/std::move(buffer_assignment),
+        /*mlir_allocations=*/std::move(*buffer_assignment).TakeAllocations(),
+        /*buffer_assignment=*/nullptr,
         /*alias_info=*/std::move(alias_info),
         /*debug_options=*/std::move(debug_options),
         /*device_description=*/device_description,
@@ -3476,6 +3477,7 @@ GpuCompiler::LoadExecutableFromAotResult(
         /*module_stats=*/{},
         /*executable_abi_version=*/executable_abi_version,
         /*cpu_target_machine_options=*/std::move(cpu_target_machine_options),
+        /*buffer_assignment_proto=*/std::move(buffer_assignment_proto),
     });
   }
 }
