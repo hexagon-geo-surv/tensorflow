@@ -18,7 +18,6 @@ limitations under the License.
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
-#include <initializer_list>
 #include <type_traits>
 
 #include "tensorflow/lite/kernels/internal/compatibility.h"
@@ -170,11 +169,16 @@ inline bool NextIndex(const int num_dims, const int* dims, IndexType* current) {
   }
   TFLITE_DCHECK(dims != nullptr);
   TFLITE_DCHECK(current != nullptr);
+  for (int i = 0; i < num_dims; ++i) {
+    if (dims[i] == 0) {
+      return false;
+    }
+  }
   int carry = 1;
   for (int idx = num_dims - 1; idx >= 0; --idx) {
     IndexType current_val = current[idx] + carry;
     TFLITE_DCHECK_GE(dims[idx], current_val);
-    if (dims[idx] == current_val) {
+    if (current_val >= dims[idx]) {
       current[idx] = 0;
     } else {
       current[idx] = current_val;
