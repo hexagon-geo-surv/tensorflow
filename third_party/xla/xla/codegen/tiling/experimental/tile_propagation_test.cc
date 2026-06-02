@@ -27,6 +27,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
 #include "absl/strings/string_view.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "mlir/IR/MLIRContext.h"
 #include "xla/codegen/tiling/experimental/test_utils.h"
@@ -759,6 +760,107 @@ TEST_F(TilePropagationTest, CanNotPropagateThroughBitcastTrtInput) {
                   *tiling_space, *root,
                   GetTestTile(*tiling_space, root->shape().dimensions()), 0),
               StatusIs(absl::StatusCode::kUnimplemented));
+}
+
+TEST_F(TilePropagationTest, CanPropagateThroughValidSymbolicReshape) {
+  HloInstruction* root = ParseAndGetRoot(R"(
+    HloModule m
+    ENTRY e {
+      p0 = f32[4, 32] parameter(0)
+      ROOT bitcast = f32[4, 8, 4] bitcast(p0)
+    }
+  )");
+  auto tiling_space = TilingSpace::Create(
+      *HloFusionAdaptor::ForInstruction(root), &mlir_context_);
+
+  {  // 1. Propagate from output [4, 8, 4] to input [4, 32] (Collapse direction)
+    int64_t rank = 3;
+    llvm::SmallVector<DimTile> dim_tiles;
+    dim_tiles.reserve(rank);
+    std::vector<int64_t> shape = {4, 8, 4};
+    for (auto [index, dim] : llvm::enumerate(shape)) {
+      auto tid = CreateDimExpr(index, &mlir_context_);
+      auto ts = CreateSymbolExpr(index, tiling_space->num_dimensions(),
+                                 &mlir_context_);
+      dim_tiles.push_back(DimTile{tid * ts, ts,
+                                  CreateSymbolicConstant(1, &mlir_context_),
+                                  CreateSymbolicConstant(dim, &mlir_context_)});
+    }
+    Tile output_tile(*tiling_space, std::move(dim_tiles));
+    EXPECT_TRUE(
+        PropagateTileToInput(*tiling_space, *root, output_tile, 0).ok());
+  }
+
+  {  // 2. Propagate from input [4, 32] to output [4, 8, 4] (Expand direction)
+    int64_t rank = 2;
+    llvm::SmallVector<DimTile> dim_tiles;
+    dim_tiles.reserve(rank);
+    std::vector<int64_t> shape = {4, 32};
+    for (auto [index, dim] : llvm::enumerate(shape)) {
+      auto tid = CreateDimExpr(index, &mlir_context_);
+      auto ts = CreateSymbolExpr(index, tiling_space->num_dimensions(),
+                                 &mlir_context_);
+      dim_tiles.push_back(DimTile{tid * ts, ts,
+                                  CreateSymbolicConstant(1, &mlir_context_),
+                                  CreateSymbolicConstant(dim, &mlir_context_)});
+    }
+    Tile input_tile(*tiling_space, std::move(dim_tiles));
+    EXPECT_TRUE(
+        PropagateTileToOutput(*tiling_space, *root, input_tile, 0).ok());
+  }
+}
+
+TEST_F(TilePropagationTest, RejectsInvalidMixedSymbolicAndConcreteReshape) {
+  HloInstruction* root = ParseAndGetRoot(R"(
+    HloModule m
+    ENTRY e {
+      p0 = f32[4, 4, 4, 4] parameter(0)
+      ROOT bitcast = f32[256] bitcast(p0)
+    }
+  )");
+  auto tiling_space = TilingSpace::Create(
+      *HloFusionAdaptor::ForInstruction(root), &mlir_context_);
+
+  int64_t rank = 5;
+  llvm::SmallVector<DimTile> dim_tiles;
+  dim_tiles.reserve(rank);
+
+  {  // Dim 0: concrete partially tiled (size 2, bound 4)
+    auto tid = CreateDimExpr(0, &mlir_context_);
+    dim_tiles.push_back(DimTile{tid * 2,
+                                CreateSymbolicConstant(2, &mlir_context_),
+                                CreateSymbolicConstant(1, &mlir_context_),
+                                CreateSymbolicConstant(4, &mlir_context_)});
+  }
+
+  {  // Dim 1: symbolic (ts0)
+    auto tid = CreateDimExpr(1, &mlir_context_);
+    auto ts =
+        CreateSymbolExpr(0, tiling_space->num_dimensions(), &mlir_context_);
+    dim_tiles.push_back(DimTile{tid * ts, ts,
+                                CreateSymbolicConstant(1, &mlir_context_),
+                                CreateSymbolicConstant(4, &mlir_context_)});
+  }
+
+  {  // Dim 2: concrete partially tiled (size 2, bound 4)
+    auto tid = CreateDimExpr(2, &mlir_context_);
+    dim_tiles.push_back(DimTile{tid * 2,
+                                CreateSymbolicConstant(2, &mlir_context_),
+                                CreateSymbolicConstant(1, &mlir_context_),
+                                CreateSymbolicConstant(4, &mlir_context_)});
+  }
+
+  {  // Dim 3: symbolic (ts1)
+    auto tid = CreateDimExpr(3, &mlir_context_);
+    auto ts =
+        CreateSymbolExpr(1, tiling_space->num_dimensions(), &mlir_context_);
+    dim_tiles.push_back(DimTile{tid * ts, ts,
+                                CreateSymbolicConstant(1, &mlir_context_),
+                                CreateSymbolicConstant(4, &mlir_context_)});
+  }
+
+  Tile input_tile(*tiling_space, std::move(dim_tiles));
+  EXPECT_FALSE(PropagateTileToOutput(*tiling_space, *root, input_tile, 0).ok());
 }
 
 TEST_F(TilePropagationTest, CanPropagateToInputsOfConcatenateOp) {
