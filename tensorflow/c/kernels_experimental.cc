@@ -21,10 +21,14 @@ limitations under the License.
 #include <string>
 #include <utility>
 
+#include "absl/log/log.h"
+#include "tensorflow/c/c_api.h"
 #include "tensorflow/c/tf_status_helper.h"
 #include "tensorflow/c/tf_status_internal.h"
+#include "tensorflow/c/tf_tensor.h"
 #include "tensorflow/c/tf_tensor_internal.h"
 #include "tensorflow/core/framework/control_flow.h"
+#include "tensorflow/core/framework/op_requires.h"
 #include "tensorflow/core/framework/ref_var.h"
 #include "tensorflow/core/framework/resource_mgr.h"
 #include "tensorflow/core/framework/resource_var.h"
@@ -116,6 +120,8 @@ absl::Status EnsureSparseVariableAccess(
     TF_Tensor* tf_tmp = TF_TensorFromTensor(tmp, &s);
     TF_Tensor* tf_tensor = TF_TensorFromTensor(*var->tensor(), &s);
     copyFunc(ctx, tf_tensor, tf_tmp);
+    TF_DeleteTensor(tf_tmp);
+    TF_DeleteTensor(tf_tensor);
   }
   *var->tensor() = tmp;
   var->copy_on_read_mode.store(true);
@@ -158,6 +164,8 @@ absl::Status PrepareToUpdateVariable(TF_OpKernelContext* ctx,
       TF_Tensor* tf_tmp = TF_TensorFromTensor(tmp, &s);
       TF_Tensor* tf_tensor = TF_TensorFromTensor(*tensor, &s);
       copyFunc(ctx, tf_tensor, tf_tmp);
+      TF_DeleteTensor(tf_tmp);
+      TF_DeleteTensor(tf_tensor);
     }
     *tensor = tmp;
   }
@@ -222,6 +230,8 @@ void TF_AssignVariable(TF_OpKernelContext* ctx, int input_index,
     TF_Tensor* tf_tmp = TF_TensorFromTensor(tmp, &s);
     TF_Tensor* tf_value = TF_TensorFromTensor(value, &s);
     copyFunc(ctx, tf_value, tf_tmp);
+    TF_DeleteTensor(tf_tmp);
+    TF_DeleteTensor(tf_value);
     *variable->tensor() = tmp;
   } else {
     *variable->tensor() = value;
@@ -253,6 +263,8 @@ void TF_AssignRefVariable(TF_OpKernelContext* ctx, int input_ref_index,
     }
 
     copyFunc(ctx, tf_rhs, tf_lhs);
+    TF_DeleteTensor(tf_rhs);
+    TF_DeleteTensor(tf_lhs);
   };
 
   ::tensorflow::AssignRefVariable(cc_ctx, input_ref_index, output_ref_index,
@@ -295,6 +307,8 @@ void TF_AssignUpdateVariable(TF_OpKernelContext* ctx, int input_index,
   TF_Tensor* tf_var_tensor = TF_TensorFromTensor(*var_tensor, &s);
   TF_Tensor* tf_value = TF_TensorFromTensor(value, &s);
   updateFunc(ctx, tf_var_tensor, tf_value, Op);
+  TF_DeleteTensor(tf_var_tensor);
+  TF_DeleteTensor(tf_value);
   TF_SetStatus(tf_status, TF_OK, "");
 }
 
@@ -519,6 +533,7 @@ void TF_OpKernelContext_ForwardRefInputToRefOutput(TF_OpKernelContext* ctx,
 void TF_ReleaseVariableInputLockHolder(TF_VariableInputLockHolder* lockHolder) {
   if (lockHolder != nullptr) {
     lockHolder->locks.reset();
+    lockHolder->shared_locks.reset();
     for (tensorflow::Var* var : lockHolder->vars) {
       var->Unref();
     }
@@ -642,11 +657,17 @@ static Status CCBinaryAddFunc(
 
   auto* ctx = reinterpret_cast<TF_OpKernelContext*>(cc_ctx);
   if (cc_a.dtype() == ::tensorflow::DT_VARIANT) {
+    TF_DeleteTensor(a);
+    TF_DeleteTensor(b);
+    TF_DeleteTensor(out);
     return VariantBinaryAddFunc(
         cc_ctx, cc_a.scalar<Variant>()(), cc_b.scalar<Variant>()(),
         cc_out->scalar<Variant>().data(), binary_add_func);
   } else {
     binary_add_func(ctx, a, b, out);
+    TF_DeleteTensor(a);
+    TF_DeleteTensor(b);
+    TF_DeleteTensor(out);
     return cc_ctx->status();
   }
 }
@@ -760,6 +781,8 @@ static Status ZerosLikeVariant(::tensorflow::OpKernelContext* cc_ctx,
 
         auto* ctx = reinterpret_cast<TF_OpKernelContext*>(cc_ctx);
         zeros_like_func(ctx, input, out);
+        TF_DeleteTensor(input);
+        TF_DeleteTensor(out);
       }
     }
     return cc_ctx->status();
