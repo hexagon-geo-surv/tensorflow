@@ -19,9 +19,15 @@ limitations under the License.
 
 #include "tensorflow/core/kernels/in_topk_op.h"
 
+#include <cstdint>
+
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "tensorflow/core/framework/op_kernel.h"
+#include "tensorflow/core/framework/op_requires.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
+#include "tensorflow/core/framework/types.h"
 
 namespace tensorflow {
 
@@ -33,7 +39,9 @@ class InTopK : public OpKernel {
  public:
   explicit InTopK(OpKernelConstruction* context) : OpKernel(context) {
     if (context->num_inputs() == 2) {
-      OP_REQUIRES_OK(context, context->GetAttr("k", &k_));
+      int k;
+      OP_REQUIRES_OK(context, context->GetAttr("k", &k));
+      k_ = k;
     }
   }
 
@@ -83,7 +91,7 @@ class InTopK : public OpKernel {
   }
 
  private:
-  int k_;
+  int64_t k_;
 };
 
 REGISTER_KERNEL_BUILDER(Name("InTopK")
