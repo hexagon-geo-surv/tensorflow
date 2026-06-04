@@ -69,7 +69,7 @@ message ProfileRequest {
   string host_name = 7;
 
   // If true, the response will contain the XSpace in the response.
-  bool emit_xspace = 9;
+  optional bool emit_xspace = 9;
   // In future, the caller will indicate which TF session is being profiled, and
   // only data relating to that program will be returned. For now, we assume
   // all activity during the profiling period is relevant.
@@ -107,7 +107,9 @@ message TerminateRequest {
 
 message TerminateResponse {}
 
-message GetSnapshotRequest {}
+message GetSnapshotRequest {
+  string snapshot_id = 1;
+}
 
 message ContinuousProfilingResponse {}
 

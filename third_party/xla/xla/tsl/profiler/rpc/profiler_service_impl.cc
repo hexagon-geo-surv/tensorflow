@@ -157,7 +157,9 @@ class ProfilerServiceImpl : public tensorflow::grpc::ProfilerService::Service {
                                 std::string(status.message()));
     }
     tensorflow::ProfileRequest request = *req;
-    request.set_emit_xspace(true);
+    if (!req->has_emit_xspace()) {
+      request.set_emit_xspace(true);
+    }
     continuous_profiling_session_ = {request, std::move(profiler)};
     return ::grpc::Status::OK;
   }
@@ -189,8 +191,13 @@ class ProfilerServiceImpl : public tensorflow::grpc::ProfilerService::Service {
                             "No continuous profiling session found.");
     }
 
+    tensorflow::ProfileRequest merged_request =
+        continuous_profiling_session_->request;
+    if (!req->snapshot_id().empty()) {
+      merged_request.set_session_id(req->snapshot_id());
+    }
     absl::Status status =
-        CollectData(continuous_profiling_session_->request,
+        CollectData(merged_request,
                     continuous_profiling_session_->profiler.get(), response);
     if (!status.ok()) {
       LOG(ERROR) << "Failed to collect profile data: " << status;
