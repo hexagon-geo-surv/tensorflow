@@ -45,6 +45,7 @@ limitations under the License.
 #include "xla/service/algorithm_util.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/xla_data.pb.h"
+#include "tsl/platform/tensor_float_32_utils.h"
 
 namespace xla {
 namespace xtile {
@@ -200,6 +201,9 @@ absl::StatusOr<std::optional<Type>> DotDefaultOperandsType(
   if (lhs_type != rhs_type) {
     return std::nullopt;
   }
+  LOG(INFO) << "DotDefaultOperandsType: dot=" << dot.name()
+            << " lhs_type=" << dot.operand(0)->shape().ToString()
+            << " rhs_type=" << dot.operand(1)->shape().ToString();
   if (!lhs_type.isFloat(32)) {
     return std::nullopt;
   }
@@ -209,7 +213,8 @@ absl::StatusOr<std::optional<Type>> DotDefaultOperandsType(
       return lhs_type;
     }
   }
-  if (debug_options.xla_gpu_default_to_alg_dot_bf16_bf16_f32()) {
+  if (debug_options.xla_gpu_match_tpu_precision() &&
+      tsl::tensor_float_32_execution_enabled()) {
     return b.getBF16Type();
   }
   return lhs_type;

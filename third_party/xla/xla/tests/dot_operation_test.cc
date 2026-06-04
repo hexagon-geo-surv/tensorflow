@@ -60,7 +60,7 @@ namespace {
 class DotOperationTest : public ClientLibraryTestRunnerMixin<
                              HloPjRtInterpreterReferenceMixin<HloTestBase>> {
  public:
-  ErrorSpec error_spec_{0.0001, 1e-5};
+  ErrorSpec error_spec_{1e-4, 1e-5};
 };
 
 using TypesF16F32 = ::testing::Types<
@@ -238,9 +238,9 @@ TYPED_TEST(DotOperationTest_F16F32F64CF64, FusedDot) {
   Literal rhs_handle =
       LiteralUtil::CreateR2FromArray2D<T>({{1.0f}, {2.0f}, {3.0f}, {4.0f}});
   if (std::is_same<Eigen::half, T>::value) {
-    this->error_spec_ = ErrorSpec{0.001, 0.003};
+    this->error_spec_ = ErrorSpec{1e-3, 3e-3};
   } else if (std::is_same<float, T>::value) {
-    this->error_spec_ = ErrorSpec{0.001, 0.002};
+    this->error_spec_ = ErrorSpec{1e-3, 2e-3};
   }
 
   this->template ComputeAndCompareR2<T>(
@@ -346,7 +346,7 @@ template <typename NativeT>
 void ParametricDotTest::ComputeAndCompareR2WithError(
     XlaBuilder* builder, const Array2D<NativeT>& expected,
     absl::Span<Literal* const> arguments) {
-  ErrorSpec error_spec(0.3, 3e-3);
+  ErrorSpec error_spec(3e-1, 3e-3);
   ComputeAndCompareR2(builder, expected, arguments, error_spec);
 }
 
@@ -354,7 +354,7 @@ template <>
 void ParametricDotTest::ComputeAndCompareR2WithError<Eigen::half>(
     XlaBuilder* builder, const Array2D<Eigen::half>& expected,
     absl::Span<Literal* const> arguments) {
-  ErrorSpec error_spec(0.3, 7e-3);
+  ErrorSpec error_spec(3e-1, 7e-3);
   ComputeAndCompareR2(builder, expected, arguments, error_spec);
 }
 
@@ -376,7 +376,7 @@ template <>
 void ParametricDotTest::ComputeAndCompareR2WithError(
     XlaBuilder* builder, const Array2D<tsl::float8_e5m2>& expected,
     absl::Span<Literal* const> arguments) {
-  ErrorSpec error_spec(0.3, 3e-3);
+  ErrorSpec error_spec(3e-1, 3e-3);
   error_spec.low_precision_fp_error_spec.type =
       primitive_util::NativeToPrimitiveType<tsl::float8_e5m2>();
   error_spec.low_precision_fp_error_spec.within_n_values = 1;
@@ -387,7 +387,7 @@ template <>
 void ParametricDotTest::ComputeAndCompareR2WithError(
     XlaBuilder* builder, const Array2D<tsl::float8_e4m3fn>& expected,
     absl::Span<Literal* const> arguments) {
-  ErrorSpec error_spec(0.3, 3e-3);
+  ErrorSpec error_spec(3e-1, 3e-3);
   error_spec.low_precision_fp_error_spec.type =
       primitive_util::NativeToPrimitiveType<tsl::float8_e4m3fn>();
   error_spec.low_precision_fp_error_spec.within_n_values = 1;
@@ -720,7 +720,9 @@ TYPED_TEST(DotOperationTestForBatchMatMul, Types) {
        {{{11.0f, 22.0f}, {33.0f, 44.0f}}, {{55.0f, 66.0f}, {77.0f, 88.0f}}}});
 
   if (std::is_same<Eigen::half, T>::value) {
-    this->error_spec_ = ErrorSpec{0.0001, 1e-3};
+    this->error_spec_ = ErrorSpec{1e-4, 1e-3};
+  } else if (std::is_same<float, T>::value) {
+    this->error_spec_ = ErrorSpec{1e-4, 4e-3};
   }
   this->template ComputeAndCompareR4<T>(
       &builder,
@@ -1612,7 +1614,7 @@ TEST_P(EinsumTest, SimpleEinsumTest) {
   } else {
     Einsum(x, y, config);
   }
-  ComputeAndCompare(&builder, {&x_literal, &y_literal}, ErrorSpec{0.01, 0.01});
+  ComputeAndCompare(&builder, {&x_literal, &y_literal}, ErrorSpec{1e-2, 1e-2});
 }
 
 std::vector<EinsumParamType> GetEinsumTestCases() {
@@ -2125,7 +2127,7 @@ ENTRY jaxpr_computation__5.33 {
 })";
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(module_string));
-  EXPECT_TRUE(RunAndCompare(std::move(module), ErrorSpec{0.001, 0.001}));
+  EXPECT_TRUE(RunAndCompare(std::move(module), ErrorSpec{1e-3, 1e-3}));
 }
 
 TEST_F(DotOperationTest, ReorderContractingDimsConstLHS_RL) {
@@ -2182,7 +2184,7 @@ TEST_F(DotOperationTest, ReorderContractingDimsConstRHS_RL) {
   auto rhs = ConstantR2FromArray2D(&builder, const_arr);
   Dot(lhs, rhs);
 
-  ComputeAndCompare(&builder, {&t0_literal}, error_spec_);
+  ComputeAndCompare(&builder, {&t0_literal}, ErrorSpec(1e-4, 5e-4));
 }
 
 TEST_F(DotOperationTest, ReorderContractingDimsConstRHS_MM) {
@@ -2206,7 +2208,7 @@ TEST_F(DotOperationTest, ReorderContractingDimsConstRHS_MM) {
   dims.add_rhs_batch_dimensions(0);
   DotGeneral(lhs, rhs, dims);
 
-  ComputeAndCompare(&builder, {&t0_literal}, error_spec_);
+  ComputeAndCompare(&builder, {&t0_literal}, ErrorSpec(1e-4, 2e-3));
 }
 
 TEST_F(DotOperationTest, ReorderContractingDims_Multipass) {
