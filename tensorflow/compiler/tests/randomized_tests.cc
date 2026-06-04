@@ -3284,7 +3284,8 @@ TEST_F(OpTest, MatMul) {
                                              .RandomInput(type, b_dims)
                                              .Attr("T", type)
                                              .Attr("transpose_a", transpose_a)
-                                             .Attr("transpose_b", transpose_b));
+                                             .Attr("transpose_b", transpose_b),
+                                         2e-1, 2e-1);
   });
 }
 
@@ -4800,7 +4801,8 @@ TEST_F(OpTest, XlaEinsum) {
                                              .RandomInput(a.type, a.lhs_dims)
                                              .RandomInput(a.type, a.rhs_dims)
                                              .Attr("equation", a.equation)
-                                             .Attr("T", a.type));
+                                             .Attr("T", a.type),
+                                         2e-1, 2e-1);
   });
 }
 

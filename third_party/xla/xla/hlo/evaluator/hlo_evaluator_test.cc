@@ -8165,5 +8165,59 @@ BENCHMARK(BM_BinaryOp)
     ->Arg(512)
     ->Arg(1024);
 
+TEST_F(HloEvaluatorTest, DotPrecisionSimulation) {
+  auto run_test = [&](bool enable_flag, bool highest_precision,
+                      float expected_val) {
+    std::string precision_str = "";
+    if (highest_precision) {
+      precision_str = ", operand_precision={highest,highest}";
+    }
+    std::string hlo_text = std::string(R"(
+      HloModule test
+      ENTRY test {
+        p0 = f32[1,1] parameter(0)
+        p1 = f32[1,1] parameter(1)
+        ROOT dot = f32[1,1] dot(p0, p1),
+          lhs_contracting_dims={1},
+          rhs_contracting_dims={0})") +
+                           precision_str +
+                           R"(
+      }
+    )";
+
+    HloModuleConfig config = GetModuleConfigForTest();
+    config.set_device_type("GPU");
+    DebugOptions debug_options = config.debug_options();
+    debug_options.set_xla_gpu_default_to_alg_dot_bf16_bf16_f32(enable_flag);
+    config.set_debug_options(debug_options);
+
+    auto module_or_status = ParseAndReturnVerifiedModule(hlo_text, config);
+    ASSERT_TRUE(module_or_status.ok()) << module_or_status.status().message();
+    auto module = std::move(module_or_status).value();
+
+    Literal lhs = LiteralUtil::CreateR2<float>({{1.0001f}});
+    Literal rhs = LiteralUtil::CreateR2<float>({{1.0001f}});
+
+    HloEvaluator evaluator;
+    auto result_or_status =
+        evaluator.Evaluate(*module->entry_computation(), {&lhs, &rhs});
+    ASSERT_TRUE(result_or_status.ok()) << result_or_status.status().message();
+    Literal result = std::move(result_or_status).value();
+
+    EXPECT_NEAR(result.Get<float>({0, 0}), expected_val, 1e-6f);
+  };
+
+  // Case 1: Flag disabled -> full F32 precision.
+  // 1.0001 * 1.0001 = 1.00020001
+  run_test(/*enable_flag=*/false, /*highest_precision=*/false, 1.00020001f);
+
+  // Case 2: Flag enabled, default precision -> simulated BF16 precision.
+  // 1.0001 rounds to 1.0 in BF16. 1.0 * 1.0 = 1.0.
+  run_test(/*enable_flag=*/true, /*highest_precision=*/false, 1.0f);
+
+  // Case 3: Flag enabled, highest precision -> full F32 (no downgrade).
+  run_test(/*enable_flag=*/true, /*highest_precision=*/true, 1.00020001f);
+}
+
 }  // namespace
 }  // namespace xla

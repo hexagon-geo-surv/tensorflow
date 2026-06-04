@@ -39,15 +39,22 @@ namespace {
 // *****************************************************************************
 
 class XTileDialectTest : public HloHardwareIndependentTestBase,
-                         public XTileTestBase {};
+                         public XTileTestBase {
+ protected:
+  DebugOptions GetDebugOptionsForTest() const override {
+    DebugOptions debug_options =
+        HloHardwareIndependentTestBase::GetDebugOptionsForTest();
+    debug_options.set_xla_gpu_default_to_alg_dot_bf16_bf16_f32(false);
+    return debug_options;
+  }
+};
 
 class XTileDialectTestParameterized
     : public XTileDialectTest,
       public ::testing::WithParamInterface<bool> {
  protected:
   DebugOptions GetDebugOptionsForTest() const override {
-    DebugOptions debug_options =
-        HloHardwareIndependentTestBase::GetDebugOptionsForTest();
+    DebugOptions debug_options = XTileDialectTest::GetDebugOptionsForTest();
     debug_options.set_xla_gpu_experimental_enable_tiling_propagation(
         GetParam());
     return debug_options;
@@ -514,8 +521,9 @@ TEST_F(XTileDialectTest, HloAllGatherDotLowering) {
     }
   )";
 
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
-                       ParseAndReturnUnverifiedModule(kHloText));
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<HloModule> module,
+      ParseAndReturnUnverifiedModule(kHloText, GetModuleConfigForTest()));
   module->mutable_config()
       .mutable_debug_options()
       .set_xla_gpu_experimental_enable_tiling_propagation(true);

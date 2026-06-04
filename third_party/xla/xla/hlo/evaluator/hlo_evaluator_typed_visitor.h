@@ -152,6 +152,54 @@ class HloEvaluatorTypedVisitor : public ConstDfsHloVisitorWithDefault {
     return shape_copy;
   }
 
+  bool ShouldSimulateBf16PrecisionForDot(const HloInstruction* dot) {
+    if constexpr (!std::is_same_v<ElementwiseT, float>) {
+      return false;
+    }
+    // We only simulate GPU precision if the target device is GPU.
+    if (dot->GetModule()->config().device_type() != "GPU") {
+      return false;
+    }
+    // We only simulate F32 -> BF16 -> F32.
+    if (dot->shape().element_type() != PrimitiveType::F32 ||
+        dot->operand(0)->shape().element_type() != PrimitiveType::F32 ||
+        dot->operand(1)->shape().element_type() != PrimitiveType::F32) {
+      return false;
+    }
+
+    auto algorithm = dot->precision_config().algorithm();
+
+    // If the algorithm is explicitly BF16, we must simulate it.
+    if (algorithm == PrecisionConfig::ALG_DOT_BF16_BF16_F32 ||
+        algorithm == PrecisionConfig::ALG_DOT_BF16_BF16_F32_X3 ||
+        algorithm == PrecisionConfig::ALG_DOT_BF16_BF16_F32_X6 ||
+        algorithm == PrecisionConfig::ALG_DOT_BF16_BF16_F32_X9) {
+      return true;
+    }
+
+    // If the algorithm is UNSET, we simulate if the flag is enabled and
+    // the dot has default precision (so it would be rewritten by
+    // DotAlgorithmRewriter).
+    if (algorithm == PrecisionConfig::ALG_UNSET) {
+      const DebugOptions& debug_options =
+          dot->GetModule()->config().debug_options();
+      if (!debug_options.xla_gpu_default_to_alg_dot_bf16_bf16_f32()) {
+        return false;
+      }
+      // Check if all operand precisions are DEFAULT.
+      for (int p : dot->precision_config().operand_precision()) {
+        if (p != PrecisionConfig::DEFAULT) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    // For any other explicit algorithm (like ALG_DOT_F32_F32_F32 or
+    // ALG_DOT_TF32_TF32_F32), we do NOT simulate BF16.
+    return false;
+  }
+
  public:
   explicit HloEvaluatorTypedVisitor(HloEvaluator* p) : parent_(p) {}
 
@@ -1223,6 +1271,16 @@ class HloEvaluatorTypedVisitor : public ConstDfsHloVisitorWithDefault {
         parent_->GetEvaluatedLiteralFor(lhs).Convert(accumulation_ty).value();
     Literal rhs_literal =
         parent_->GetEvaluatedLiteralFor(rhs).Convert(accumulation_ty).value();
+    if (ShouldSimulateBf16PrecisionForDot(dot)) {
+      lhs_literal = lhs_literal.Convert(PrimitiveType::BF16)
+                        .value()
+                        .Convert(accumulation_ty)
+                        .value();
+      rhs_literal = rhs_literal.Convert(PrimitiveType::BF16)
+                        .value()
+                        .Convert(accumulation_ty)
+                        .value();
+    }
     const int64_t contracted_dimension_size =
         lhs->shape().dimensions(lhs_contracting_dimension);
     Array2D<NativeT> lhs_array(lhs->shape().dimensions(0),
@@ -1374,6 +1432,18 @@ class HloEvaluatorTypedVisitor : public ConstDfsHloVisitorWithDefault {
     const Literal& lhs_literal = parent_->GetEvaluatedLiteralFor(lhs);
     const Literal& rhs_literal = parent_->GetEvaluatedLiteralFor(rhs);
     if (lhs_same && rhs_same) {
+      if (ShouldSimulateBf16PrecisionForDot(dot)) {
+        return HandleDotSlowPathWithLiterals(
+            dot,
+            lhs_literal.Convert(PrimitiveType::BF16)
+                .value()
+                .Convert(dot->shape().element_type())
+                .value(),
+            rhs_literal.Convert(PrimitiveType::BF16)
+                .value()
+                .Convert(dot->shape().element_type())
+                .value());
+      }
       return HandleDotSlowPathWithLiterals(dot, lhs_literal, rhs_literal);
     }
     if (lhs_same) {

@@ -226,6 +226,10 @@ class HloRunnerAgnosticReferenceMixin : public T {
     RETURN_IF_ERROR(this->verifier().Run(module.get()).status());
     ASSIGN_OR_RETURN(std::unique_ptr<HloModule> reference_module,
                      MakeReferenceModule(*module, reference_preprocessor));
+    if (this->test_runner().HasProperty(HloRunnerPropertyTag::kUsingGpuCuda) ||
+        this->test_runner().HasProperty(HloRunnerPropertyTag::kUsingGpuRocm)) {
+      reference_module->mutable_config().set_device_type("GPU");
+    }
     RETURN_IF_ERROR(this->PreprocessModuleForTestRunner(module.get()));
     if (test_preprocessor != nullptr) {
       test_preprocessor(module.get());
