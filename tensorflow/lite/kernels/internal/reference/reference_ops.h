@@ -680,10 +680,13 @@ inline TfLiteStatus ScatterNd(const RuntimeShape& indices_shape,
   }
   memset(output_data, 0, sizeof(UpdatesT) * output_flat_size);
   for (int i = 0; i < n_slices; ++i) {
-    int to_pos = 0;
+    int64_t to_pos = 0;
     for (int j = 0; j < indices_nd; ++j) {
       IndicesT idx = indices_data[i * indices_nd + j];
-      to_pos += idx * dims_to_count[j];
+      if (idx < 0 || idx >= output_shape.Dims(j)) {
+        return kTfLiteError;
+      }
+      to_pos += static_cast<int64_t>(idx) * dims_to_count[j];
     }
     if (to_pos < 0 || to_pos + slice_size > output_flat_size) {
       return kTfLiteError;
