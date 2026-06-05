@@ -35,10 +35,10 @@ Axes Shape::axes() const {
 
 size_t Shape::num_elements() const {
   if (dims_.empty()) {
-    return 0;
+    return 1;
   }
-  return std::accumulate(dims_.begin(), dims_.end(), 1,
-                         std::multiplies<size_t>());
+  return std::accumulate(dims_.begin(), dims_.end(), DimensionSize{1},
+                         std::multiplies<DimensionSize>());
 }
 
 namespace {
@@ -68,7 +68,7 @@ Result CallTemplatedFunctorWithResult(ElementType element_type) {
     case ElementType::kF32:
       return Op<ElementType::kF32>()();
     default:
-      LOG(ERROR) << "Unexpected tensor element type: "
+      LOG(ERROR) << "Unexpected tensor element type: "  // NOLINT
                  << static_cast<int>(element_type);
       return Result();
   }
