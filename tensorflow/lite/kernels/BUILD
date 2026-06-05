@@ -2093,6 +2093,8 @@ cc_test(
     deps = [
         ":test_main",
         ":test_util",
+        "//tensorflow/lite/c:c_api_types",
+        "//tensorflow/lite/c:common",
         "//tensorflow/lite/core/c:common",
         "//tensorflow/lite/kernels/internal:tensor_utils",
         "//tensorflow/lite/schema:schema_fbs",
