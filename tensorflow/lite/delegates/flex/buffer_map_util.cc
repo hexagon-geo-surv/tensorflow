@@ -20,6 +20,7 @@ limitations under the License.
 #include <utility>
 
 #include "absl/status/status.h"
+#include "Eigen/Core"  // from @eigen_archive  // IWYU pragma: keep
 #include "tensorflow/c/tf_tensor_internal.h"
 #include "tensorflow/core/framework/allocator.h"
 #include "tensorflow/core/framework/log_memory.h"
@@ -202,13 +203,18 @@ absl::Status SetTfTensorFromTfLite(const TfLiteTensor* tensor,
   // preferable to somehow reuse the buffer.
   BaseTfLiteTensorBuffer* buf;
   if (tensor->type == kTfLiteString) {
+    int num_strings = tensor->data.raw != nullptr ? GetStringCount(tensor) : 0;
+    if (shape.num_elements() != num_strings) {
+      return absl::InvalidArgumentError(
+          "TFLite tensor shape does not match the number of strings.");
+    }
     if (tensor->data.raw != nullptr) {
       const char* raw_data = static_cast<const char*>(tensor->data.raw);
       if (tensor->bytes < sizeof(int32_t)) {
         return absl::InvalidArgumentError(
             "String tensor buffer too small for string count");
       }
-      int num_strings = GetStringCount(tensor);
+
       if (num_strings < 0 || num_strings > INT32_MAX - 2) {
         return absl::InvalidArgumentError(
             "Invalid string count in string tensor");
