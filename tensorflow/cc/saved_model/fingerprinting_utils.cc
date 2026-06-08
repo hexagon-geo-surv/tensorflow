@@ -30,6 +30,8 @@ limitations under the License.
 #include "riegeli/records/record_reader.h"  // from @riegeli
 #include "tensorflow/cc/saved_model/constants.h"
 #include "tensorflow/cc/saved_model/fingerprinting_x_platform_utils.h"
+#include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/statusor.h"
 #include "tensorflow/core/framework/function.pb.h"
 #include "tensorflow/core/framework/graph.pb.h"
 #include "tensorflow/core/framework/op_def.pb.h"
@@ -46,8 +48,7 @@ limitations under the License.
 #include "tensorflow/tools/proto_splitter/cc/util.h"
 #include "tensorflow/tools/proto_splitter/chunk.pb.h"
 #include "tensorflow/tools/proto_splitter/merge.h"
-#include "tsl/platform/errors.h"
-#include "tsl/platform/statusor.h"
+#include "tsl/platform/protobuf.h"
 // IWYU pragma: no_include "third_party/protobuf/repeated_ptr_field.h"
 // IWYU pragma: no_include "third_party/protobuf/io/coded_stream.h"
 // IWYU pragma: no_include "third_party/protobuf/io/zero_copy_stream_impl_lite.h"
@@ -73,6 +74,7 @@ namespace fingerprinting_utils_internal {
 
 using ::tensorflow::protobuf::Map;
 using ::tensorflow::protobuf::Message;
+// NOLINTNEXTLINE: clang-tidy missing-includes false positive
 using ::tensorflow::protobuf::RepeatedPtrField;
 // NOLINTNEXTLINE: clang-tidy missing-includes false positive
 using ::tensorflow::protobuf::io::CodedOutputStream;
@@ -241,8 +243,18 @@ absl::StatusOr<uint64_t> HashFields(
       for (const auto& field : fields) {
         TF_ASSIGN_OR_RETURN(MutableFieldResult mfr,
                             GetMutableField(merged_message, field));
-        merged_message =
-            mfr.parent->GetReflection()->MutableMessage(mfr.parent, mfr.field);
+        if (mfr.field->is_repeated()) {
+          if (mfr.index != -1) {
+            merged_message =
+                mfr.parent->GetReflection()->MutableRepeatedMessage(
+                    mfr.parent, mfr.field, mfr.index);
+          } else {
+            break;
+          }
+        } else {
+          merged_message = mfr.parent->GetReflection()->MutableMessage(
+              mfr.parent, mfr.field);
+        }
       }
       TF_ASSIGN_OR_RETURN(
           std::string chunk,

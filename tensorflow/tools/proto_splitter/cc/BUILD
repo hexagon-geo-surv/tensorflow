@@ -278,8 +278,7 @@ cc_library(
         ":util",
         "//tensorflow/core:protos_all_cc",
         "@com_google_absl//absl/status",
-        "@tsl//tsl/platform:errors",
-        "@tsl//tsl/platform:protobuf",
+        "@xla//xla/tsl/platform:errors",
     ],
 )
 
@@ -299,6 +298,7 @@ tf_cc_test(
         "//tensorflow/core:test",
         "//tensorflow/core/platform:path",
         "//tensorflow/tools/proto_splitter/testdata:test_message_proto_cc",
+        "@com_google_absl//absl/status",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/platform:protobuf",
     ] + if_oss([
