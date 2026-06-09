@@ -40,6 +40,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/service/logical_buffer.h"
+#include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/tsl/platform/logging.h"
 #include "xla/util.h"
@@ -241,19 +242,20 @@ absl::Status TuplePointsToAnalysis::HandleGetTupleElement(
   const PointsToSet& operand_points_to_set =
       *PerInst(get_tuple_element->operand(0))->points_to_set;
 
-  // Copy the points-to set (and tuple sources) at index {element_index} of the
-  // operand to the points-to set for this GetTupleElement instruction.
+  // Forward the points-to set (and tuple sources) at index {element_index}
+  // of the operand to the points-to set for this GetTupleElement instruction.
   points_to_set.ForEachMutableElement(
       [&](const ShapeIndex& target_index, PointsToSet::BufferList* points_to) {
         // Construct an index into the operand by prepending element_index to
         // the index for the GetTupleElement instruction's points-to set.
-        ShapeIndex src_index;
-        src_index.push_back(element_index);
-        for (auto element : target_index) {
-          src_index.push_back(element);
-        }
+        ShapeIndex src_index({element_index});
+        src_index.insert(src_index.end(), target_index.begin(),
+                         target_index.end());
 
+        // Forward the pointed-to buffers.
         *points_to = operand_points_to_set.element(src_index);
+
+        // Forward the tuple sources.
         for (HloInstruction* tuple :
              operand_points_to_set.tuple_sources(src_index)) {
           points_to_set.add_tuple_source(target_index, tuple);
@@ -331,73 +333,143 @@ absl::Status TuplePointsToAnalysis::HandleRecvDone(HloInstruction* recv_done) {
 
 absl::Status TuplePointsToAnalysis::HandleAsyncStart(
     HloInstruction* async_start) {
-  // AsyncStart forwards its aliased operands to {0}.
   PointsToSet& points_to_set = CreateEmptyPointsToSet(async_start);
-  absl::flat_hash_map<ShapeIndex, std::pair<int64_t, ShapeIndex>>
-      aliased_outputs;
+
+  // 1. Get the list of explicitly aliased outputs.
+  absl::flat_hash_set<ShapeIndex> explicitly_aliased_outputs;
   for (const auto& pair : Cast<HloAsyncStartInstruction>(async_start)
                               ->output_to_operand_aliasing()) {
-    aliased_outputs.emplace(pair.first, pair.second);
+    explicitly_aliased_outputs.insert(pair.first);
   }
+
+  // 2. Populate points-to set.
   points_to_set.ForEachMutableElement(
       [&](const ShapeIndex& target_index, PointsToSet::BufferList* buffers) {
-        auto it = aliased_outputs.find(target_index);
         bool has_implicit_alias =
             (target_index.size() >= 2 && target_index.front() == 0);
-        bool has_explicit_alias = it != aliased_outputs.end();
+        bool has_explicit_alias =
+            explicitly_aliased_outputs.contains(target_index);
+
         if (has_implicit_alias) {
+          // Implicit alias: forward from operand.
+          // For async-start, logical input i is operand i.
+          int64_t input_idx = target_index[1];
+          CHECK_LT(input_idx, async_start->operand_count());
           const PointsToSet& operand_points_to_set =
-              GetPointsToSet(async_start->operand(target_index[1]));
+              GetPointsToSet(async_start->operand(input_idx));
           ShapeIndex source_index(target_index.begin() + 2, target_index.end());
           *buffers = operand_points_to_set.element(source_index);
           for (HloInstruction* tuple :
                operand_points_to_set.tuple_sources(source_index)) {
             points_to_set.add_tuple_source(target_index, tuple);
           }
-        }
-        if (has_explicit_alias) {
-          const PointsToSet& input_set =
-              GetPointsToSet(async_start->operand(it->second.first));
-          for (const LogicalBuffer* input_buffer :
-               input_set.element(it->second.second)) {
-            points_to_set.AddPointedToBuffer(*input_buffer, target_index);
-          }
-          for (HloInstruction* tuple :
-               input_set.tuple_sources(it->second.second)) {
-            points_to_set.add_tuple_source(target_index, tuple);
-          }
-        }
-        if (!has_implicit_alias && !has_explicit_alias) {
+        } else if (has_explicit_alias) {
+          // Explicit alias: do nothing for now, will be resolved in step 3 if
+          // active.
+        } else {
+          // New buffer.
           buffers->push_back(
               &logical_buffer_analysis_->GetBuffer(async_start, target_index));
         }
       });
+
+  // 3. Apply deferred aliases.
+  ApplyDeferredAliases(async_start, points_to_set);
+
   points_to_set.add_tuple_source({}, async_start);
   return absl::OkStatus();
 }
 
 absl::Status TuplePointsToAnalysis::HandleAsyncUpdate(
     HloInstruction* async_update) {
-  // AsyncUpdate forwards its aliased operand to {}.
   PointsToSet& points_to_set = CreateEmptyPointsToSet(async_update);
-  const PointsToSet& operand_points_to_set =
-      GetPointsToSet(async_update->operand(0));
-  CHECK_EQ(async_update->shape(), async_update->operand(0)->shape());
+
+  const Shape& async_update_shape = async_update->shape();
+  const HloInstruction* prev_async_op = async_update->operand(0);
+  const Shape& prev_async_op_shape = prev_async_op->shape();
+
+  // The top-level shape must be a tuple.
+  CHECK(async_update_shape.IsTuple());
+  CHECK(prev_async_op_shape.IsTuple());
+
+  // 1. Get the list of explicitly aliased outputs from async-start.
+  HloInstruction* async_start =
+      Cast<HloAsyncInstruction>(async_update)->async_chain_start();
+  absl::flat_hash_set<ShapeIndex> explicitly_aliased_outputs;
+  for (const auto& pair : Cast<HloAsyncStartInstruction>(async_start)
+                              ->output_to_operand_aliasing()) {
+    explicitly_aliased_outputs.insert(pair.first);
+  }
 
   points_to_set.ForEachMutableElement([&](const ShapeIndex& index,
                                           PointsToSet::BufferList* buffers) {
-    *buffers = operand_points_to_set.element(index);
-    for (HloInstruction* tuple : operand_points_to_set.tuple_sources(index)) {
-      points_to_set.add_tuple_source(index, tuple);
+    const Shape& new_subshape =
+        ShapeUtil::GetSubshape(async_update_shape, index);
+
+    // 1. Try to forward from operand(0) (prev chain) if the index is valid and
+    // shape is compatible.
+    if (ShapeUtil::IndexIsValid(prev_async_op_shape, index)) {
+      const Shape& orig_subshape =
+          ShapeUtil::GetSubshape(prev_async_op_shape, index);
+      if (ShapeUtil::Compatible(orig_subshape, new_subshape)) {
+        const PointsToSet& operand_points_to_set =
+            GetPointsToSet(async_update->operand(0));
+        *buffers = operand_points_to_set.element(index);
+        for (HloInstruction* tuple :
+             operand_points_to_set.tuple_sources(index)) {
+          points_to_set.add_tuple_source(index, tuple);
+        }
+        return;
+      }
+    }
+
+    // 2. If not forwarded, it is a new element.
+    bool has_explicit_alias = explicitly_aliased_outputs.contains(index);
+
+    if (index.size() >= 2 && index.front() == 0) {
+      // New input: forward from the corresponding operand of async_update.
+      // operand(0) is the chain. New inputs are bound starting at operand(1).
+      // We need to find which logical operand this index corresponds to.
+      int64_t logical_operand_idx = index[1];
+      const Shape& prev_inputs_tuple_shape =
+          prev_async_op_shape.tuple_shapes(0);
+      int64_t prev_inputs_count = prev_inputs_tuple_shape.tuple_shapes().size();
+
+      // The operand index in async_update is 1 + (logical_operand_idx -
+      // prev_inputs_count).
+      int64_t operand_idx = 1 + (logical_operand_idx - prev_inputs_count);
+
+      if (operand_idx > 0 && operand_idx < async_update->operand_count()) {
+        const PointsToSet& input_set =
+            GetPointsToSet(async_update->operand(operand_idx));
+        ShapeIndex source_index(index.begin() + 2, index.end());
+        *buffers = input_set.element(source_index);
+        for (HloInstruction* tuple : input_set.tuple_sources(source_index)) {
+          points_to_set.add_tuple_source(index, tuple);
+        }
+      }
+    } else if (has_explicit_alias) {
+      // Explicit alias: do nothing for now, will be resolved in step 3 if
+      // active.
+    } else {
+      // New output or new tuple container.
+      buffers->push_back(
+          &logical_buffer_analysis_->GetBuffer(async_update, index));
+      if (new_subshape.IsTuple()) {
+        points_to_set.add_tuple_source(index, async_update);
+      }
     }
   });
+
+  // 3. Apply deferred aliases.
+  ApplyDeferredAliases(async_update, points_to_set);
 
   return absl::OkStatus();
 }
 
 absl::Status TuplePointsToAnalysis::HandleAsyncDone(
     HloInstruction* async_done) {
-  // AsyncDone forwards its aliased operand.
+  // AsyncDone forwards its (only) the sub-tuple at index {1} to its output.
   PointsToSet& points_to_set = CreateEmptyPointsToSet(async_done);
   const PointsToSet& operand_points_to_set =
       GetPointsToSet(async_done->operand(0));
@@ -415,6 +487,9 @@ absl::Status TuplePointsToAnalysis::HandleAsyncDone(
           }
         }
       });
+
+  // 2. Apply deferred aliases.
+  ApplyDeferredAliases(async_done, points_to_set);
 
   return absl::OkStatus();
 }
@@ -519,20 +594,20 @@ absl::Status TuplePointsToAnalysis::HandleTuple(HloInstruction* tuple) {
     const PointsToSet& operand_points_to_set =
         *PerInst(operands[i])->points_to_set;
 
-    // Copy the points-to set (and tuple sources) of the operand into the
+    // Forward the points-to set and tuple sources of the operand into the
     // respective subtree of the tuple instructions points-to set.
     operand_points_to_set.ForEachElement(
         [&points_to_set, &operand_points_to_set, i](
             const ShapeIndex& src_index,
             const PointsToSet::BufferList& points_to) {
-          ShapeIndex target_index;
-          target_index.push_back(i);
-          for (auto element : src_index) {
-            target_index.push_back(element);
-          }
+          ShapeIndex target_index({i});
+          target_index.insert(target_index.end(), src_index.begin(),
+                              src_index.end());
 
+          // Forward the points-to set
           *points_to_set.mutable_element(target_index) = points_to;
 
+          // Forward the tuple sources.
           for (HloInstruction* tuple :
                operand_points_to_set.tuple_sources(src_index)) {
             points_to_set.add_tuple_source(target_index, tuple);
@@ -540,6 +615,7 @@ absl::Status TuplePointsToAnalysis::HandleTuple(HloInstruction* tuple) {
         });
   }
 
+  // Add the tuple instruction as a tuple source for the top-level tuple.
   points_to_set.add_tuple_source({}, tuple);
 
   return absl::OkStatus();
@@ -573,6 +649,7 @@ absl::Status TuplePointsToAnalysis::HandleCustomCall(
       }
     }
   });
+  // why unconditionally add the custom call as a tuple source here?
   points_to_set.add_tuple_source({}, custom_call);
   return absl::OkStatus();
 }
@@ -607,6 +684,7 @@ absl::Status TuplePointsToAnalysis::HandleFusion(HloInstruction* fusion) {
       }
     }
   });
+  // why unconditionally add the fusion as a tuple source here?
   points_to_set.add_tuple_source({}, fusion);
   return absl::OkStatus();
 }
@@ -782,6 +860,92 @@ void TuplePointsToAnalysis::InstructionToString(
                           }),
             "\n");
       });
+}
+
+void TuplePointsToAnalysis::ApplyDeferredAliases(
+    HloInstruction* current_instruction, PointsToSet& points_to_set) {
+  HloInstruction* async_start =
+      Cast<HloAsyncInstruction>(current_instruction)->async_chain_start();
+  for (const auto& pair : Cast<HloAsyncStartInstruction>(async_start)
+                              ->output_to_operand_aliasing()) {
+    const ShapeIndex& logical_output_index = pair.first;
+    int64_t operand_nr = pair.second.first;
+    const ShapeIndex& logical_operand_index = pair.second.second;
+
+    // 1. Construct the source index to the output of the current instruction:
+    //     {0, operand_nr, ...}
+    ShapeIndex chain_source_index;
+    chain_source_index.reserve(2 + logical_operand_index.size());
+    chain_source_index.push_back(0);
+    chain_source_index.push_back(operand_nr);
+    chain_source_index.insert(chain_source_index.end(),
+                              logical_operand_index.begin(),
+                              logical_operand_index.end());
+
+    // 2. Construct the target index in the current instruction.
+    ShapeIndex target_index;
+    if (current_instruction->opcode() == HloOpcode::kAsyncDone) {
+      // For AsyncDone, the target is the logical output without the leading 1.
+      // we should skip cases where the logical output index does not start
+      // with 1, as those are not handled in async done.
+      if (logical_output_index.front() != 1) {
+        // aliasing to chain inputs is not handled in async done.
+        continue;
+      }
+
+      target_index = ShapeIndex(logical_output_index.begin() + 1,
+                                logical_output_index.end());
+    } else {
+      // For AsyncStart/AsyncUpdate, the target is the logical output.
+      target_index = logical_output_index;
+    }
+
+    // 3. Determine where to get the source buffers from, and what shape to
+    // check against.
+    const PointsToSet* source_points_to_set = nullptr;
+    const Shape* source_shape = nullptr;
+    if (current_instruction->opcode() == HloOpcode::kAsyncDone) {
+      // For AsyncDone, we read from the incoming chain (operand 0).
+      const HloInstruction* chain_operand = current_instruction->operand(0);
+      source_points_to_set = &GetPointsToSet(chain_operand);
+      source_shape = &chain_operand->shape();
+    } else {
+      // For AsyncStart/AsyncUpdate, we read "internally" from our own
+      // points_to_set.
+      source_points_to_set = &points_to_set;
+      source_shape = &current_instruction->shape();
+    }
+
+    // 4. If both source and target are valid in their respective shapes, apply
+    // the alias.
+    if (ShapeUtil::IndexIsValid(current_instruction->shape(), target_index) &&
+        ShapeUtil::IndexIsValid(*source_shape, chain_source_index)) {
+      const auto& resolved_buffers =
+          source_points_to_set->element(chain_source_index);
+      *points_to_set.mutable_element(target_index) = resolved_buffers;
+      for (HloInstruction* tuple :
+           source_points_to_set->tuple_sources(chain_source_index)) {
+        points_to_set.add_tuple_source(target_index, tuple);
+      }
+
+      // Propagate the resolved alias back to previous instructions in the
+      // chain, just in case the output is bound earlier than the operand
+      HloInstruction* prev_inst = current_instruction;
+      while (prev_inst->opcode() == HloOpcode::kAsyncUpdate ||
+             prev_inst->opcode() == HloOpcode::kAsyncDone) {
+        prev_inst = prev_inst->mutable_operand(0);
+        if (ShapeUtil::IndexIsValid(prev_inst->shape(), logical_output_index)) {
+          PointsToSet& prev_points_to_set = *PerInst(prev_inst)->points_to_set;
+          *prev_points_to_set.mutable_element(logical_output_index) =
+              resolved_buffers;
+          for (HloInstruction* tuple :
+               source_points_to_set->tuple_sources(chain_source_index)) {
+            prev_points_to_set.add_tuple_source(logical_output_index, tuple);
+          }
+        }
+      }
+    }
+  }
 }
 
 bool TuplePointsToAnalysis::DoesNotUseOperandBuffer(
