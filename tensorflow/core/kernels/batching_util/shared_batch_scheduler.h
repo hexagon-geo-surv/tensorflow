@@ -19,6 +19,7 @@ limitations under the License.
 #include <stddef.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -470,7 +471,16 @@ class PriorityTaskQueue {
         // necessary to prevent priority inversion, where a low-priority task
         // could occupy queue space and prevent a high-priority task from being
         // admitted.
+        const size_t evicted_size = it->task->size();
+        const tsl::criticality::Criticality evicted_criticality =
+            it->criticality;
         QueueEntry evicted_entry = RemoveEntryInternal(it);
+
+        // Track per-criticality eviction (preemption) so that callers can
+        // export metrics that reveal priority-inversion protection in action.
+        const int evicted_index = static_cast<int>(evicted_criticality);
+        evicted_num_tasks_by_criticality_[evicted_index] += 1;
+        evicted_size_by_criticality_[evicted_index] += evicted_size;
 
         if constexpr (std::is_base_of_v<BatchTask, TaskType>) {
           evicted_entry.task->FinishTask(absl::UnavailableError(
@@ -611,6 +621,31 @@ class PriorityTaskQueue {
     return tasks_.begin()->criticality;
   }
 
+  // Returns the current number of enqueued tasks with the given criticality.
+  int num_tasks(tsl::criticality::Criticality criticality) const {
+    return num_tasks_by_criticality_[static_cast<int>(criticality)];
+  }
+
+  // Returns the current summed size (sum of task sizes) of all enqueued tasks
+  // with the given criticality.
+  size_t size(tsl::criticality::Criticality criticality) const {
+    return size_by_criticality_[static_cast<int>(criticality)];
+  }
+
+  // Returns the cumulative number of tasks with the given criticality that have
+  // been evicted (preempted) from the queue to make room for higher-priority
+  // tasks since this queue was constructed.
+  int64_t evicted_num_tasks(tsl::criticality::Criticality criticality) const {
+    return evicted_num_tasks_by_criticality_[static_cast<int>(criticality)];
+  }
+
+  // Returns the cumulative summed size of tasks with the given criticality that
+  // have been evicted (preempted) from the queue since this queue was
+  // constructed.
+  int64_t evicted_size(tsl::criticality::Criticality criticality) const {
+    return evicted_size_by_criticality_[static_cast<int>(criticality)];
+  }
+
   // Returns a batch of tasks from the queue if the batch is ready to be
   // executed. Otherwise, returns nullptr.
   // BatchPaddingPolicy is applied to determine the optimal batch size.
@@ -661,7 +696,10 @@ class PriorityTaskQueue {
   }
 
   void AddEntryInternal(QueueEntry entry) {
+    const int index = static_cast<int>(entry.criticality);
     current_queue_size_ += entry.task->size();
+    num_tasks_by_criticality_[index] += 1;
+    size_by_criticality_[index] += entry.task->size();
     start_times_.insert(entry.start_time_micros);
     tasks_.insert(std::move(entry));
   }
@@ -670,7 +708,10 @@ class PriorityTaskQueue {
       typename std::multiset<QueueEntry>::iterator it) {
     auto node = tasks_.extract(it);
     QueueEntry& entry = node.value();
+    const int index = static_cast<int>(entry.criticality);
     current_queue_size_ -= entry.task->size();
+    num_tasks_by_criticality_[index] -= 1;
+    size_by_criticality_[index] -= entry.task->size();
     auto st_it = start_times_.find(entry.start_time_micros);
     if (st_it != start_times_.end()) {
       start_times_.erase(st_it);
@@ -689,9 +730,27 @@ class PriorityTaskQueue {
     return enable_large_batch_splitting_;
   }
 
+  // The number of distinct criticality bands (kSheddable, kSheddablePlus,
+  // kCritical, kCriticalPlus). Used to size the per-criticality bookkeeping
+  // arrays, which are indexed by static_cast<int>(Criticality).
+  static constexpr int kNumCriticalities = 4;
+
   std::multiset<QueueEntry> tasks_;
   std::multiset<uint64_t> start_times_;
   size_t current_queue_size_ = 0;
+
+  // Per-criticality bookkeeping for the currently-enqueued tasks, indexed by
+  // static_cast<int>(Criticality). Maintained incrementally by
+  // AddEntryInternal/RemoveEntryInternal so that queue state can be exported as
+  // tfstreamz metrics without scanning the multiset.
+  std::array<int, kNumCriticalities> num_tasks_by_criticality_ = {};
+  std::array<size_t, kNumCriticalities> size_by_criticality_ = {};
+
+  // Cumulative per-criticality eviction (preemption) counters, indexed by
+  // static_cast<int>(Criticality). These only ever increase and track tasks
+  // dropped to make room for higher-priority traffic.
+  std::array<int64_t, kNumCriticalities> evicted_num_tasks_by_criticality_ = {};
+  std::array<int64_t, kNumCriticalities> evicted_size_by_criticality_ = {};
 
   const std::vector<int32_t> allowed_batch_sizes_;
   const std::string batch_padding_policy_;
@@ -774,6 +833,12 @@ class Queue {
   // Returns the queue capacity, with the same semantics as
   // BatchScheduler::SchedulingCapacity().
   size_t SchedulingCapacity() const;
+
+  // Returns a snapshot of the per-criticality priority queue state, or nullopt
+  // when `enable_priority_aware_batch_scheduler` is false (in which case there
+  // is no priority-aware queue to report on). See PriorityQueueState in
+  // batch_scheduler.h.
+  std::optional<PriorityQueueState> GetPriorityQueueState() const;
 
   // Returns the maximum allowed size of tasks submitted to the queue.
   size_t max_task_size() const { return options_.input_batch_size_limit; }
@@ -1011,6 +1076,10 @@ class QueueHandle : public BatchScheduler<TaskType> {
   size_t SchedulingCapacity() const override;
 
   size_t max_task_size() const override { return queue_->max_task_size(); }
+
+  std::optional<PriorityQueueState> GetPriorityQueueState() const override {
+    return queue_->GetPriorityQueueState();
+  }
 
  private:
   // The scheduler that owns 'queue_'.
@@ -1595,6 +1664,26 @@ size_t Queue<TaskType>::NumEnqueuedTasks() const {
   }
   return num_enqueued_tasks + low_priority_tasks_.num_tasks() +
          warmup_tasks_.num_tasks();
+}
+
+template <typename TaskType>
+std::optional<PriorityQueueState> Queue<TaskType>::GetPriorityQueueState()
+    const {
+  if (!options_.enable_priority_aware_batch_scheduler) {
+    return std::nullopt;
+  }
+  PriorityQueueState state;
+  mutex_lock l(mu_);
+  for (int i = 0; i < PriorityQueueState::kNumCriticalities; ++i) {
+    const auto criticality = static_cast<tsl::criticality::Criticality>(i);
+    state.num_tasks[i] = tasks_priority_queue_.num_tasks(criticality);
+    state.size[i] = tasks_priority_queue_.size(criticality);
+    state.evicted_num_tasks[i] =
+        tasks_priority_queue_.evicted_num_tasks(criticality);
+    state.evicted_size[i] = tasks_priority_queue_.evicted_size(criticality);
+  }
+  state.max_queue_depth = tasks_priority_queue_.max_queue_depth();
+  return state;
 }
 
 template <typename TaskType>

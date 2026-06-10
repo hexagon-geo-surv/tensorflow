@@ -16,6 +16,7 @@ limitations under the License.
 #include "tensorflow/core/kernels/batching_util/batch_resource_base.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -189,6 +190,77 @@ void RecordInputStatsV2(int32_t batch_size, const std::string& model_name,
       "model_name", "op_name", "criticality");
   num_tasks_counter->GetCell(model_name, op_name, criticality_str)
       ->IncrementBy(1);
+}
+
+// Records the per-criticality state of the priority-aware batch scheduler's
+// queue as tfstreamz metrics. This gives per-criticality visibility into queue
+// utilization (à la wiz/main models) for the TFRT priority aware scheduler.
+//
+// Exports, labeled by (model_name, op_name, criticality):
+//   - priority_queue_num_tasks: current number of enqueued tasks (Gauge).
+//   - priority_queue_size:      current summed task size enqueued (Gauge).
+//   - priority_queue_evicted_task_count / _size: cumulative preemptions
+//                                                 (Counter).
+// And, labeled by (model_name, op_name):
+//   - priority_queue_max_depth: configured capacity, for utilization%.
+void RecordPriorityQueueState(const PriorityQueueState& state,
+                              const std::string& model_name,
+                              const std::string& op_name) {
+  static auto* num_tasks_gauge = monitoring::Gauge<int64_t, 3>::New(
+      "/tensorflow/serving/batching/priority_queue_num_tasks",
+      "Current number of tasks enqueued in the priority aware batch scheduler "
+      "queue, by criticality.",
+      "model_name", "op_name", "criticality");
+  static auto* size_gauge = monitoring::Gauge<int64_t, 3>::New(
+      "/tensorflow/serving/batching/priority_queue_size",
+      "Current summed size (sum of task sizes) of tasks enqueued in the "
+      "priority aware batch scheduler queue, by criticality.",
+      "model_name", "op_name", "criticality");
+  static auto* evicted_count_counter = tensorflow::monitoring::Counter<3>::New(
+      "/tensorflow/serving/batching/priority_queue_evicted_task_count",
+      "Cumulative number of tasks evicted (preempted) from the priority aware "
+      "batch scheduler queue to make room for higher-priority tasks, by "
+      "criticality.",
+      "model_name", "op_name", "criticality");
+  static auto* evicted_size_counter = tensorflow::monitoring::Counter<3>::New(
+      "/tensorflow/serving/batching/priority_queue_evicted_task_size",
+      "Cumulative summed size of tasks evicted (preempted) from the priority "
+      "aware batch scheduler queue, by criticality.",
+      "model_name", "op_name", "criticality");
+  static auto* max_depth_gauge = monitoring::Gauge<int64_t, 2>::New(
+      "/tensorflow/serving/batching/priority_queue_max_depth",
+      "The maximum depth (capacity, in summed task size) of the priority aware "
+      "batch scheduler queue.",
+      "model_name", "op_name");
+
+  for (int i = 0; i < PriorityQueueState::kNumCriticalities; ++i) {
+    const std::string criticality_str =
+        absl::StrCat(static_cast<tsl::criticality::Criticality>(i));
+    num_tasks_gauge->GetCell(model_name, op_name, criticality_str)
+        ->Set(state.num_tasks[i]);
+    size_gauge->GetCell(model_name, op_name, criticality_str)
+        ->Set(static_cast<int64_t>(state.size[i]));
+    // Eviction counters are cumulative; set the counter cell to the current
+    // cumulative value rather than incrementing, since the source of truth is
+    // the queue's own running total.
+    auto* evicted_count_cell =
+        evicted_count_counter->GetCell(model_name, op_name, criticality_str);
+    const int64_t evicted_count_delta =
+        state.evicted_num_tasks[i] - evicted_count_cell->value();
+    if (evicted_count_delta > 0) {
+      evicted_count_cell->IncrementBy(evicted_count_delta);
+    }
+    auto* evicted_size_cell =
+        evicted_size_counter->GetCell(model_name, op_name, criticality_str);
+    const int64_t evicted_size_delta =
+        state.evicted_size[i] - evicted_size_cell->value();
+    if (evicted_size_delta > 0) {
+      evicted_size_cell->IncrementBy(evicted_size_delta);
+    }
+  }
+
+  max_depth_gauge->GetCell(model_name, op_name)
+      ->Set(static_cast<int64_t>(state.max_queue_depth));
 }
 
 // Record the actual batch size without padding.
@@ -629,7 +701,20 @@ absl::Status BatchResourceBase::RegisterInput(
     num_outstanding_batched_items_ += batch_components->size();
   }
 
-  return batcher_queue->Schedule(&batch_components);
+  absl::Status schedule_status = batcher_queue->Schedule(&batch_components);
+
+  // Export per-criticality queue utilization metrics for the priority aware
+  // batch scheduler. GetPriorityQueueState() returns nullopt when the priority
+  // aware scheduler is disabled, in which case nothing is recorded. This runs
+  // after Schedule() so the snapshot reflects the just-enqueued task.
+  if (std::optional<PriorityQueueState> priority_queue_state =
+          batcher_queue->GetPriorityQueueState();
+      priority_queue_state.has_value()) {
+    RecordPriorityQueueState(*priority_queue_state, GetModelName(context),
+                             context->op_kernel().name());
+  }
+
+  return schedule_status;
 }
 
 /*static*/ BatchResourceBase::BatcherT::QueueOptions
