@@ -381,6 +381,30 @@ ENTRY e {
               GmockMatch(m::Pad(m::Bitcast(m::Fusion()), m::Constant())));
 }
 
+TEST_P(GemmFusionTestV2, PartiallySunkBitcastIsNotFusedAtRoot) {
+  // The bitcast cannot be sunk below the pad, but it and the pad are
+  // included in the search space. When it cannot tile the pad and cuts off the
+  // fusion between the bitcast & the pad, we need to make sure the bitcast
+  // is on the outside of the fusion to give the best tiling options.
+  ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(R"(
+HloModule m
+
+ENTRY e {
+  p0 = f32[16,8] parameter(0)
+  p1 = s8[8,7] parameter(1)
+  c1 = f32[8,7] convert(p1)
+  d = f32[16,7] dot(p0, c1),
+    lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  b1 = f32[112] bitcast(d)
+  n1 = f32[112] negate(b1)
+  zero = f32[] constant(0)
+  ROOT p2 = f32[128] pad(n1, zero), padding=0_16
+})"));
+  ASSERT_THAT(GemmFusion(gpu_version_).Run(module.get()), IsOkAndHolds(true));
+  EXPECT_THAT(module->entry_computation()->root_instruction(),
+              GmockMatch(m::Pad(m::Bitcast(m::Fusion()), m::Constant())));
+}
+
 TEST_P(GemmFusionTestV2, BitcastOperandOfUserOfDotIsHoisted) {
   ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(R"(
 HloModule m
@@ -449,6 +473,67 @@ ENTRY e {
 ; CHECK-NOT: bitcast
 ; CHECK-NOT: reshape
 ; CHECK: ENTRY
+)");
+}
+
+TEST_P(GemmFusionTestV2, DoNotHoistBitcastOverParameterWithMultipleUsers) {
+  ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(R"(
+ENTRY e {
+  p0 = bf16[32,12] parameter(0)
+  t1 = bf16[12,32] transpose(p0), dimensions={1,0}
+  b1 = bf16[32,3,4] bitcast(p0)
+  t2 = bf16[32,4,3] transpose(b1), dimensions={0,2,1}
+  ROOT d = bf16[12,4,3] dot(t1, t2),
+    lhs_contracting_dims={1}, rhs_contracting_dims={0}
+})"));
+  ASSERT_THAT(GemmFusion(gpu_version_).Run(module.get()), IsOkAndHolds(true));
+  EXPECT_THAT(module->entry_computation()->root_instruction(),
+              GmockMatch(m::Fusion(m::Parameter())));
+}
+
+TEST_P(GemmFusionTestV2, HoistBitcastOverMultipleEqualBitcasts) {
+  // This is an example of when a single bitcast turns into 2 different bitcasts
+  // due to hoisting over a binary operation, but then they come from the same
+  // parameter, and should still get hoisted.
+  ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(R"(
+ENTRY e {
+  p0 = bf16[32,12] parameter(0)
+  e = bf16[32,12] exponential(p0)
+  c = bf16[] constant(7)
+  b = bf16[32,12] broadcast(c), dimensions={}
+  m = bf16[32,12] multiply(p0, b)
+  a = bf16[32,12] add(e, m)
+  bc = bf16[12,32] bitcast(a)
+  p1 = bf16[32,3] parameter(1)
+  ROOT d = bf16[12,3] dot(bc, p1),
+    lhs_contracting_dims={1}, rhs_contracting_dims={0}
+})"));
+  ASSERT_THAT(GemmFusion(gpu_version_).Run(module.get()), IsOkAndHolds(true));
+  EXPECT_THAT(
+      module->entry_computation()->root_instruction(),
+      GmockMatch(m::Fusion(m::Parameter(), m::Bitcast(m::Parameter()))));
+}
+
+TEST_P(GemmFusionTestV2, HoistBitcastAcrossTransposeWithTrivialDimension) {
+  ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(R"(
+ENTRY e {
+  p0 = f32[42,1]{1,0} parameter(0)
+  t = f32[1,42]{1,0} transpose(p0), dimensions={1,0}
+  b0 = f32[1,2,21,1]{3,2,1,0} bitcast(t)
+  b1 = f32[2,21,1]{2,1,0} bitcast(b0)
+  p1 = f32[2,1,42]{2,1,0} parameter(1)
+  ROOT d = f32[2,21,42]{2,1,0} dot(b1, p1), lhs_batch_dims={0},
+    rhs_batch_dims={0}, lhs_contracting_dims={2}, rhs_contracting_dims={1}
+})"));
+  ASSERT_THAT(GemmFusion(gpu_version_).Run(module.get()), IsOkAndHolds(true));
+  MatchHloModule(*module, R"(
+; CHECK: %fused_computation
+; CHECK-NOT: bitcast
+; CHECK: f32[2,21,1]{2,1,0} transpose({{.*}}), dimensions={0,1,2}
+; CHECK-NOT: bitcast
+; CHECK: ENTRY
+; CHECK: %[[B:.*]] = f32[2,21,1]{{.*}} bitcast
+; CHECK: fusion({{.*}}, %[[B]])
 )");
 }
 
