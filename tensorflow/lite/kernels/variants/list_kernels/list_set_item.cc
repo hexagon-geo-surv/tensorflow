@@ -121,6 +121,7 @@ TfLiteStatus Eval(TfLiteContext* ctx, TfLiteNode* node) {
 
   TensorArray* output_arr = static_cast<TensorArray*>(
       input_arr->CloneTo(static_cast<VariantData*>(output->data.data)));
+  TF_LITE_ENSURE(ctx, output_arr != nullptr);
   output->data.data = static_cast<VariantData*>(output_arr);
 
   // TODO(b/288302706) Skip copy when tensor is used only once.
@@ -132,6 +133,7 @@ TfLiteStatus Eval(TfLiteContext* ctx, TfLiteNode* node) {
     item_copy->bytes = item_input->bytes;
     item_copy->allocation_type = kTfLiteVariantObject;
   } else {
+    TF_LITE_ENSURE(ctx, item_input->dims != nullptr);
     item_copy = BuildTfLiteTensor(
         item_input->type, BuildTfLiteArray(*item_input->dims), kTfLiteDynamic);
     TF_LITE_ENSURE(ctx, item_copy != nullptr);
