@@ -47,6 +47,21 @@ class _LocalCloudTpuClient(object):
   def api_available(self):
     return False
 
+  def get_local_ip(self):
+    return '127.0.0.1'
+
+  def name(self):
+    return 'local'
+
+  def enter(self):
+    pass
+
+  def exit(self, exc_type, exc_value, traceback):
+    pass
+
+  def network_endpoints(self):
+    return []
+
 
 _TPU_DEVICE_REGEX = re.compile(
     r'.*task:(?P<host_id>\d+)/.*device:TPU:(?P<core_id>\d+)$')
@@ -462,16 +477,15 @@ class TPUClusterResolver(cluster_resolver_lib.ClusterResolver):
 
   def _start_local_server(self):
     address = compat.as_text(self._cloud_tpu_client.get_local_ip())
-    self._server = server_lib.Server({'local': ['0.0.0.0:0']},
-                                     protocol='grpc',
-                                     config=None,
-                                     start=True)
+    self._server = server_lib.Server(
+        {'local': [address + ':0']}, protocol='grpc', config=None, start=True
+    )
     # self._server.target is of the form: grpc://ipaddress:port
     target = compat.as_bytes(self._server.target)
     splits = target.split(compat.as_bytes(':'))
-    assert len(splits) == 3, self._server.target
+    assert len(splits) >= 3, self._server.target
     assert splits[0] == compat.as_bytes('grpc'), self._server.target
-    self._coordinator_port = compat.as_text(splits[2])
+    self._coordinator_port = compat.as_text(splits[-1])
     self._coordinator_address = '%s:%s' % (
         address, compat.as_text(self._coordinator_port))
 
