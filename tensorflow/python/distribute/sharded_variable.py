@@ -755,7 +755,9 @@ class ShardedVariableMixin(trackable.Trackable):
     partitioned_indices = data_flow_ops.dynamic_partition(
         original_indices, partition_assignments, len(self._variables)
     )
-    return data_flow_ops.parallel_dynamic_stitch(partitioned_indices, result)
+    return data_flow_ops.parallel_dynamic_stitch(
+        partitioned_indices, result, name=name
+    )
 
   def _gather_saveables_for_checkpoint(self):
     """Return a `Saveable` for each shard. See `Trackable`."""
