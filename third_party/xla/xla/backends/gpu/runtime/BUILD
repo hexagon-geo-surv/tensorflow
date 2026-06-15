@@ -359,7 +359,9 @@ xla_cc_test(
 cc_library(
     name = "thunk_runtime_dependencies",
     # Register GPU collectives plugin.
-    deps = ["//xla/backends/gpu/collectives:gpu_collectives_plugin"],
+    deps = [
+        "//xla/backends/gpu/collectives:gpu_collectives_plugin",
+    ],
 )
 
 cc_library(
@@ -4837,6 +4839,7 @@ cc_library(
         ":thunk",
         ":thunk_id",
         ":thunk_pass_pipeline",
+        "//xla:literal",
         "//xla:shape_util",
         "//xla:util",
         "//xla:xla_data_proto_cc",
@@ -4849,10 +4852,12 @@ cc_library(
         "//xla/runtime:buffer_use",
         "//xla/service:buffer_assignment",
         "//xla/service:dump",
+        "//xla/service:hlo_proto_cc",
         "//xla/service:shaped_slice",
         "//xla/stream_executor:device_description",
         "//xla/stream_executor:stream",
         "//xla/stream_executor/gpu:buffer_debug_log",
+        "//xla/tsl/platform:env",
         "//xla/tsl/platform:status_macros",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:nullability",
@@ -4866,7 +4871,9 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
         "@com_googlesource_code_re2//:re2",
+        "@tsl//tsl/platform:path",
     ],
 )
 
@@ -5061,10 +5068,14 @@ cc_library(
         ":buffer_debug_log_structs",
         ":thunk",
         ":thunk_proto_cc",
+        "//xla:literal",
+        "//xla:shape_util",
         "//xla:types",
         "//xla:util",
         "//xla:xla_data_proto_cc",
+        "//xla/hlo/ir:hlo",
         "//xla/service:buffer_assignment",
+        "//xla/service:hlo_proto_cc",
         "//xla/stream_executor:device_address",
         "//xla/stream_executor:device_description",
         "//xla/stream_executor:launch_dim",
@@ -5075,6 +5086,7 @@ cc_library(
         "//xla/stream_executor/gpu:buffer_debug_float_check_kernel",
         "//xla/stream_executor/gpu:buffer_debug_log",
         "//xla/stream_executor/gpu:gpu_kernel_registry",
+        "//xla/tsl/platform:env",
         "//xla/tsl/platform:errors",
         "//xla/tsl/platform:status_macros",
         "//xla/tsl/platform:statusor",
@@ -5086,6 +5098,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
+        "@tsl//tsl/platform:path",
     ],
 )
 
@@ -5345,5 +5358,32 @@ xla_test(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+# We only need to run this E2E test on one GPU backend.
+xla_test(
+    name = "float_check_device_e2e_test",
+    srcs = ["float_check_device_e2e_test.cc"],
+    backends = ["h100"],
+    data = [
+        "//xla/tools:run_hlo_module",
+    ],
+    tags = [
+        "cuda-only",
+        "gpu",
+    ],
+    deps = [
+        "//xla/tsl/lib/core:status_test_util",
+        "//xla/tsl/platform:env",
+        "//xla/tsl/platform:statusor",
+        "//xla/tsl/platform:subprocess",
+        "//xla/tsl/platform:test",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/platform:path",
     ],
 )
