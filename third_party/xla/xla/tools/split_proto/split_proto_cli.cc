@@ -20,9 +20,11 @@ limitations under the License.
 #include <vector>
 
 #include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/tsl/platform/status_macros.h"
 #include "riegeli/base/maker.h"
 #include "riegeli/bytes/reader.h"
 #include "riegeli/bytes/std_io.h"
@@ -42,17 +44,36 @@ between standard serialized formats (text/binary) and the Split Proto format
 (Riegeli), which is used to serialized the AOT compiled executables.
 
 Subcommands:
-  pack:   Converts a standard protobuf (text or binary) into a split proto.
-          Requires `--proto_type` to identify the message type.
-  unpack: Reconstructs a standard protobuf from a split proto file.
-          The proto type is automatically inferred from the split manifest.
+  unpack:            Reconstructs a standard protobuf from a split proto file.
+                     The proto type is automatically inferred from the split
+                     manifest.
+  pack:              Converts a standard protobuf (text or binary) into a split
+                     proto. Requires `--proto_type` to identify the message type
+  unpack-executable: Unpacks an AOT binary (Split Proto
+                     ExecutableAndOptionsProto) into a single text/binary
+                     proto file of type DeserializedSplitExecutableAndOptions.
+  pack-executable:   Packs a DeserializedSplitExecutableAndOptions (obtained
+                     from unpack-executable) back into a Split Proto
+                     ExecutableAndOptionsProto, i.e. the reverse of
+                     unpack-executable.
+
 
 Usage:
-  split-proto-cli pack --proto_type=<type> [input_file]
-  split-proto-cli unpack [input_file]
+  # Convert an AOT binary into a textproto, so that you can inspect the
+  # contents.
+  split-proto-cli unpack-executable aot_binary.riegeli --output_file=output.textproto
+
+  # Re-pack the textproto (which you might have edited) back into a binary.
+  split-proto-cli pack-executable output.textproto --output_file=repacked.riegeli
+
+  # Pack a standard proto (text or binary) into a split proto.
+  split-proto-cli pack --proto_type=<type> aot_binary.riegeli
+
+  # Unpack a split proto into a standard proto (text or binary).
+  split-proto-cli unpack aot_binary.riegeli
 
 Input/Output:
-  If [input_file] is omitted or '-', it reads from stdin.
+  If the input file is omitted or '-', it reads from stdin.
   Output defaults to stdout, or can be specified via `--output_file`.
 
 Supported Proto Types:
@@ -87,8 +108,10 @@ absl::Status RunMain(int argc, char** argv) {
     return absl::OkStatus();
   }
 
-  bool parsed_flags_ok = tsl::Flags::Parse(&argc, argv, flag_list);
-  QCHECK(parsed_flags_ok) << "\n" << usage;
+  if (!tsl::Flags::Parse(&argc, argv, flag_list)) {
+    std::cerr << "Failed to parse flags.\n\n" << usage << "\n";
+    return absl::InvalidArgumentError("Failed to parse flags.");
+  }
 
   tsl::port::InitMain(usage.c_str(), &argc, &argv);
 
@@ -100,8 +123,10 @@ absl::Status RunMain(int argc, char** argv) {
 
   std::unique_ptr<riegeli::Reader> reader;
   if (argc < 3 || std::string(argv[2]) == "-") {
+    LOG(INFO) << "Reading input from stdin";
     reader = riegeli::Maker<riegeli::StdIn>();
   } else {
+    LOG(INFO) << "Reading input from file: " << argv[2];
     reader = CreateRiegeliFileReader(argv[2]);
     if (!reader->ok()) {
       std::cerr << "Failed to open input file: " << reader->status().ToString()
@@ -112,8 +137,10 @@ absl::Status RunMain(int argc, char** argv) {
 
   std::unique_ptr<riegeli::Writer> writer;
   if (output_file.empty() || output_file == "-") {
+    LOG(INFO) << "Output will be written to stdout";
     writer = riegeli::Maker<riegeli::StdOut>();
   } else {
+    LOG(INFO) << "Output will be written to file: " << output_file;
     writer = CreateRiegeliFileWriter(output_file);
     if (!writer->ok()) {
       return writer->status();
@@ -138,20 +165,24 @@ absl::Status RunMain(int argc, char** argv) {
           "Flag --proto_type is required for pack subcommand.");
     }
 
-    status = parse_format(input_format_str, &options.input_format);
-    if (!status.ok()) {
-      return status;
-    }
+    RETURN_IF_ERROR(parse_format(input_format_str, &options.input_format));
 
     status = Pack(std::move(reader), std::move(writer), options);
   } else if (subcommand == "unpack") {
     UnpackOptions options;
-    status = parse_format(output_format_str, &options.output_format);
-    if (!status.ok()) {
-      return status;
-    }
+    RETURN_IF_ERROR(parse_format(output_format_str, &options.output_format));
 
     status = Unpack(std::move(reader), std::move(writer), options);
+  } else if (subcommand == "pack-executable") {
+    PackOptions options;
+    RETURN_IF_ERROR(parse_format(input_format_str, &options.input_format));
+
+    status = PackExecutable(std::move(reader), std::move(writer), options);
+  } else if (subcommand == "unpack-executable") {
+    UnpackOptions options;
+    RETURN_IF_ERROR(parse_format(output_format_str, &options.output_format));
+
+    status = UnpackExecutable(std::move(reader), std::move(writer), options);
   } else {
     return absl::InvalidArgumentError(
         absl::StrCat("Unknown subcommand: ", subcommand));
