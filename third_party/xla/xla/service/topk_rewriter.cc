@@ -480,6 +480,42 @@ class TopkDecomposerVisitor : public DfsHloRewriteVisitor {
     return inst->user_count() == 1 && inst->users().front()->tuple_index() == 0;
   }
 
+  absl::StatusOr<HloInstruction*> SignMagnitudeToFromOnesComplement(
+      HloInstruction* in, HloComputation* computation) {
+    const Shape& shape = in->shape();
+    HloInstruction* kAllNonSignBits =
+        computation->AddInstruction(HloInstruction::CreateConstant(
+            LiteralUtil::CreateR0<int32_t>(0x7fffffff)));
+    HloInstruction* kAllNonSignBitsBroadcast =
+        MakeBroadcastHlo(kAllNonSignBits, {}, shape);
+
+    HloInstruction* k31 = computation->AddInstruction(
+        HloInstruction::CreateConstant(LiteralUtil::CreateR0<int32_t>(31)));
+    HloInstruction* k31Broadcast = MakeBroadcastHlo(k31, {}, shape);
+
+    ASSIGN_OR_RETURN(
+        HloInstruction * and_op,
+        MakeBinaryHlo(HloOpcode::kAnd, in, kAllNonSignBitsBroadcast));
+    ASSIGN_OR_RETURN(
+        HloInstruction * sar_op,
+        MakeBinaryHlo(HloOpcode::kShiftRightArithmetic, in, k31Broadcast));
+    return MakeBinaryHlo(HloOpcode::kXor, and_op, sar_op);
+  }
+
+  bool ShouldUsePackedBf16Sort(const Shape& input_shape, bool is_descending) {
+    int64_t rank = input_shape.dimensions().size();
+    int64_t last_dim_size = input_shape.dimensions().back();
+    constexpr int32_t kLow16BitsLimit = 65536;
+    constexpr int kMaxLastDimSizeForSmallBatches = 1500;
+    constexpr int kSmallBatchSizeThreshold = 8;
+
+    return is_descending && input_shape.element_type() == BF16 &&
+           last_dim_size <= kLow16BitsLimit &&
+           (last_dim_size < kMaxLastDimSizeForSmallBatches ||
+            (rank == 2 &&
+             input_shape.dimensions(0) >= kSmallBatchSizeThreshold));
+  }
+
   absl::StatusOr<HloComputation*> CreateVariadicComparator(
       HloInstruction* inst) {
     HloTopKInstruction* topk = DynCast<HloTopKInstruction>(inst);
@@ -500,15 +536,116 @@ class TopkDecomposerVisitor : public DfsHloRewriteVisitor {
     return comparator;
   }
 
+  absl::Status DecomposePackedBf16Sort(HloInstruction* call) {
+    HloInstruction* input = call->mutable_operand(0);
+    const Shape& input_shape = input->shape();
+    int64_t rank = input_shape.dimensions().size();
+    size_t sort_dimension = rank - 1;
+    HloComputation* computation = call->parent();
+    std::vector<int64_t> zeroes(rank, 0);
+    std::vector<int64_t> ones(rank, 1);
+
+    int64_t k = 0;
+    if (call->opcode() == HloOpcode::kTopK) {
+      k = Cast<HloTopKInstruction>(call)->k();
+    } else {
+      k = call->shape().tuple_shapes(0).dimensions().back();
+    }
+
+    Shape iota_shape = ShapeUtil::ChangeElementType(input_shape, S32);
+    HloInstruction* iota = computation->AddInstruction(
+        HloInstruction::CreateIota(iota_shape, sort_dimension));
+
+    Shape f32_shape = ShapeUtil::ChangeElementType(input_shape, F32);
+    HloInstruction* input_f32 = MakeConvertToHlo(input, F32);
+
+    HloInstruction* input_s32 = MakeBitcastConvertToHlo(input_f32, S32);
+
+    ASSIGN_OR_RETURN(HloInstruction * ones_comp,
+                     SignMagnitudeToFromOnesComplement(input_s32, computation));
+
+    HloInstruction* kLow16BitsMaskConst = computation->AddInstruction(
+        HloInstruction::CreateConstant(LiteralUtil::CreateR0<int32_t>(0xffff)));
+    HloInstruction* kLow16BitsMaskBroadcast =
+        MakeBroadcastHlo(kLow16BitsMaskConst, {}, iota_shape);
+    ASSIGN_OR_RETURN(
+        HloInstruction * input_f32_trimmed,
+        MakeBinaryHlo(HloOpcode::kOr, ones_comp, kLow16BitsMaskBroadcast));
+
+    ASSIGN_OR_RETURN(HloInstruction * input_and_iota,
+                     MakeBinaryHlo(HloOpcode::kXor, input_f32_trimmed, iota));
+
+    XlaBuilder builder("packed_bf16_sort_comparator");
+    XlaComputation comparison = CreateScalarGtComputation({S32}, &builder);
+    ASSIGN_OR_RETURN(
+        HloComputation * s32_gt_comparator,
+        XlaComputationToHloComputation(comparison, call->parent()->parent()));
+
+    HloInstruction* sort_result_raw = computation->AddInstruction(
+        HloInstruction::CreateSort(input_and_iota->shape(), sort_dimension,
+                                   {input_and_iota}, s32_gt_comparator,
+                                   /*is_stable=*/false));
+
+    Shape sliced_s32_shape = ShapeUtil::ChangeElementType(input_shape, S32);
+    sliced_s32_shape.set_dimensions(sort_dimension, k);
+
+    HloInstruction* sliced_sort_result = computation->AddInstruction(
+        HloInstruction::CreateSlice(sliced_s32_shape, sort_result_raw, zeroes,
+                                    sliced_s32_shape.dimensions(), ones));
+
+    ASSIGN_OR_RETURN(
+        HloInstruction * unsigned_ones_comp,
+        SignMagnitudeToFromOnesComplement(sliced_sort_result, computation));
+
+    HloInstruction* kHigh16BitsMaskConst =
+        computation->AddInstruction(HloInstruction::CreateConstant(
+            LiteralUtil::CreateR0<int32_t>(0xffff0000)));
+    HloInstruction* kHigh16BitsMaskBroadcast =
+        MakeBroadcastHlo(kHigh16BitsMaskConst, {}, sliced_s32_shape);
+
+    ASSIGN_OR_RETURN(HloInstruction * values_f32_trimmed,
+                     MakeBinaryHlo(HloOpcode::kAnd, unsigned_ones_comp,
+                                   kHigh16BitsMaskBroadcast));
+
+    HloInstruction* values_f32 =
+        MakeBitcastConvertToHlo(values_f32_trimmed, F32);
+    HloInstruction* values_bf16 = MakeConvertToHlo(values_f32, BF16);
+
+    if (HasSingleUserReadingOnlyTheValueOutput(call)) {
+      return ReplaceInstruction(call->users().front(), values_bf16);
+    } else {
+      HloInstruction* kLow16BitsMaskBroadcastSliced =
+          MakeBroadcastHlo(kLow16BitsMaskConst, {}, sliced_s32_shape);
+      ASSIGN_OR_RETURN(HloInstruction * indices_inverted,
+                       MakeBinaryHlo(HloOpcode::kXor, sliced_sort_result,
+                                     kLow16BitsMaskBroadcastSliced));
+
+      ASSIGN_OR_RETURN(HloInstruction * indices_s32,
+                       MakeBinaryHlo(HloOpcode::kAnd, indices_inverted,
+                                     kLow16BitsMaskBroadcastSliced));
+
+      HloInstruction* result_tuple = computation->AddInstruction(
+          HloInstruction::CreateTuple({values_bf16, indices_s32}));
+      return ReplaceInstruction(call, result_tuple);
+    }
+  }
+
   absl::Status DecomposeTopK(HloInstruction* call,
                              HloComputation* variadic_comparator) {
     HloInstruction* input = call->mutable_operand(0);
+    const Shape& input_shape = input->shape();
+    int64_t rank = input_shape.dimensions().size();
+    size_t sort_dimension = rank - 1;
+
+    bool is_descending = IsNanSafeGt(variadic_comparator);
+    if (ShouldUsePackedBf16Sort(input_shape, is_descending)) {
+      return DecomposePackedBf16Sort(call);
+    }
+
     Shape iota_shape = input->shape();
     iota_shape.set_element_type(S32);
-    size_t sort_dimension = input->shape().dimensions().size() - 1;
-    std::vector<int64_t> zeroes(iota_shape.dimensions().size(), 0);
-    std::vector<int64_t> ones(iota_shape.dimensions().size(), 1);
-    CHECK_NE(variadic_comparator, nullptr);
+    std::vector<int64_t> zeroes(rank, 0);
+    std::vector<int64_t> ones(rank, 1);
     // If only the topk values are necessary, skip the iota.
     if (HasSingleUserReadingOnlyTheValueOutput(call) &&
         variadic_comparator->num_parameters() == 2) {

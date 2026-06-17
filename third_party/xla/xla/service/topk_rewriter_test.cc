@@ -680,8 +680,8 @@ TEST_F(TopkRewriterTest, TopKDecomposition) {
 HloModule topk
 
 ENTRY TopK {
-  x = bf16[10,10]{0,1} parameter(0)
-  ROOT topk = (bf16[10,2]{0,1}, s32[10,2]{0,1}) topk(x), k=2, largest=true
+  x = f32[10,10]{0,1} parameter(0)
+  ROOT topk = (f32[10,2]{0,1}, s32[10,2]{0,1}) topk(x), k=2, largest=true
 }
 
 )";
@@ -704,6 +704,39 @@ ENTRY TopK {
   TF_ASSERT_OK_AND_ASSIGN(bool changed, rewriter.Run(module.get()));
   TF_ASSERT_OK(HloDCE().Run(module.get()).status());
   EXPECT_TRUE(changed);
+}
+
+TEST_F(TopkRewriterTest, TopKDecompositionPacked) {
+  const std::string hlo_string = R"(
+HloModule topk
+
+ENTRY TopK {
+  x = bf16[10,10]{0,1} parameter(0)
+  ROOT topk = (bf16[10,2]{0,1}, s32[10,2]{0,1}) topk(x), k=2, largest=true
+}
+
+)";
+  TF_ASSERT_OK_AND_ASSIGN(auto module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+
+  TF_ASSERT_OK_AND_ASSIGN(bool decomposer_changed,
+                          TopkDecomposer().Run(module.get()));
+  EXPECT_TRUE(decomposer_changed);
+  TF_ASSERT_OK(HloDCE().Run(module.get()).status());
+  TF_ASSERT_OK(TupleSimplifier().Run(module.get()).status());
+
+  // Check that the decomposition generated a single-operand unstable sort of
+  // type S32.
+  int sort_count = 0;
+  for (HloInstruction* inst : module->entry_computation()->instructions()) {
+    if (inst->opcode() == HloOpcode::kSort) {
+      sort_count++;
+      EXPECT_EQ(inst->operand_count(), 1);
+      EXPECT_EQ(inst->operand(0)->shape().element_type(), S32);
+      EXPECT_FALSE(Cast<HloSortInstruction>(inst)->is_stable());
+    }
+  }
+  EXPECT_EQ(sort_count, 1);
 }
 
 TEST_F(TopkRewriterTest, TopKIsNotIncorrectlyCSEd) {
