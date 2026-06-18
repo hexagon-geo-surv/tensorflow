@@ -1342,9 +1342,7 @@ void AddCollectiveCombinerPasses(
 
   // Assign collective backends after combining, so that combined collectives
   // get the correct backend config.
-  pipeline.AddPass<CollectiveBackendAssigner>(
-      device_description.gpu_compute_capability(),
-      num_visible_devices_per_process, options.slice_size);
+  pipeline.AddPass<CollectiveBackendAssigner>();
 
   // Annotate AllReduce ops with the Triton kernel strategy (one-shot /
   // two-shot) that will be used at runtime. This annotation is consumed by
@@ -2288,11 +2286,6 @@ bool RequiresCollectiveInput(const HloUse& use, const DebugOptions& opts) {
     return true;
   }
 
-  // Check Mosaic with nvshmem attribute
-  if (opts.xla_gpu_experimental_enable_nvshmem() &&
-      IsMosaicWithNvshmem(*user)) {
-    return true;
-  }
 
   // Check Mosaic with multimem_parameters attribute
   if (IsMosaicWithMultimem(*user)) {
@@ -2331,10 +2324,6 @@ bool RequiresCollectiveOutput(const HloValue* value, const DebugOptions& opts) {
     return true;
   }
 
-  // Check Mosaic with nvshmem attribute
-  if (opts.xla_gpu_experimental_enable_nvshmem() && IsMosaicWithNvshmem(*def)) {
-    return true;
-  }
 
   // Check Mosaic with multimem_parameters attribute
   if (IsMosaicWithMultimem(*def)) {
