@@ -46,10 +46,13 @@ Subcommands:
           Requires `--proto_type` to identify the message type.
   unpack: Reconstructs a standard protobuf from a split proto file.
           The proto type is automatically inferred from the split manifest.
+  info:   Prints useful details about an AOT binary (ExecutableAndOptionsProto).
+          The input should be a split proto file.
 
 Usage:
   split-proto-cli pack --proto_type=<type> [input_file]
   split-proto-cli unpack [input_file]
+  split-proto-cli info [input_file]
 
 Input/Output:
   If [input_file] is omitted or '-', it reads from stdin.
@@ -152,6 +155,8 @@ absl::Status RunMain(int argc, char** argv) {
     }
 
     status = Unpack(std::move(reader), std::move(writer), options);
+  } else if (subcommand == "info") {
+    status = Info(std::move(reader));
   } else {
     return absl::InvalidArgumentError(
         absl::StrCat("Unknown subcommand: ", subcommand));

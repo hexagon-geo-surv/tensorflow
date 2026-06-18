@@ -13,7 +13,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include <iostream>
 #include <memory>
+#include <sstream>
+#include <streambuf>
 #include <string>
 #include <utility>
 
@@ -26,18 +29,24 @@ limitations under the License.
 #include "riegeli/bytes/string_reader.h"
 #include "riegeli/bytes/string_writer.h"
 #include "riegeli/bytes/writer.h"
+#include "xla/backends/gpu/runtime/thunk.pb.h"
 #include "xla/pjrt/proto/compile_options.pb.h"
 #include "xla/service/gpu/dense_data_intermediate.pb.h"
 #include "xla/service/gpu/gpu_executable.pb.h"
+#include "xla/stream_executor/cuda/cuda_compute_capability.pb.h"
+#include "xla/stream_executor/device_description.pb.h"
 #include "xla/tools/split_proto/split_proto_cli_lib.h"
 #include "xla/tsl/util/proto/parse_text_proto.h"
 #include "xla/tsl/util/proto/proto_matchers.h"
+#include "xla/util/split_proto/split_gpu_executable_writer.h"
 #include "xla/xla_data.pb.h"
 
 namespace xla::split_proto_cli {
 namespace {
 
 using ::absl_testing::StatusIs;
+using ::testing::HasSubstr;
+using ::testing::Not;
 using ::tsl::proto_testing::EqualsProto;
 using ::tsl::proto_testing::ParseTextProtoOrDie;
 using ::tsl::proto_testing::Partially;
@@ -141,6 +150,66 @@ TEST(SplitProtoCliTest, PackInvalidProtoType) {
 
   EXPECT_THAT(Pack(std::move(reader), std::move(writer), pack_opts),
               StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+TEST(SplitProtoCliTest, InfoCommandPrintsCorrectDetails) {
+  auto gpu_exec = ParseTextProtoOrDie<gpu::GpuExecutableProto>(R"pb(
+    module_name: "test_module"
+    gpu_compute_capability { cuda_compute_capability { major: 8 minor: 0 } }
+    thunks { kernel_thunk { kernel_name: "my_kernel" } }
+    thunks { copy_thunk {} }
+    thunks { custom_call_thunk { target_name: "my_custom_call" } }
+    thunks {
+      sequential_thunk {
+        thunks { kernel_thunk { kernel_name: "nested_kernel" } }
+      }
+    }
+  )pb");
+
+  std::string serialized_gpu_exec;
+  ASSERT_OK(WriteSplitGpuExecutable(
+      gpu_exec,
+      std::make_unique<riegeli::StringWriter<>>(&serialized_gpu_exec)));
+
+  ExecutableAndOptionsProto initial_proto;
+  initial_proto.set_serialized_executable(serialized_gpu_exec);
+  *initial_proto.mutable_compile_options() =
+      ParseTextProtoOrDie<CompileOptionsProto>(R"pb(
+        target_config { gpu_device_info { threads_per_block_limit: 1024 } }
+      )pb");
+
+  std::string text_input;
+  ASSERT_TRUE(google::protobuf::TextFormat::PrintToString(initial_proto, &text_input));
+
+  std::unique_ptr<riegeli::Reader> text_reader =
+      riegeli::Maker<riegeli::StringReader>(text_input);
+  std::string split_bytes;
+  std::unique_ptr<riegeli::Writer> split_writer =
+      riegeli::Maker<riegeli::StringWriter>(&split_bytes);
+  PackOptions pack_opts;
+  pack_opts.proto_type = "xla.ExecutableAndOptionsProto";
+  pack_opts.input_format = ProtoFormat::kText;
+  ASSERT_OK(Pack(std::move(text_reader), std::move(split_writer), pack_opts));
+
+  std::unique_ptr<riegeli::Reader> split_reader =
+      riegeli::Maker<riegeli::StringReader>(split_bytes);
+
+  std::stringstream buffer;
+  std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+
+  absl::Status status = Info(std::move(split_reader));
+
+  std::cout.rdbuf(old);
+
+  ASSERT_OK(status);
+
+  std::string output = buffer.str();
+  EXPECT_THAT(output, HasSubstr("Module Name: test_module"));
+  EXPECT_THAT(output, HasSubstr("threads_per_block_limit: 1024"));
+  EXPECT_THAT(output, HasSubstr("kernel_thunk (my_kernel)"));
+  EXPECT_THAT(output, HasSubstr("custom_call_thunk (my_custom_call)"));
+  EXPECT_THAT(output, HasSubstr("kernel_thunk (nested_kernel)"));
+  EXPECT_THAT(output, Not(HasSubstr("copy_thunk")));
 }
 
 }  // namespace
