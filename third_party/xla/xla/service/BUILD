@@ -1462,6 +1462,7 @@ cc_library(
     hdrs = ["latency_hiding_scheduler.h"],
     deps = [
         ":buffer_value",
+        ":collective_ops_utils",
         ":dump",
         ":hlo_buffer",
         ":hlo_cost_analysis",
@@ -4227,6 +4228,7 @@ cc_library(
         "//xla:xla_data_proto_cc",
         "//xla/hlo/ir:collective_op_group_mode",
         "//xla/hlo/ir:hlo",
+        "//xla/hlo/ir:hlo_instruction_utils",
         "//xla/hlo/pass:hlo_pass",
         "//xla/tsl/platform:errors",
         "//xla/tsl/platform:status_macros",
