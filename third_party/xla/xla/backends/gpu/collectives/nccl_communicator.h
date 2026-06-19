@@ -29,6 +29,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
 #include "xla/backends/gpu/collectives/cancellation_token.h"
 #include "xla/backends/gpu/collectives/gpu_communicator.h"
@@ -66,6 +67,8 @@ struct NcclCapabilities {
 
 // XLA collectives communicator wrapping an NCCL communicator.
 class NcclCommunicator : public GpuCommunicator {
+  friend class NcclDeviceCommunicator;
+
  public:
   // Creates a NCCL communicator.
   //
@@ -281,6 +284,12 @@ class NcclCommunicator : public GpuCommunicator {
   bool aborted_ = false;
 
   NcclCapabilities capabilities_;
+
+  // NCCL API restricts concurrent usage with the same communicator.
+  // See:
+  // https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/threadsafety.html
+  // Therefore all NCCL API calls are guarded by this mutex.
+  mutable absl::Mutex nccl_api_usage_mutex_;
 };
 
 //===----------------------------------------------------------------------===//
@@ -313,12 +322,14 @@ class NcclDeviceCommunicator : public GpuDeviceCommunicator {
   NcclDeviceCommunicator(ncclComm_t parent_comm,
                          se::StreamExecutor* stream_executor,
                          std::shared_ptr<tsl::Executor> executor,
-                         ncclDevComm dev_comm);
+                         ncclDevComm dev_comm,
+                         absl::Mutex* nccl_api_usage_mutex);
 
   ncclComm_t parent_comm_;
   se::StreamExecutor* stream_executor_;
   std::shared_ptr<tsl::Executor> executor_;
   ncclDevComm dev_comm_;
+  absl::Mutex* nccl_api_usage_mutex_;
 };
 
 }  // namespace xla::gpu

@@ -311,6 +311,36 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "collectives_test_util",
+    testonly = True,
+    srcs = ["collectives_test_util.cc"],
+    hdrs = ["collectives_test_util.h"],
+    deps = [
+        ":cancellation_token",
+        ":gpu_clique_key",
+        ":gpu_collectives",
+        ":gpu_communicator",
+        "//xla:future",
+        "//xla/core/collectives",
+        "//xla/core/collectives:clique_id",
+        "//xla/core/collectives:communicator",
+        "//xla/core/collectives:rank_id",
+        "//xla/core/collectives:symmetric_memory",
+        "//xla/runtime:device_id",
+        "//xla/stream_executor:memory_allocation",
+        "//xla/stream_executor:memory_allocator",
+        "//xla/stream_executor:memory_space",
+        "//xla/stream_executor:platform",
+        "//xla/stream_executor:stream_executor_h",
+        "//xla/tsl/concurrency:executor",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
 xla_cc_test(
     name = "gpu_collectives_test",
     srcs = ["gpu_collectives_test.cc"],
@@ -322,6 +352,7 @@ xla_cc_test(
     deps = [
         ":allocator_memory_registration",
         ":cancellation_token",
+        ":collectives_test_util",
         ":gpu_clique",
         ":gpu_clique_key",
         ":gpu_collectives",
@@ -329,18 +360,13 @@ xla_cc_test(
         ":nccl_or_rccl_collectives",  # buildcleaner: keep
         "//xla:future",
         "//xla:xla_data_proto_cc",
-        "//xla/core/collectives",
-        "//xla/core/collectives:clique_id",
         "//xla/core/collectives:communicator",
         "//xla/core/collectives:rank_id",
         "//xla/core/collectives:reduction_kind",
         "//xla/core/collectives:registered_memory",
-        "//xla/core/collectives:symmetric_memory",
         "//xla/runtime:device_id",
         "//xla/stream_executor:device_address",
         "//xla/stream_executor:memory_allocation",
-        "//xla/stream_executor:memory_allocator",
-        "//xla/stream_executor:memory_space",
         "//xla/stream_executor:platform",
         "//xla/stream_executor:platform_manager",
         "//xla/stream_executor:stream",
@@ -350,13 +376,60 @@ xla_cc_test(
         "//xla/tsl/concurrency:executor",
         "//xla/tsl/platform:env",
         "//xla/tsl/platform:status_macros",
-        "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",  # buildcleaner: keep
+    ],
+)
+
+xla_test(
+    name = "nccl_communicator_test",
+    size = "medium",
+    srcs = ["nccl_communicator_test.cc"],
+    backend_tags = {
+        "h100": [
+            "full",
+            "multi_gpu",
+        ],
+        "b200": [
+            "multi_gpu",
+        ],
+    },
+    backends = ["gpu"],
+    env = {
+        "NCCL_NVLS_ENABLE": "0",
+    },
+    tags = [
+        "cuda-only",
+        "multi_gpu",
+    ],
+    deps = [
+        ":collectives_test_util",
+        ":gpu_collectives",
+        ":gpu_communicator",
+        ":nccl_or_rccl_collectives",  # buildcleaner: keep
+        "//xla:future",
+        "//xla:xla_data_proto_cc",
+        "//xla/core/collectives:reduction_kind",
+        "//xla/runtime:device_id",
+        "//xla/stream_executor:memory_allocation",
+        "//xla/stream_executor:platform",
+        "//xla/stream_executor:platform_manager",
+        "//xla/stream_executor:stream",
+        "//xla/stream_executor:stream_executor_h",
+        "//xla/stream_executor/cuda:cuda_compute_capability",
+        "//xla/stream_executor/cuda:cuda_platform",  # buildcleaner: keep
+        "//xla/tsl/concurrency:executor",
+        "//xla/tsl/platform:env",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",  # buildcleaner: keep
     ],
@@ -595,12 +668,14 @@ cc_library(
         "//xla/stream_executor:device_address",
         "//xla/tsl/concurrency:executor",
         "//xla/tsl/cuda:nccl",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
     ],
 )
 
@@ -846,6 +921,7 @@ cc_library(
         "//xla/tsl/platform:logging",
         "//xla/tsl/platform:status_macros",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/functional:function_ref",
@@ -855,6 +931,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
         "@local_config_cuda//cuda:cuda_headers",
     ],

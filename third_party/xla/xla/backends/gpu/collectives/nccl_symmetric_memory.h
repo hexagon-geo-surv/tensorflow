@@ -19,7 +19,9 @@ limitations under the License.
 #include <memory>
 #include <string>
 
+#include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
 #include "third_party/nccl/nccl.h"
 #include "xla/core/collectives/rank_id.h"
 #include "xla/core/collectives/symmetric_memory.h"
@@ -35,7 +37,8 @@ class NcclSymmetricMemory final : public SymmetricMemory {
   ~NcclSymmetricMemory() final;
 
   static absl::StatusOr<std::unique_ptr<NcclSymmetricMemory>> Create(
-      ncclComm_t comm, stream_executor::DeviceAddressBase addr,
+      ncclComm_t comm, absl::Mutex* absl_nonnull nccl_api_usage_mutex,
+      stream_executor::DeviceAddressBase addr,
       std::shared_ptr<tsl::Executor> executor);
 
   stream_executor::DeviceAddressBase addr() const final;
@@ -54,12 +57,15 @@ class NcclSymmetricMemory final : public SymmetricMemory {
  private:
   NcclSymmetricMemory(ncclComm_t comm, ncclWindow_t win,
                       stream_executor::DeviceAddressBase addr,
-                      std::shared_ptr<tsl::Executor> executor);
+                      std::shared_ptr<tsl::Executor> executor,
+                      absl::Mutex* absl_nonnull nccl_api_usage_mutex);
 
   ncclComm_t comm_;
   ncclWindow_t win_;
   stream_executor::DeviceAddressBase addr_;
   std::shared_ptr<tsl::Executor> executor_;
+  // See more details in nccl_communicator.h.
+  absl::Mutex* nccl_api_usage_mutex_;
 };
 
 }  // namespace xla::gpu

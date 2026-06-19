@@ -19,12 +19,14 @@ limitations under the License.
 #include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
+#include "absl/synchronization/mutex.h"
 #include "xla/backends/gpu/collectives/nccl_errors.h"
 #include "xla/core/collectives/rank_id.h"
 #include "xla/future.h"
@@ -45,13 +47,20 @@ Future<> Execute(absl::AnyInvocable<absl::Status() &&> f,
 
 NcclSymmetricMemory::NcclSymmetricMemory(
     ncclComm_t comm, ncclWindow_t win, stream_executor::DeviceAddressBase addr,
-    std::shared_ptr<tsl::Executor> executor)
-    : comm_(comm), win_(win), addr_(addr), executor_(executor) {}
+    std::shared_ptr<tsl::Executor> executor,
+    absl::Mutex* absl_nonnull nccl_api_usage_mutex)
+    : comm_(comm),
+      win_(win),
+      addr_(addr),
+      executor_(executor),
+      nccl_api_usage_mutex_(nccl_api_usage_mutex) {}
 
 absl::StatusOr<std::unique_ptr<NcclSymmetricMemory>>
 NcclSymmetricMemory::Create(ncclComm_t comm,
+                            absl::Mutex* absl_nonnull nccl_api_usage_mutex,
                             stream_executor::DeviceAddressBase addr,
                             const std::shared_ptr<tsl::Executor> executor) {
+  absl::MutexLock lock(*nccl_api_usage_mutex);
   VLOG(3) << absl::StrFormat(
       "Create NCCL symmetric memory on comm=%p from: ptr=%p; size=%ld", comm,
       addr.opaque(), addr.size());
@@ -60,13 +69,15 @@ NcclSymmetricMemory::Create(ncclComm_t comm,
   XLA_NCCL_RETURN_IF_ERROR(ncclCommWindowRegister(
       comm, addr.opaque(), addr.size(), &win, NCCL_WIN_COLL_SYMMETRIC));
 
-  return absl::WrapUnique(new NcclSymmetricMemory(comm, win, addr, executor));
+  return absl::WrapUnique(
+      new NcclSymmetricMemory(comm, win, addr, executor, nccl_api_usage_mutex));
 }
 
 NcclSymmetricMemory::~NcclSymmetricMemory() {
   absl::Status status =
       Execute(
           [&] {
+            absl::MutexLock lock(*nccl_api_usage_mutex_);
             VLOG(3) << absl::StrFormat(
                 "Destroy %v with addr=%p, size=%ld executor=%p", *this,
                 addr_.opaque(), addr_.size(), executor_.get());
