@@ -202,7 +202,8 @@ CollectiveKernelThunkMetadata CreateCollectiveKernelThunk(
   const LaunchDimensions launch_dimensions(
       /*block_x_count=*/1, /*thread_x_count_per_block=*/kNumElements);
   result.thunk = std::make_unique<CollectiveKernelThunk>(
-      std::move(thunk_info), collective_config, ReductionKind::SUM,
+      std::move(thunk_info), collective_config,
+      AllReduceOpSpec{ReductionKind::SUM},
       /*is_async=*/false, result.buffers,
       /*is_collective_kernel_enabled=*/true,
       /*kernel_name=*/kKernelName,

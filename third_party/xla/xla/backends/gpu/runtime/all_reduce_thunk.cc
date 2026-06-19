@@ -31,6 +31,7 @@ limitations under the License.
 #include "xla/backends/gpu/collectives/gpu_collectives.h"
 #include "xla/backends/gpu/collectives/gpu_communicator.h"
 #include "xla/backends/gpu/runtime/collective_kernel_thunk.h"
+#include "xla/backends/gpu/runtime/collective_params.h"
 #include "xla/backends/gpu/runtime/collective_thunk.h"
 #include "xla/backends/gpu/runtime/collective_thunk.pb.h"
 #include "xla/backends/gpu/runtime/thunk.h"
@@ -156,7 +157,10 @@ CollectiveOpGroupMode AllReduceThunk::GetGroupMode(
 absl::Status AllReduceThunk::Prepare(const PrepareParams& params) {
   RETURN_IF_ERROR(CollectiveThunk::Prepare(params));
   if (collective_kernel_thunk_ != nullptr) {
-    return collective_kernel_thunk_->Prepare(params);
+    absl::Status status = collective_kernel_thunk_->Prepare(params);
+    if (!absl::IsUnimplemented(status)) {
+      return status;
+    }
   }
   return absl::OkStatus();
 }
@@ -231,7 +235,8 @@ absl::StatusOr<std::unique_ptr<AllReduceThunk>> AllReduceThunk::FromProto(
   std::unique_ptr<CollectiveKernelThunk> kernel_thunk = nullptr;
   if (!thunk_proto.kernel_name().empty()) {
     kernel_thunk = std::make_unique<CollectiveKernelThunk>(
-        thunk_info, config, reduction_kind, thunk_proto.is_async(), buffers,
+        thunk_info, config, AllReduceOpSpec{reduction_kind},
+        thunk_proto.is_async(), buffers,
         thunk_proto.collective_kernel_enabled(), thunk_proto.kernel_name(),
         launch_dimensions, thunk_proto.shmem_bytes(),
         thunk_proto.is_multimem_enabled(), std::move(cubin),
