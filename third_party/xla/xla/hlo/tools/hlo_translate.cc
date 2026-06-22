@@ -184,7 +184,7 @@ mlir::OwningOpRef<mlir::ModuleOp> GetModuleFromHloInput(
   if (module_from_proto.ok()) {
     return std::move(module_from_proto).value();
   }
-  if (module_from_text.status().message().rfind(kLoadHloError, 0) != 0) {
+  if (module_from_proto.status().message().rfind(kLoadHloError, 0) != 0) {
     emitError() << "Failed to convert HLO to MLIR: "
                 << module_from_proto.status().message();
     return nullptr;
