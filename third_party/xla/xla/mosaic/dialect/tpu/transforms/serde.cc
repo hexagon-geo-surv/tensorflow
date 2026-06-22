@@ -596,6 +596,16 @@ LogicalResult arith_constant_downgrade(Operation* op, int version, bool&) {
 }
 
 LogicalResult reinterpret_cast_upgrade(Operation* op, int version, bool&) {
+  if (version == 15) {
+    auto operand_segment_sizes =
+        op->getAttrOfType<DenseI32ArrayAttr>("operandSegmentSizes");
+    llvm::SmallVector<int32_t> new_sizes(operand_segment_sizes.asArrayRef());
+    new_sizes.push_back(0);
+    op->setAttr("operandSegmentSizes",
+                mlir::DenseI32ArrayAttr::get(
+                    op->getContext(),
+                    mlir::DenseI32ArrayAttr::get(op->getContext(), new_sizes)));
+  }
   if (version < 15) {
     bool dynamic_offset = op->getNumOperands() > 1;
     op->setAttr("operandSegmentSizes",
@@ -606,10 +616,26 @@ LogicalResult reinterpret_cast_upgrade(Operation* op, int version, bool&) {
 }
 
 LogicalResult reinterpret_cast_downgrade(Operation* op, int version, bool&) {
+  if (version == 15) {
+    auto operand_segment_sizes =
+        op->getAttrOfType<DenseI32ArrayAttr>("operandSegmentSizes");
+    if (operand_segment_sizes) {
+      if (operand_segment_sizes[3] > 0) {
+        return op->emitOpError(
+            "Can only downgrade below version 15 when dynamic_strides is "
+            "empty");
+      }
+
+      op->setAttr("operandSegmentSizes",
+                  mlir::DenseI32ArrayAttr::get(
+                      op->getContext(),
+                      operand_segment_sizes.asArrayRef().drop_back()));
+    }
+  }
   if (version < 15) {
     auto operand_segment_sizes =
         op->getAttrOfType<DenseI32ArrayAttr>("operandSegmentSizes");
-    if (operand_segment_sizes && operand_segment_sizes.asArrayRef()[2] > 0) {
+    if (operand_segment_sizes && operand_segment_sizes[2] > 0) {
       return op->emitOpError(
           "Can only downgrade below version 15 when dynamic_sizes is empty");
     }
