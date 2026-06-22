@@ -55,6 +55,12 @@ class PerThread {
     return Registry::Get().StopRecording();
   }
 
+  // Returns all instances of T from live and destroyed threads, without
+  // stopping.
+  static std::vector<std::shared_ptr<T>> FlushRecording() {
+    return Registry::Get().FlushRecording();
+  }
+
  private:
   // Prevent instantiation.
   PerThread() = delete;
@@ -72,6 +78,7 @@ class PerThread {
       std::vector<std::shared_ptr<T>> threads;
       absl::MutexLock lock(mutex_);
       threads.reserve(threads_.size());
+      // NOLINTNEXTLINE
       for (auto iter = threads_.begin(); iter != threads_.end(); ++iter) {
         threads.push_back(iter->first);
       }
@@ -83,6 +90,7 @@ class PerThread {
       std::vector<std::shared_ptr<T>> threads;
       absl::MutexLock lock(mutex_);
       threads.reserve(threads_.size());
+      // NOLINTNEXTLINE
       for (auto iter = threads_.begin(); iter != threads_.end();) {
         if (!iter->second) {  // The creator thread is dead.
           threads.push_back(std::move(iter->first));
@@ -93,6 +101,17 @@ class PerThread {
         }
       }
       recording_ = false;
+      return threads;
+    }
+
+    std::vector<std::shared_ptr<T>> FlushRecording() {
+      absl::MutexLock lock(mutex_);
+      std::vector<std::shared_ptr<T>> threads;
+      threads.reserve(threads_.size());
+      // NOLINTNEXTLINE
+      for (auto iter = threads_.begin(); iter != threads_.end(); ++iter) {
+        threads.push_back(iter->first);
+      }
       return threads;
     }
 
