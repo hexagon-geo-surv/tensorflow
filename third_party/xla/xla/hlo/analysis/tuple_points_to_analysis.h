@@ -344,6 +344,11 @@ class TuplePointsToAnalysis : public DfsHloVisitorWithDefault {
   absl::Status GatherBuffersDefinedByInstruction(
       const HloInstruction* instruction, BufferDefinitionVector* buffers);
 
+  // Applies deferred aliases from async-start to the current instruction's
+  // points-to set.
+  void ApplyDeferredAliases(HloInstruction* current_instruction,
+                            PointsToSet& points_to_set);
+
   // Print points-to set for 'instruction' to 'output'.
   void InstructionToString(const HloInstruction* instruction,
                            std::string* output) const;
@@ -351,6 +356,7 @@ class TuplePointsToAnalysis : public DfsHloVisitorWithDefault {
   // Information kept per instruction
   struct PerInstruction {
     std::unique_ptr<PointsToSet> points_to_set;
+    // Buffers defined by this instruction.
     // Empirically, ~92% of instructions have 1
     // instruction_defined_buffer, and 99% have 0 or 1
     BufferDefinitionVector instruction_defined_buffers;
