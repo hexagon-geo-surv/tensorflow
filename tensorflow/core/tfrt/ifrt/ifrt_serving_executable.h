@@ -96,7 +96,8 @@ class IfrtServingExecutable {
           compilation_env_or_overrides,
       TfToHloCompiler* tf_to_hlo_compiler,
       IfrtPersistentCompilationCache* persistent_compilation_cache,
-      H2DTransferExecutorFactory* h2d_transfer_executor_factory);
+      H2DTransferExecutorFactory* h2d_transfer_executor_factory,
+      bool use_output_arena = false);
 
   // Movable but not copyable.
   IfrtServingExecutable(IfrtServingExecutable&& other) = default;
@@ -258,7 +259,8 @@ class IfrtServingExecutable {
           compilation_env_or_overrides,
       TfToHloCompiler* tf_to_hlo_compiler,
       IfrtPersistentCompilationCache* persistent_compilation_cache,
-      H2DTransferExecutorFactory* h2d_transfer_executor_factory)
+      H2DTransferExecutorFactory* h2d_transfer_executor_factory,
+      bool use_output_arena = false)
       : program_id_(program_id),
         model_name_(std::string(model_name)),
         signature_name_(std::string(signature_name)),
@@ -285,7 +287,8 @@ class IfrtServingExecutable {
         compilation_env_or_overrides_(compilation_env_or_overrides),
         tf_to_hlo_compiler_(tf_to_hlo_compiler),
         persistent_compilation_cache_(persistent_compilation_cache),
-        h2d_transfer_executor_factory_(h2d_transfer_executor_factory) {}
+        h2d_transfer_executor_factory_(h2d_transfer_executor_factory),
+        use_output_arena_(use_output_arena) {}
 
   int64_t program_id_;
   using SharedCachedExecutableBundle = std::shared_ptr<CachedExecutableBundle>;
@@ -345,6 +348,7 @@ class IfrtServingExecutable {
   IfrtPersistentCompilationCache* persistent_compilation_cache_;
 
   H2DTransferExecutorFactory* h2d_transfer_executor_factory_ = nullptr;
+  bool use_output_arena_ = false;
 
   // Asynchronously load the restored variable tensors to Ifrt array.
   absl::Status LoadAndRegisterVariableOnExecutable(

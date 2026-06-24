@@ -70,6 +70,7 @@ limitations under the License.
 #include "xla/pjrt/pjrt_executable.h"
 #include "xla/pjrt/pjrt_layout.h"
 #include "xla/python/ifrt/array.h"
+#include "xla/python/ifrt/attribute_map.h"
 #include "xla/python/ifrt/client.h"
 #include "xla/python/ifrt/device.h"
 #include "xla/python/ifrt/device_list.h"
@@ -367,7 +368,8 @@ IfrtServingExecutable::Create(
         compilation_env_or_overrides,
     TfToHloCompiler* tf_to_hlo_compiler,
     IfrtPersistentCompilationCache* persistent_compilation_cache,
-    H2DTransferExecutorFactory* h2d_transfer_executor_factory) {
+    H2DTransferExecutorFactory* h2d_transfer_executor_factory,
+    bool use_output_arena) {
   if (h2d_transfer_executor_factory == nullptr) {
     return absl::InvalidArgumentError("H2DTransferExecutorFactory is null.");
   }
@@ -393,7 +395,8 @@ IfrtServingExecutable::Create(
       ifrt_serving_core_selector, std::move(original_compile_metadata),
       std::move(device_list), std::move(static_shape_arg_map),
       compilation_env_or_overrides, tf_to_hlo_compiler,
-      persistent_compilation_cache, h2d_transfer_executor_factory));
+      persistent_compilation_cache, h2d_transfer_executor_factory,
+      use_output_arena));
 
   return executable;
 }
@@ -1219,8 +1222,16 @@ IfrtServingExecutable::ExecuteCore(absl::Span<const tensorflow::Tensor> inputs,
       xla::ifrt::LoadedExecutable::ExecuteResult execution_result,
       [&]() -> absl::StatusOr<xla::ifrt::LoadedExecutable::ExecuteResult> {
         tsl::profiler::TraceMe traceme("Execute");
+        xla::ifrt::ExecuteOptions options;
+        options.fill_status = true;
+        if (use_output_arena_) {
+          options.custom_options =
+              xla::ifrt::AttributeMap(xla::ifrt::AttributeMap::Map{
+                  {"use_output_arena",
+                   xla::ifrt::AttributeMap::BoolValue(true)}});
+        }
         return executable_bundle->ifrt_executable->Execute(
-            absl::MakeSpan(transfer_result), /*options=*/{.fill_status = true},
+            absl::MakeSpan(transfer_result), options,
             std::move(execution_device_list));
       }());
 

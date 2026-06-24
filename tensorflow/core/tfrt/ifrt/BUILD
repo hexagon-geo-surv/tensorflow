@@ -171,6 +171,7 @@ cc_library(
         "@xla//xla/pjrt:pjrt_executable",
         "@xla//xla/pjrt:pjrt_layout",
         "@xla//xla/python/ifrt",
+        "@xla//xla/python/ifrt:attribute_map",
         "@xla//xla/python/ifrt/hlo:hlo_program",
         "@xla//xla/python/pjrt_ifrt",
         "@xla//xla/python/pjrt_ifrt:pjrt_layout",
