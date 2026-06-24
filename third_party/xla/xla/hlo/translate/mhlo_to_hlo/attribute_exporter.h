@@ -114,6 +114,23 @@ mlir::FailureOr<xla::Shape> ExtractXlaShape(mlir::Operation* op);
 std::optional<xla::OriginalValueProto> ConvertOriginalValue(
     const mlir::mhlo::OriginalValueAttr& original_value_attr);
 
+// Returns a projected OriginalValueProto for a specific result of a
+// multi-result op (like a multi-result WhileOp) from a composed
+// OriginalValueProto.
+std::optional<xla::OriginalValueProto> ProjectOriginalValueProto(
+    const std::optional<xla::OriginalValueProto>& original_value_proto,
+    unsigned index, unsigned num_results);
+
+// Returns a single OriginalValueProto that combines the given protos. The new
+// original value proto will have a new top-level shape index corresponding to
+// the position of the proto in the input array.
+std::optional<xla::OriginalValueProto> ComposeOriginalValueProto(
+    llvm::ArrayRef<std::optional<xla::OriginalValueProto>> protos);
+
+// Returns a placeholder OriginalValueProto matching the structure of the given
+// shape, with empty original arrays.
+xla::OriginalValueProto CreateEmptyOriginalValueProto(const xla::Shape& shape);
+
 std::optional<xla::HloInputOutputAliasProto> ConvertInputOutputAlias(
     llvm::ArrayRef<mlir::Attribute> aliasing);
 
