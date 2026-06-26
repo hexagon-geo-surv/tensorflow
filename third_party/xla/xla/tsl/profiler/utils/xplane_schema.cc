@@ -284,6 +284,7 @@ const StatTypeMap& GetStatTypeMap() {
        {"deduplicated_name", kDeduplicatedName},
        {"hlo_category", kHloCategory},
        {"hlo_module", kHloModule},
+       {"hlo_op_id", kHloOpId},
        {"program_id", kProgramId},
        {"equation", kEquation},
        {"is_eager", kIsEager},

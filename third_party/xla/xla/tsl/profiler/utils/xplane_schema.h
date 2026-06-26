@@ -273,6 +273,7 @@ enum StatType {
   kDeduplicatedName,
   kHloCategory,
   kHloModule,
+  kHloOpId,
   kProgramId,
   kEquation,
   kIsEager,
