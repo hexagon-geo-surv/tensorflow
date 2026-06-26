@@ -119,6 +119,11 @@ absl::StatusOr<NumericMismatch> ExtractTopRelativeErrorMismatch(
 
 int64_t GetFusionCountInNestedFusion(const HloInstruction* fusion_instr);
 
+std::string GetFusionDebuggerDir();
+std::string GetFusionDebuggerFilePath(absl::string_view op_name);
+void CleanUpAllFusionDebuggerFiles();
+std::vector<std::string> GetLeftoverFusionDebuggerFiles();
+
 bool ModuleContainsLargeKeyValueSort(const HloModule& module);
 bool ModuleTestsFloatsForEquality(const HloModule& module);
 bool ComputationHasRng(const HloComputation* computation);
