@@ -1377,9 +1377,10 @@ TEST_F(HloVerifierTest, AsyncOpTupleWrongType) {
 
   auto status = verifier().Run(module.get()).status();
   ASSERT_FALSE(status.ok());
-  EXPECT_THAT(status.message(),
-              HasSubstr("async-start expects the async shape to be a tuple of "
-                        "at least two elements"));
+  EXPECT_THAT(
+      status.message(),
+      HasSubstr("expects the async shape to be in the form of "
+                "{{op0_shape, param_1_shape, ...}, output_shape, ...}"));
 }
 
 TEST_F(HloVerifierTest, AsyncStartOperandWrongType) {
