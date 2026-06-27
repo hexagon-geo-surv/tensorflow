@@ -1167,9 +1167,10 @@ TEST_F(HloVerifierTest, AsyncStartAndAsyncDoneWrongType) {
 
   auto status = verifier().Run(module.get()).status();
   ASSERT_FALSE(status.ok());
-  EXPECT_THAT(status.message(),
-              HasSubstr("async-done expects the shape of output to match the "
-                        "async shape at index {1}"));
+  EXPECT_THAT(
+      status.message(),
+      HasSubstr("The async-start expects the async shape at index {1} to "
+                "match the async computation root shape"));
 }
 
 TEST_F(HloVerifierTest, AsyncStartMultipleAsyncDone) {
@@ -1322,8 +1323,8 @@ TEST_F(HloVerifierTest, AsyncOpComputationParamWrongType) {
   auto status = verifier().Run(module.get()).status();
   ASSERT_FALSE(status.ok());
   EXPECT_THAT(status.message(),
-              HasSubstr("async-start expects the async shape at index {0} to "
-                        "match async computation parameter shape"));
+              HasSubstr("expects the shape of operand 0 to "
+                        "match the async shape at index {0, 0}"));
 }
 
 TEST_F(HloVerifierTest, AsyncOpComputationRootWrongType) {
@@ -1377,9 +1378,10 @@ TEST_F(HloVerifierTest, AsyncOpTupleWrongType) {
 
   auto status = verifier().Run(module.get()).status();
   ASSERT_FALSE(status.ok());
-  EXPECT_THAT(status.message(),
-              HasSubstr("async-start expects the async shape to be a tuple of "
-                        "at least two elements"));
+  EXPECT_THAT(
+      status.message(),
+      HasSubstr("expects the async shape to be in the form of "
+                "{{op0_shape, param_1_shape, ...}, output_shape, ...}"));
 }
 
 TEST_F(HloVerifierTest, AsyncStartOperandWrongType) {
@@ -1403,8 +1405,8 @@ TEST_F(HloVerifierTest, AsyncStartOperandWrongType) {
   auto status = verifier().Run(module.get()).status();
   ASSERT_FALSE(status.ok());
   EXPECT_THAT(status.message(),
-              HasSubstr("async-start expects the shape of operand 0 to match "
-                        "the async shape at index {0}"));
+              HasSubstr("expects the shape of operand 0 to match "
+                        "the async shape at index {0, 0}"));
 }
 
 TEST_F(HloVerifierTest, AsyncDoneOutputWrongType) {
@@ -1427,9 +1429,10 @@ TEST_F(HloVerifierTest, AsyncDoneOutputWrongType) {
 
   auto status = verifier().Run(module.get()).status();
   ASSERT_FALSE(status.ok());
-  EXPECT_THAT(status.message(),
-              HasSubstr("async-done expects the shape of output to match the "
-                        "async shape at index {1}"));
+  EXPECT_THAT(
+      status.message(),
+      HasSubstr("The async-start expects the async shape at index {1} to "
+                "match the async computation root shape"));
 }
 
 TEST_F(HloVerifierTest, AsyncOpComputationNotTrivial) {
