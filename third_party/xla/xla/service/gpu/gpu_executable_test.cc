@@ -297,6 +297,9 @@ TEST_F(GpuExecutableTest, ComputeComputationLayout) {
   *params.program_shape.mutable_result() = ShapeUtil::MakeShape(F64, {2});
   params.executable = std::make_unique<ThunkExecutor>(ThunkSequence{});
   SetDummyBufferAssignment(params);
+  params.mlir_allocations =
+      std::vector<BufferAllocation>{BufferAllocation(0, 8, 0)};
+  params.output_info[{}] = GpuExecutable::OutputInfo{/*allocation_index=*/0};
 
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<GpuExecutable> executable,
                           GpuExecutable::Create(std::move(params)));
@@ -350,8 +353,6 @@ struct ScopedBufferAssignment {
 };
 
 absl::StatusOr<ScopedBufferAssignment> MakeNonEmptyBufferAssignment() {
-  ScopedBufferAssignment holder;
-
   const char* hlo_text = R"(
     HloModule m
     ENTRY main {
@@ -359,21 +360,20 @@ absl::StatusOr<ScopedBufferAssignment> MakeNonEmptyBufferAssignment() {
       b = f32[128] parameter(1)
       ROOT c = f32[128] add(a, b)
     })";
-  ASSIGN_OR_RETURN(holder.hlo_module, ParseAndReturnUnverifiedModule(hlo_text));
+  ASSIGN_OR_RETURN(auto hlo, ParseAndReturnUnverifiedModule(hlo_text));
 
   AliasInfo alias_info;
   ASSIGN_OR_RETURN(
-      holder.buffer_assignment,
+      auto buffer_assignment,
       BufferAssigner::Run(
-          holder.hlo_module.get(),
-          std::make_unique<DependencyHloOrdering>(holder.hlo_module.get()),
+          hlo.get(), std::make_unique<DependencyHloOrdering>(hlo.get()),
           [](const BufferValue& buffer) {
             return ShapeUtil::ByteSizeOf(buffer.shape(), sizeof(void*));
           },
           &alias_info, [](LogicalBuffer::Color) { return /*alignment=*/1; },
           BufferAssigner::Options{}));
-  EXPECT_FALSE(holder.buffer_assignment->Allocations().empty());
-  return holder;
+  EXPECT_FALSE(buffer_assignment->Allocations().empty());
+  return ScopedBufferAssignment{std::move(buffer_assignment), std::move(hlo)};
 }
 
 TEST_F(GpuExecutableTest, GetBufferAssignmentAllocations) {
@@ -386,48 +386,24 @@ TEST_F(GpuExecutableTest, GetBufferAssignmentAllocations) {
   params.module_name = "test_module";
   params.executable = std::make_unique<ThunkExecutor>(ThunkSequence{});
 
+  params.buffer_allocations_debug_summary = buffer_assignment->ToVerboseString(
+      params.alias_info.get(),
+      params.debug_options.xla_debug_buffer_assignment_show_max());
+  params.buffer_assignment_proto = buffer_assignment->ToProto();
+  params.mlir_allocations = std::move(*buffer_assignment).TakeAllocations();
+
   std::vector<const BufferAllocation*> expected_allocs;
-  expected_allocs.reserve(buffer_assignment->Allocations().size());
-  for (const auto& alloc : buffer_assignment->Allocations()) {
+  expected_allocs.reserve(params.mlir_allocations->size());
+  for (const auto& alloc : *params.mlir_allocations) {
     expected_allocs.push_back(&alloc);
   }
 
-  params.buffer_assignment = std::move(buffer_assignment);
-
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<GpuExecutable> executable,
-                          GpuExecutable::Create(std::move(params)));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<GpuExecutable> executable,
+                       GpuExecutable::Create(std::move(params)));
 
   // The pointers must match exactly because the allocations may have Slice
   // objects which hold pointers to the parent allocations.
   EXPECT_THAT(executable->GetAllocations(), ElementsAreArray(expected_allocs));
-}
-
-TEST_F(GpuExecutableTest, MlirAllocationsArePreferred) {
-  TF_ASSERT_OK_AND_ASSIGN(ScopedBufferAssignment holder,
-                          MakeNonEmptyBufferAssignment());
-  std::unique_ptr<BufferAssignment>& buffer_assignment =
-      holder.buffer_assignment;
-
-  GpuExecutable::Params params;
-  params.module_name = "test_module";
-  params.executable = std::make_unique<ThunkExecutor>(ThunkSequence{});
-
-  std::vector<BufferAllocation> allocations;
-  allocations.emplace_back(0, 1024, 0);
-  allocations.emplace_back(1, 2048, 0);
-
-  const BufferAllocation* expected_ptr0 = &allocations[0];
-  const BufferAllocation* expected_ptr1 = &allocations[1];
-
-  params.buffer_assignment = std::move(buffer_assignment);
-  params.mlir_allocations = std::move(allocations);
-
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<GpuExecutable> executable,
-                          GpuExecutable::Create(std::move(params)));
-
-  // Expect that the allocations from mlir_allocations are returned.
-  EXPECT_THAT(executable->GetAllocations(),
-              ElementsAre(expected_ptr0, expected_ptr1));
 }
 
 TEST_F(GpuExecutableTest, ThunkChecksumPassAddsAllocation) {
@@ -1090,77 +1066,6 @@ int64_t BufferSizeBytes(const BufferValue& buffer) {
   return ShapeUtil::ByteSizeOf(buffer.shape(), sizeof(void*));
 }
 
-TEST_F(GpuExecutableTest, BufferAssignment) {
-  // To support the legacy AOT model, GpuExecutable needs slightly complex
-  // handling of the buffer assignment which is being tested here.
-  //
-  // - GpuExecutable can be constructed with a BufferAssignment instance.
-  //
-  // - If that happens, it can be accessed via buffer_assignment()
-  //
-  // - A GpuExecutable with a BufferAssignment can be serialized to
-  // GpuExecutableProto, but BufferAssignment can't be deserialized since this
-  // operation needs access to the compiler.
-  //
-  // - Therefore on deserialization we keep BufferAssignmentProto in the proto
-  // stage which we need for debugging purposes. We can access that via
-  // buffer_assignment_proto().
-
-  constexpr absl::string_view kHloText = R"(
-  HloModule test_module
-  ENTRY computation {
-    parameter.0 = f32[10] parameter(0)
-    add.0 = add(parameter.0, parameter.0)
-    ROOT add.1 = add(add.0, parameter.0)
-  })";
-
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> hlo_module,
-                       ParseAndReturnVerifiedModule(kHloText));
-
-  AliasInfo alias_info;
-
-  ASSERT_OK_AND_ASSIGN(
-      std::unique_ptr<BufferAssignment> buffer_assignment,
-      BufferAssigner::Run(
-          hlo_module.get(),
-          std::make_unique<DependencyHloOrdering>(hlo_module.get()),
-          BufferSizeBytes, &alias_info, [](LogicalBuffer::Color) { return 1; },
-          BufferAssigner::Options()));
-
-  // Just making sure that we're not constructing an empty buffer assignment
-  // which might make some of the assertions below accidentally pass.
-  EXPECT_EQ(buffer_assignment->Allocations().size(), 2);
-
-  const BufferAssignment* reference_buffer_assignment = buffer_assignment.get();
-
-  GpuExecutable::Params params;
-  params.buffer_assignment = std::move(buffer_assignment);
-  params.executable = std::make_unique<ThunkExecutor>(ThunkSequence{});
-
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<GpuExecutable> executable,
-                       GpuExecutable::Create(std::move(params)));
-  EXPECT_EQ(executable->buffer_assignment(), reference_buffer_assignment);
-  EXPECT_THAT(executable->buffer_assignment_proto(),
-              Optional(EqualsProto(reference_buffer_assignment->ToProto())));
-
-  ASSERT_OK_AND_ASSIGN(GpuExecutableProto executable_proto,
-                       executable->ToProto());
-  EXPECT_THAT(executable_proto.buffer_assignment(),
-              EqualsProto(reference_buffer_assignment->ToProto()));
-
-  ASSERT_OK_AND_ASSIGN(
-      std::unique_ptr<GpuExecutable> reconstructed_executable,
-      GpuExecutable::FromProto(executable_proto,
-                               stream_executor::DeviceDescription(),
-                               "TEST_PLATFORM", DebugOptions()));
-
-  // After reconstruction we don't have a buffer assignment anymore.
-  EXPECT_EQ(reconstructed_executable->buffer_assignment(), nullptr);
-
-  // But we still have the buffer assignment proto.
-  EXPECT_THAT(reconstructed_executable->buffer_assignment_proto(),
-              Optional(EqualsProto(reference_buffer_assignment->ToProto())));
-}
 
 }  // namespace
 }  // namespace xla::gpu

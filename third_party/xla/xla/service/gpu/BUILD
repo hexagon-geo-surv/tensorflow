@@ -806,6 +806,7 @@ cc_library(
         "//xla/service:rendezvous",
         "//xla/service:riegeli_dump_writer",
         "//xla/service:shaped_buffer",
+        "//xla/service:shaped_slice",
         "//xla/service:stream_pool",
         "//xla/service:xla_debug_info_manager",
         "//xla/service/llvm_ir:buffer_assignment_util",

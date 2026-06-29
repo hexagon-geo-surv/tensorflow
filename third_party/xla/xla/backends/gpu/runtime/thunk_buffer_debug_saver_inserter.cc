@@ -21,6 +21,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/algorithm/container.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -32,7 +33,6 @@ limitations under the License.
 #include "xla/backends/gpu/runtime/sequential_thunk.h"
 #include "xla/backends/gpu/runtime/thunk.h"
 #include "xla/backends/gpu/runtime/thunk_buffer_debug_filter.h"
-#include "xla/backends/gpu/runtime/thunk_buffer_debug_pass.h"
 #include "xla/ffi/attribute_map.h"
 #include "xla/ffi/ffi.h"
 #include "xla/hlo/ir/hlo_module.h"
@@ -93,22 +93,14 @@ absl::StatusOr<std::unique_ptr<Thunk>> InsertBufferSaverCustomCall(
 
 absl::Status AppendOutputBufferSaverThunks(
     ThunkSequence& thunk_sequence, const HloModule& hlo_module,
-    const BufferAssignment* buffer_assignment,
+    const absl::flat_hash_map<size_t, ShapedSlice>& output_slices,
     const DebugOptions& debug_options) {
   if (!debug_options.xla_gpu_experimental_thunk_buffer_debug_module_outputs()) {
     return absl::OkStatus();
   }
-  if (buffer_assignment == nullptr) {
-    LOG(ERROR) << "Buffer assignment is null, cannot determine module output "
-                  "buffers";
-    return absl::OkStatus();
-  }
-
-  ASSIGN_OR_RETURN(auto output_buffers,
-                   GetOutputShapedBuffers(&hlo_module, buffer_assignment));
 
   std::vector<std::pair<size_t, ShapedSlice>> sorted_output_buffers(
-      output_buffers.begin(), output_buffers.end());
+      output_slices.begin(), output_slices.end());
   absl::c_sort(sorted_output_buffers,
                [](const auto& a, const auto& b) { return a.first < b.first; });
 
@@ -139,10 +131,10 @@ absl::Status AppendOutputBufferSaverThunks(
 
 }  // namespace
 
-absl::Status RunDebugSaverInserter(ThunkSequence* thunk_sequence,
-                                   const DebugOptions& debug_options,
-                                   const HloModule& hlo_module,
-                                   const BufferAssignment* buffer_assignment) {
+absl::Status RunDebugSaverInserter(
+    ThunkSequence* thunk_sequence, const DebugOptions& debug_options,
+    const HloModule& hlo_module,
+    const absl::flat_hash_map<size_t, ShapedSlice>& output_slices) {
   if (debug_options.xla_dump_to().empty()) {
     LOG(WARNING)
         << "Buffer saver enabled but target directory is not provided.";
@@ -160,7 +152,7 @@ absl::Status RunDebugSaverInserter(ThunkSequence* thunk_sequence,
 
   RETURN_IF_ERROR(thunk_sequence->TransformNested(transform_callback));
   return AppendOutputBufferSaverThunks(*thunk_sequence, hlo_module,
-                                       buffer_assignment, debug_options);
+                                       output_slices, debug_options);
 }
 
 }  // namespace xla::gpu
