@@ -46,6 +46,8 @@ absl::StatusOr<EstimateRunTimeData> EstimateRunTimeForDotOpWithBlockParameters(
 
 namespace detail {
 
+constexpr absl::Duration kLatencyTax = absl::Nanoseconds(1800);
+
 struct DotProblemInfo {
   int64_t b = 0;
   int64_t m = 0;
