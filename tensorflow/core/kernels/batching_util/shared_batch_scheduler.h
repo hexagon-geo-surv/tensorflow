@@ -1132,12 +1132,8 @@ absl::Status SharedBatchScheduler<TaskType>::AddQueueAfterRewritingOptions(
   if (options.enable_priority_aware_batch_scheduler) {
     if (options.mixed_priority_batching_policy !=
         MixedPriorityBatchingPolicy::kLowPriorityPaddingWithMaxBatchSize) {
-      return absl::InvalidArgumentError(
-          absl::StrFormat("If enable_priority_aware_batch_scheduler is true, "
-                          "mixed_priority_batching_policy must be "
-                          "kLowPriorityPaddingWithMaxBatchSize. The "
-                          "mixed_priority_batching_policy is %d.",
-                          options.mixed_priority_batching_policy));
+      LOG(WARNING) << "Mixed priority batching policy is not supported when "
+                      "enable_priority_aware_batch_scheduler is true.";
     }
     if (options.priority_aware_scheduler_options.max_queue_depth == 0) {
       return absl::InvalidArgumentError(
