@@ -123,6 +123,66 @@ static void BM_ReduceAddF64(benchmark::State& state,
       RunHloBenchmark(state, hlo, args, {{"$d0", absl::StrCat(d0)}}, options));
 }
 
+static void BM_ReduceAddU32(benchmark::State& state,
+                            HloBenchmarkOptions options) {
+  int64_t d0 = state.range(0);
+
+  absl::string_view hlo = R"(
+    HloModule reduce_add_u32_$d0
+
+    add {
+      p0 = u32[] parameter(0)
+      p1 = u32[] parameter(1)
+      ROOT add = u32[] add(p0, p1)
+    }
+
+    ENTRY e {
+      p0 = u32[1,2,1,$d0,256] parameter(0)
+      c0 = u32[] constant(0)
+      ROOT reduce = u32[1,2] reduce(p0, c0), dimensions={2,3,4}, to_apply=add
+    }
+  )";
+
+  std::minstd_rand0 engine;
+
+  auto shape = ShapeUtil::MakeShape(U32, {1, 2, 1, d0, 256});
+  auto p0 = *LiteralUtil::CreateRandomLiteral<U32>(shape, &engine, 100, 1);
+
+  std::vector<const Literal*> args = {&p0};
+  CHECK_OK(
+      RunHloBenchmark(state, hlo, args, {{"$d0", absl::StrCat(d0)}}, options));
+}
+
+static void BM_ReduceAddU64(benchmark::State& state,
+                            HloBenchmarkOptions options) {
+  int64_t d0 = state.range(0);
+
+  absl::string_view hlo = R"(
+    HloModule reduce_add_u64_$d0
+
+    add {
+      p0 = u64[] parameter(0)
+      p1 = u64[] parameter(1)
+      ROOT add = u64[] add(p0, p1)
+    }
+
+    ENTRY e {
+      p0 = u64[1,2,1,$d0,256] parameter(0)
+      c0 = u64[] constant(0)
+      ROOT reduce = u64[1,2] reduce(p0, c0), dimensions={2,3,4}, to_apply=add
+    }
+  )";
+
+  std::minstd_rand0 engine;
+
+  auto shape = ShapeUtil::MakeShape(U64, {1, 2, 1, d0, 256});
+  auto p0 = *LiteralUtil::CreateRandomLiteral<U64>(shape, &engine, 100, 1);
+
+  std::vector<const Literal*> args = {&p0};
+  CHECK_OK(
+      RunHloBenchmark(state, hlo, args, {{"$d0", absl::StrCat(d0)}}, options));
+}
+
 static void BM_SumOfSquaresF32(benchmark::State& state,
                                HloBenchmarkOptions options) {
   int64_t d0 = state.range(0);
@@ -348,6 +408,8 @@ static void BM_ReduceWindowAddF32OverlappingWindows(
 BENCHMARK_SIZES(BM_ReduceAddF32);
 BENCHMARK_SIZES(BM_ReduceAddBF16);
 BENCHMARK_SIZES(BM_ReduceAddF64);
+BENCHMARK_SIZES(BM_ReduceAddU32);
+BENCHMARK_SIZES(BM_ReduceAddU64);
 BENCHMARK_SIZES(BM_SumOfSquaresF32);
 
 XLA_CPU_BENCHMARK(BM_ReduceAddF32OverDimension)

@@ -275,7 +275,27 @@ bool IsSupportedShape(const Shape& shape) {
 bool IsSupportedInstruction(const HloInstruction& inst) {
   HloOpcode opcode = inst.opcode();
   switch (opcode) {
-    case HloOpcode::kBitcast:
+    case HloOpcode::kConvert: {
+      PrimitiveType operand_type = inst.operand(0)->shape().element_type();
+      PrimitiveType result_type = inst.shape().element_type();
+      if (operand_type == PRED && result_type == U8) {
+        return false;
+      }
+      return true;
+    }
+    case HloOpcode::kBitcast: {
+      if (ShapeUtil::ElementsIn(inst.operand(0)->shape()) !=
+          ShapeUtil::ElementsIn(inst.shape())) {
+        return false;
+      }
+      PrimitiveType operand_type = inst.operand(0)->shape().element_type();
+      PrimitiveType result_type = inst.shape().element_type();
+      if (result_type != operand_type &&
+          (result_type == PRED || operand_type == PRED)) {
+        return false;
+      }
+      return true;
+    }
     case HloOpcode::kIota:
     case HloOpcode::kReshape:
     case HloOpcode::kTranspose:
@@ -295,6 +315,7 @@ bool IsSupportedInstruction(const HloInstruction& inst) {
     case HloOpcode::kShiftRightArithmetic:
     case HloOpcode::kShiftRightLogical:
     case HloOpcode::kClz:
+    case HloOpcode::kMulhi:
       return false;
       break;
     default:
@@ -524,10 +545,6 @@ bool IsSupportedTilingType(PrimitiveType type) {
   }
 
   if (primitive_util::BitWidth(type) < 8) {
-    return false;
-  }
-
-  if (primitive_util::IsUnsignedIntegralType(type)) {
     return false;
   }
 
