@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 #include "tensorflow/lite/tools/evaluation/stages/tflite_inference_stage.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -195,6 +196,49 @@ TEST(TfliteInferenceStage, CorrectOutput) {
   EXPECT_TRUE(latency.has_std_deviation_us());
   EXPECT_EQ(
       metrics.process_metrics().tflite_inference_metrics().num_inferences(), 2);
+}
+
+TEST(TfliteInferenceStage, InputSizeMismatch) {
+  // Create stage.
+  EvaluationStageConfig config = GetTfliteInferenceStageConfig();
+  TfliteInferenceStage stage(config);
+
+  // Initialize.
+  EXPECT_EQ(stage.Init(), kTfLiteOk);
+
+  // Set input data with mismatched size.
+  uint8_t input_tensor[kTotalElements - 1];  // One byte too small
+  std::vector<void*> inputs;
+  inputs.push_back(input_tensor);
+
+  std::vector<size_t> buffer_sizes = {kTotalElements - 1};
+  stage.SetInputs(inputs, buffer_sizes);
+
+  // Run should fail.
+  EXPECT_EQ(stage.Run(), kTfLiteError);
+}
+
+TEST(TfliteInferenceStage, InputBufferSizesCopy) {
+  // Create stage.
+  EvaluationStageConfig config = GetTfliteInferenceStageConfig();
+  TfliteInferenceStage stage(config);
+
+  // Initialize.
+  EXPECT_EQ(stage.Init(), kTfLiteOk);
+
+  uint8_t input_tensor[kTotalElements];
+  SetValues<uint8_t>(input_tensor, static_cast<uint8_t>(2));
+  std::vector<void*> inputs;
+  inputs.push_back(input_tensor);
+
+  {
+    std::vector<size_t> buffer_sizes = {kTotalElements};
+    stage.SetInputs(inputs, buffer_sizes);
+    // buffer_sizes goes out of scope here.
+  }
+
+  // Run should still work because buffer_sizes should have been copied.
+  EXPECT_EQ(stage.Run(), kTfLiteOk);
 }
 
 TEST(TfliteInferenceStage, CustomDelegate) {
