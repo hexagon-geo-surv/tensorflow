@@ -12,8 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Tests for ParameterizedTruncatedNormalOp."""
+"""Tests for ParameterizedTruncatedNormalOp on CPU and GPU.
 
+This module validates the correct execution of the truncated normal random
+number generator, checking distributions, bounds, and edge cases.
+"""
+
+# pylint: disable=g-direct-tensorflow-import,invalid-name
 import functools
 import math
 import timeit
@@ -23,6 +28,9 @@ import numpy as np
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.python.client import session
 from tensorflow.python.eager import backprop
+from tensorflow.python.eager import context
+from tensorflow.python.framework import dtypes
+from tensorflow.python.framework import errors
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import random_seed
 from tensorflow.python.framework import test_util
@@ -407,31 +415,109 @@ class ParameterizedTruncatedNormalTest(test.TestCase):
         maxval=stddev_inside_bounds_before_using_randn + epsilon,
         use_stateless=True)
 
+  @test_util.run_deprecated_v1
+  def testIntegerOverflow(self):
+    # Test that integer overflow of 32-bit is handled/prevented.
+    # Note: shape has total elements exceeding max int32, which overflows
+    # to negative in int32 scaling logic.
+    shape = [2, 1073741824]
+    means = 0.0
+    stddevs = 1.0
+    minvals = [2.0]
+    maxvals = 3.0
+
+    for use_gpu in [True]:
+      if not test.is_gpu_available():
+        continue
+      with self.session(use_gpu=use_gpu):
+        with self.assertRaisesRegex(
+            (ValueError, errors.InvalidArgumentError),
+            "does not support output shapes with more than 2\\*\\*31 - 1"
+            " elements",
+        ):
+          samples = random_ops.parameterized_truncated_normal(
+              shape=shape,
+              means=means,
+              stddevs=stddevs,
+              minvals=minvals,
+              maxvals=maxvals,
+              dtype=dtypes.half,
+          )
+          self.evaluate(samples)
+
+  @test_util.run_deprecated_v1
+  def testParallelismAdjustment(self):
+    # Shape: 101 (which is kDesiredBatchSize + 1).
+    # If the size is adjusted incorrectly (e.g. size - 1 mutant), the last
+    # element (index 100) will not be generated/written to.
+    for use_gpu in [False, True]:
+      with self.session(use_gpu=use_gpu):
+        samples = random_ops.parameterized_truncated_normal(
+            shape=[101],
+            means=10.0,
+            stddevs=1.0,
+            minvals=5.0,
+            maxvals=15.0,
+            dtype=dtypes.float32,
+        )
+        val = self.evaluate(samples)
+        self.assertLen(val, 101)
+        self.assertTrue(np.all(val >= 5.0))
+        self.assertTrue(np.all(val <= 15.0))
+
+  @test_util.run_deprecated_v1
+  @test_util.disable_xla("Stateful RNG determinism varies")
+  def testDeterministicValues(self):
+    random_seed.set_random_seed(1234)
+    with self.session(use_gpu=False) as sess, ops.device("/cpu:0"):
+      samples = random_ops.parameterized_truncated_normal(
+          shape=[2, 50],
+          means=0.0,
+          stddevs=1.0,
+          minvals=-1.0,
+          maxvals=1.0,
+          seed=5678,
+      )
+      _ = sess.run(samples)
+      val2 = sess.run(samples)
+      self.assertAllClose(
+          val2[0][:5],
+          [0.3233, -0.0250, 0.4741, -0.8287, 0.8338],
+          rtol=1e-2,
+          atol=1e-2,
+      )
+
 
 # Benchmarking code
 def parameterized_vs_naive(shape, num_iters, use_gpu=False):
-  np.random.seed(1618)  # Make it reproducible.
+  with context.graph_mode():
+    np.random.seed(1618)  # Make it reproducible.
 
-  # No CSE/CF.
-  optimizer_options = config_pb2.OptimizerOptions(
-      opt_level=config_pb2.OptimizerOptions.L0)
-  config = config_pb2.ConfigProto(graph_options=config_pb2.GraphOptions(
-      optimizer_options=optimizer_options))
+    # No CSE/CF.
+    optimizer_options = config_pb2.OptimizerOptions(
+        opt_level=config_pb2.OptimizerOptions.L0
+    )
+    config = config_pb2.ConfigProto(
+        graph_options=config_pb2.GraphOptions(
+            optimizer_options=optimizer_options
+        )
+    )
 
-  with session.Session(config=config) as sess:
-    with ops.device("/cpu:0" if not use_gpu else None):
-      param_op = control_flow_ops.group(
-          random_ops.parameterized_truncated_normal(shape))
-      naive_op = control_flow_ops.group(random_ops.truncated_normal(shape))
+    with session.Session(config=config) as sess:
+      with ops.device("/cpu:0" if not use_gpu else None):
+        param_op = control_flow_ops.group(
+            random_ops.parameterized_truncated_normal(shape)
+        )
+        naive_op = control_flow_ops.group(random_ops.truncated_normal(shape))
 
-    # Burn-in to avoid session setup costs in the timing.
-    sess.run(param_op)
-    sess.run(param_op)
-    param_dt = timeit.timeit(lambda: sess.run(param_op), number=num_iters)
-    sess.run(naive_op)
-    sess.run(naive_op)
-    naive_dt = timeit.timeit(lambda: sess.run(naive_op), number=num_iters)
-    return param_dt, naive_dt
+      # Burn-in to avoid session setup costs in the timing.
+      sess.run(param_op)
+      sess.run(param_op)
+      param_dt = timeit.timeit(lambda: sess.run(param_op), number=num_iters)
+      sess.run(naive_op)
+      sess.run(naive_op)
+      naive_dt = timeit.timeit(lambda: sess.run(naive_op), number=num_iters)
+      return param_dt, naive_dt
 
 
 def randn_sampler_switchover(shape, num_iters, use_gpu=False):
@@ -441,49 +527,60 @@ def randn_sampler_switchover(shape, num_iters, use_gpu=False):
   # The uniform and randn samplers should have about the same performance
   # at this point.
 
-  stddev_inside_bounds_before_using_randn = (
-      _get_stddev_inside_bounds_before_using_randn(use_gpu))
+  with context.graph_mode():
+    stddev_inside_bounds_before_using_randn = (
+        _get_stddev_inside_bounds_before_using_randn(use_gpu)
+    )
 
-  epsilon = 0.001
+    epsilon = 0.001
 
-  np.random.seed(1618)  # Make it reproducible.
+    np.random.seed(1618)  # Make it reproducible.
 
-  # No CSE/CF.
-  optimizer_options = config_pb2.OptimizerOptions(
-      opt_level=config_pb2.OptimizerOptions.L0)
-  config = config_pb2.ConfigProto(
-      graph_options=config_pb2.GraphOptions(
-          optimizer_options=optimizer_options))
+    # No CSE/CF.
+    optimizer_options = config_pb2.OptimizerOptions(
+        opt_level=config_pb2.OptimizerOptions.L0
+    )
+    config = config_pb2.ConfigProto(
+        graph_options=config_pb2.GraphOptions(
+            optimizer_options=optimizer_options
+        )
+    )
 
-  with session.Session(config=config) as sess:
-    with ops.device("/cpu:0" if not use_gpu else "/gpu:0"):
-      uniform_sampler_op = control_flow_ops.group(
-          random_ops.parameterized_truncated_normal(
-              shape,
-              means=0.,
-              stddevs=1.0,
-              minvals=-stddev_inside_bounds_before_using_randn + epsilon,
-              maxvals=0.01))
-      randn_sampler_op = control_flow_ops.group(
-          random_ops.parameterized_truncated_normal(
-              shape,
-              means=0.,
-              stddevs=1.0,
-              minvals=-stddev_inside_bounds_before_using_randn - epsilon,
-              maxvals=0.01))
+    with session.Session(config=config) as sess:
+      with ops.device("/cpu:0" if not use_gpu else "/gpu:0"):
+        uniform_sampler_op = control_flow_ops.group(
+            random_ops.parameterized_truncated_normal(
+                shape,
+                means=0.0,
+                stddevs=1.0,
+                minvals=-stddev_inside_bounds_before_using_randn + epsilon,
+                maxvals=0.01,
+            )
+        )
+        randn_sampler_op = control_flow_ops.group(
+            random_ops.parameterized_truncated_normal(
+                shape,
+                means=0.0,
+                stddevs=1.0,
+                minvals=-stddev_inside_bounds_before_using_randn - epsilon,
+                maxvals=0.01,
+            )
+        )
 
-    # Burn-in to avoid session setup costs in the timing.
-    sess.run(uniform_sampler_op)
-    sess.run(uniform_sampler_op)
-    uniform_dt = timeit.timeit(
-        lambda: sess.run(uniform_sampler_op), number=num_iters)
+      # Burn-in to avoid session setup costs in the timing.
+      sess.run(uniform_sampler_op)
+      sess.run(uniform_sampler_op)
+      uniform_dt = timeit.timeit(
+          lambda: sess.run(uniform_sampler_op), number=num_iters
+      )
 
-    sess.run(randn_sampler_op)
-    sess.run(randn_sampler_op)
-    randn_dt = timeit.timeit(
-        lambda: sess.run(randn_sampler_op), number=num_iters)
+      sess.run(randn_sampler_op)
+      sess.run(randn_sampler_op)
+      randn_dt = timeit.timeit(
+          lambda: sess.run(randn_sampler_op), number=num_iters
+      )
 
-    return randn_dt, uniform_dt
+      return randn_dt, uniform_dt
 
 
 class TruncatedNormalBenchmark(test.Benchmark):
