@@ -891,9 +891,6 @@ mlir::MemRefType GetMemRefType(const Shape& shape, mlir::Type element_type) {
 absl::StatusOr<Type> GetMlirType(
     mlir::ImplicitLocOpBuilder& b, PrimitiveType type,
     const std::optional<GpuComputeCapability>& gpu_cc) {
-  if (type == U16) {
-    return b.getI16Type();
-  }
   if (type == S4) {
     return b.getI4Type();
   }
