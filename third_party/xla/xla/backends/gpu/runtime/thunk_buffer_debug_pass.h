@@ -17,6 +17,7 @@ limitations under the License.
 #define XLA_BACKENDS_GPU_RUNTIME_THUNK_BUFFER_DEBUG_PASS_H_
 
 #include <cstddef>
+#include <utility>
 
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
@@ -43,8 +44,8 @@ class ThunkBufferDebugPass : public ThunkPassInterface {
   };
 
   explicit ThunkBufferDebugPass(
-      Mode mode, const BufferAssignment* buffer_assignment = nullptr)
-      : mode_(mode), buffer_assignment_(buffer_assignment) {}
+      Mode mode, absl::flat_hash_map<size_t, ShapedSlice> output_slices)
+      : mode_(mode), output_slices_(std::move(output_slices)) {}
 
   absl::string_view name() const override { return "thunk-buffer-debug"; }
 
@@ -56,7 +57,7 @@ class ThunkBufferDebugPass : public ThunkPassInterface {
 
  private:
   Mode mode_;
-  const BufferAssignment* buffer_assignment_;
+  absl::flat_hash_map<size_t, ShapedSlice> output_slices_;
 };
 
 absl::StatusOr<absl::flat_hash_map<size_t, ShapedSlice>> GetOutputShapedBuffers(
