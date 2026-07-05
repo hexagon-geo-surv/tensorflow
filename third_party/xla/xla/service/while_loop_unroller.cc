@@ -771,6 +771,9 @@ bool IsInputWriteOnly(int64_t input_idx, const HloComputation* computation) {
         if (user->operand(0) != instr) {
           return false;
         }
+        if (!WhileUtil::IsUpdatedBufferWriteOnly(user)) {
+          return false;
+        }
         break;
       default:
         // Any other user is not permitted.

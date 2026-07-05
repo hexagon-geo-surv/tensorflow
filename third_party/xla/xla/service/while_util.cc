@@ -681,4 +681,31 @@ void AppendToWhileLoopOriginalValue(
                            next_index);
 }
 
+bool WhileUtil::IsUpdatedBufferWriteOnly(const HloInstruction* instr) {
+  const HloComputation* computation = instr->parent();
+  if (instr == computation->root_instruction()) {
+    return true;
+  }
+  if (instr->user_count() == 0) {
+    return false;
+  }
+  for (const HloInstruction* user : instr->users()) {
+    if (user == computation->root_instruction()) {
+      continue;
+    }
+    // If it feeds another DUS as the base buffer, recursively check that DUS.
+    if (user->opcode() == HloOpcode::kDynamicUpdateSlice &&
+        user->operand(0) == instr) {
+      if (!IsUpdatedBufferWriteOnly(user)) {
+        return false;
+      }
+    } else {
+      // Any other user (e.g., a read, or being the update payload of a DUS) is
+      // unsafe.
+      return false;
+    }
+  }
+  return true;
+}
+
 }  // namespace xla
