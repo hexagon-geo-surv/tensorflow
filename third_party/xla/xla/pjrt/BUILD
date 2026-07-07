@@ -1523,3 +1523,10 @@ alias(
     actual = "//xla/pjrt/se:stream_executor_executable_proto_cc",
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "pjrt_compiler_variant",
+    hdrs = ["pjrt_compiler_variant.h"],
+    visibility = ["//visibility:public"],
+    deps = ["@com_google_absl//absl/strings:string_view"],
+)
