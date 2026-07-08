@@ -36,11 +36,17 @@ limitations under the License.
 #include "xla/pjrt/maybe_owning_mlir_module.h"
 #include "xla/pjrt/pjrt_client.h"
 #include "xla/pjrt/pjrt_common.h"
+#include "xla/pjrt/pjrt_compiler_variant.h"
 #include "xla/pjrt/pjrt_device_description.h"
 #include "xla/pjrt/pjrt_executable.h"
+#include "xla/pjrt/tpu/tpu_compiler_variant.h"
 #include "xla/xla_data.pb.h"
 
 namespace xla {
+
+absl::StatusOr<std::unique_ptr<PjRtCompilerVariant>> PickTpuCompilerVariant() {
+  return std::make_unique<TpuCompilerVariant>("factory_variant");
+}
 
 namespace {
 using ::absl_testing::StatusIs;
@@ -258,7 +264,7 @@ TEST(PjRtTopologyDescriptionTest, DefaultMemorySpaceKindIds) {
 }
 
 TEST(PjRtCompilerTest, CompilerFactoryRegistered) {
-  const std::string platform = "factory_test_platform";
+  const std::string platform = "tpu";
   const std::string variant = "factory_variant";
   auto factory_called = std::make_shared<bool>(false);
 
@@ -271,9 +277,8 @@ TEST(PjRtCompilerTest, CompilerFactoryRegistered) {
 
   class PjRtResetPlatformNameTopology : public PjRtTestTopology {
    public:
-    absl::string_view platform_name() const override {
-      return "factory_test_platform";
-    }
+    PjRtPlatformId platform_id() const override { return xla::TpuId(); }
+    absl::string_view platform_name() const override { return "tpu"; }
   };
   PjRtResetPlatformNameTopology topology;
   CompileOptions options;

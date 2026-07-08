@@ -493,6 +493,7 @@ cc_library(
         ":maybe_owning_mlir_module",
         ":pjrt_abi_version",
         ":pjrt_common",
+        ":pjrt_compiler_variant",
         ":pjrt_device_description",
         ":pjrt_device_dimensions",
         ":pjrt_executable",
@@ -501,6 +502,7 @@ cc_library(
         "//xla/hlo/builder:xla_computation",
         "//xla/pjrt/proto:pjrt_partial_program_proto_cc",
         "//xla/pjrt/proto:topology_description_proto_cc",
+        "//xla/pjrt/tpu:tpu_compiler_variant",
         "//xla/runtime:chip_id",
         "//xla/runtime:device_id",
         "//xla/runtime:process_id",
@@ -527,11 +529,13 @@ xla_cc_test(
         ":pjrt_client",
         ":pjrt_common",
         ":pjrt_compiler",
+        ":pjrt_compiler_variant",
         ":pjrt_device_description",
         ":pjrt_executable",
         "//xla:shape_util",
         "//xla:xla_data_proto_cc",
         "//xla/hlo/builder:xla_computation",
+        "//xla/pjrt/tpu:tpu_compiler_variant",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
@@ -1522,4 +1526,11 @@ alias(
     name = "stream_executor_executable_proto_cc",
     actual = "//xla/pjrt/se:stream_executor_executable_proto_cc",
     visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "pjrt_compiler_variant",
+    hdrs = ["pjrt_compiler_variant.h"],
+    visibility = ["//visibility:public"],
+    deps = ["@com_google_absl//absl/strings:string_view"],
 )
