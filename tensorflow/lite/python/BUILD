@@ -21,6 +21,7 @@ load("//tensorflow:pytype.default.bzl", "pytype_strict_contrib_test", "pytype_st
 load("//tensorflow:tensorflow.bzl", "if_oss", "py_test")
 load("//tensorflow:tensorflow.default.bzl", "get_compatible_with_portable", "pywrap_binaries", "pywrap_library")
 load("//tensorflow/core/platform:build_config_root.bzl", "if_pywrap")
+load("//tensorflow/lite:build_def.bzl", "tflite_exec_properties")
 load("//tensorflow/lite:special_rules.bzl", "internal_visibility_allowlist")
 
 package(
@@ -314,13 +315,7 @@ py_test(
         "//tensorflow/lite/python/testdata:test_delegate.so",
         "//tensorflow/lite/python/testdata/control_flow_v1_saved_model:saved_model.pb",
     ],
-    exec_properties = if_oss(
-        None,
-        select({
-            "@bazel_tools//tools/cpp:asan_build": {"cpp_link.mem": "20g"},
-            "//conditions:default": None,
-        }),
-    ),
+    exec_properties = tflite_exec_properties(),
     shard_count = 18,
     strict_deps = True,
     tags = [
