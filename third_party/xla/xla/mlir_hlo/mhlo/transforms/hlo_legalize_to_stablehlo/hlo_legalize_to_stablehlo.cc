@@ -152,6 +152,11 @@ std::optional<int64_t> getPublicFeaturesNotInStablehlo(HloOpTy hloOp) {
     // Version 1: Initial version for MulhiOp.
     return 1;
   }
+  // StableHLO doesn't support Scan yet.
+  if constexpr (std::is_same<HloOpTy, mhlo::ScanOp>::value) {
+    // Version 1: Initial version for ScanOp.
+    return 1;
+  }
   return std::nullopt;
 }
 
@@ -490,6 +495,9 @@ FailureOr<func::FuncOp> rewriteMhloRegionAsFunc(
       block.getArgumentTypes(), block.getTerminator()->getOperandTypes());
   auto funcOp = func::FuncOp::create(rewriter, region.getLoc(),
                                      op->getName().stripDialect(), type);
+  // The function only backs the custom_call's called_computations reference;
+  // keep it private so symbol DCE can clean it up after recomposition.
+  funcOp.setPrivate();
   symTable.insert(funcOp);
 
   // Move region into new function
@@ -529,7 +537,8 @@ LogicalResult convertAttributes(ConversionPatternRewriter& rewriter,
                   !std::is_same<HloOpTy, mhlo::AsinhOp>::value &&
                   !std::is_same<HloOpTy, mhlo::ErfOp>::value &&
                   !std::is_same<HloOpTy, mhlo::TopKOp>::value &&
-                  !std::is_same<HloOpTy, mhlo::MulhiOp>::value) {
+                  !std::is_same<HloOpTy, mhlo::MulhiOp>::value &&
+                  !std::is_same<HloOpTy, mhlo::ScanOp>::value) {
       if (!stablehloAttr) {
         stablehloAttr = convertDenseArray<HloToStablehloOp<HloOpTy>>(
             hloAttr.getName(), hloAttr.getValue());
@@ -823,8 +832,8 @@ void populateHloToStablehloPatterns(RewritePatternSet* patterns,
 
   populateHloToStablehloCustomCallPatterns<
       mhlo::AcosOp, mhlo::AcoshOp, mhlo::AsinOp, mhlo::AsinhOp, mhlo::AtanhOp,
-      mhlo::CoshOp, mhlo::SinhOp, mhlo::ErfOp, mhlo::TopKOp, mhlo::MulhiOp>(
-      patterns, converter, context, allowExperimentalFeatures);
+      mhlo::CoshOp, mhlo::SinhOp, mhlo::ErfOp, mhlo::TopKOp, mhlo::MulhiOp,
+      mhlo::ScanOp>(patterns, converter, context, allowExperimentalFeatures);
 }
 
 }  // namespace stablehlo
