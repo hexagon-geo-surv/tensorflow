@@ -1215,7 +1215,11 @@ cc_library(
     srcs = ["staging_buffer.cc"],
     hdrs = ["staging_buffer.h"],
     visibility = internal_visibility([":friends"]),
-    deps = ["@com_google_absl//absl/types:span"],
+    deps = [
+        "//xla/tsl/concurrency:async_value",
+        "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/types:span",
+    ],
 )
 
 cc_library(
