@@ -83,6 +83,11 @@ class Communicator {
     return Unimplemented("Barrier is not implemented");
   }
 
+  // Multi-GPU barrier launch across all ranks in the communicator.
+  virtual absl::Status LaunchMultiGpuBarrier(const Executor& executor) {
+    return Unimplemented("LaunchMultiGpuBarrier is not implemented");
+  }
+
   // Reduce buffers of length `count` in `send_buff` using `reduction_kind`
   // reduction and leaves identical copies of the result on each `recv_buff`.
   virtual Future<> AllReduce(stream_executor::DeviceAddressBase send_buffer,
