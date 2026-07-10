@@ -574,6 +574,13 @@ class QuantizedConv2DOp : public OpKernel {
     // batch or depth dimension).
     const int stride = strides_[1];
 
+    OP_REQUIRES(
+        context, filter_rows > 0,
+        absl::InvalidArgumentError("filter_rows must be greater than 0"));
+    OP_REQUIRES(
+        context, filter_cols > 0,
+        absl::InvalidArgumentError("filter_cols must be greater than 0"));
+
     int64_t out_rows = 0, out_cols = 0, pad_rows = 0, pad_cols = 0;
     OP_REQUIRES_OK(context, GetWindowedOutputSize(
                                 input_rows, filter_rows, /*dilation_rate=*/1,
@@ -581,10 +588,12 @@ class QuantizedConv2DOp : public OpKernel {
     OP_REQUIRES_OK(context, GetWindowedOutputSize(
                                 input_cols, filter_cols, /*dilation_rate=*/1,
                                 stride, padding_, &out_cols, &pad_cols));
-    CHECK_GT(batch, 0);
-    CHECK_GT(out_rows, 0);
-    CHECK_GT(out_cols, 0);
-    CHECK_GT(out_depth, 0);
+    OP_REQUIRES(context, out_rows > 0,
+                absl::InvalidArgumentError("out_rows must be greater than 0"));
+    OP_REQUIRES(context, out_cols > 0,
+                absl::InvalidArgumentError("out_cols must be greater than 0"));
+    OP_REQUIRES(context, out_depth > 0,
+                absl::InvalidArgumentError("out_depth must be greater than 0"));
     TensorShape out_shape({batch, out_rows, out_cols, out_depth});
 
     // Output tensor is of the following dimensions:
