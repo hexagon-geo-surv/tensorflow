@@ -4516,6 +4516,20 @@ TEST_F(HloParserTest, ParseSharding) {
   EXPECT_EQ(sharding.ToString(), original);
 }
 
+TEST_F(HloParserTest, ParseNamedShardingUnreducedMax) {
+  const std::string original = "{mesh['x'=2], [{}], unreduced=max{'x'}}";
+  ASSERT_OK_AND_ASSIGN(HloSharding sharding, ParseSharding(original));
+  EXPECT_TRUE(sharding.UseNamedShardingLeaf());
+  EXPECT_EQ(sharding.ToString(), original);
+}
+
+TEST_F(HloParserTest, ParseNamedShardingScalarUnreducedMax) {
+  const std::string original = "{mesh['x'=2,'y'=2], unreduced=max{'x', 'y'}}";
+  ASSERT_OK_AND_ASSIGN(HloSharding sharding, ParseSharding(original));
+  EXPECT_TRUE(sharding.UseNamedShardingLeaf());
+  EXPECT_EQ(sharding.ToString(), "{mesh['x'=2,'y'=2], unreduced=max}");
+}
+
 TEST_F(HloParserTest, ParseShardingPartialReplication) {
   const std::string original = "{devices=[2,2]0,1,2,3 last_tile_dim_replicate}";
   ASSERT_OK_AND_ASSIGN(HloSharding sharding, ParseSharding(original));
@@ -5140,6 +5154,18 @@ TEST(HloParserSingleOpTest, ConvolutionWithKind) {
   auto* convolution =
       Cast<HloConvolutionInstruction>(computation->root_instruction());
   EXPECT_EQ(convolution->convolution_kind(), CONVOLUTION_KIND_FPROP);
+}
+
+TEST(HloParserSingleOpTest, ConvolutionWithAlgorithm) {
+  const std::string text =
+      R"(%convolution = f32[1,2,1]{2,0,1} convolution(f32[1,2,1]{2,0,1} %copy, f32[1,1,1]{2,1,0} %filter), window={size=1}, dim_labels=b0f_0io->b0f, algorithm=dot_bf16_bf16_f32)";
+  ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnUnverifiedModule(text));
+  const HloComputation* computation = module->entry_computation();
+  ASSERT_NE(computation, nullptr);
+  auto* convolution =
+      Cast<HloConvolutionInstruction>(computation->root_instruction());
+  EXPECT_EQ(convolution->precision_config().algorithm(),
+            PrecisionConfig::ALG_DOT_BF16_BF16_F32);
 }
 
 TEST(HloParserSingleOpTest, MultipleOpsProducesError) {

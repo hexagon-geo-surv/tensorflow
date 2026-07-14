@@ -41,6 +41,7 @@ limitations under the License.
 #include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
@@ -2645,6 +2646,9 @@ HloInstruction* HloParserImpl::CreateInstruction(  // NOLINT
       optional<std::vector<PrecisionConfig::Precision>> operand_precision;
       attrs["operand_precision"] = {/*required=*/false, AttrTy::kPrecisionList,
                                     &operand_precision};
+      optional<PrecisionConfig::Algorithm> algorithm;
+      attrs["algorithm"] = {/*required=*/false, AttrTy::kPrecisionAlgorithm,
+                            &algorithm};
       optional<SparsityConfig> parsed_sparsity_config;
       attrs["sparsity_config"] = {/*required=*/false, AttrTy::kSparsityConfig,
                                   &parsed_sparsity_config};
@@ -2669,6 +2673,9 @@ HloInstruction* HloParserImpl::CreateInstruction(  // NOLINT
       } else {
         precision_config.mutable_operand_precision()->Resize(
             operands.size(), PrecisionConfig::DEFAULT);
+      }
+      if (algorithm) {
+        precision_config.set_algorithm(*algorithm);
       }
       SparsityConfig sparsity_config =
           parsed_sparsity_config.value_or(SparsityConfig());
@@ -4167,8 +4174,31 @@ bool HloParserImpl::ParseMesh(std::optional<Mesh>& mesh) {
 
   // Optional device_ids=(...)
   std::string device_ids_str;
-  if (EatIfPresent(TokKind::kComma) && ParseAttributeName(&device_ids_str) &&
-      device_ids_str == "device_ids") {
+  bool is_device_ids = false;
+  const char* ptr = lexer_.GetLoc();
+  if (ptr != nullptr) {
+    if (*ptr == ']') {
+      ptr++;
+    }
+    while (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r') {
+      ptr++;
+    }
+    if (*ptr == ',') {
+      const char* lookahead_ptr = ptr + 1;
+      while (*lookahead_ptr == ' ' || *lookahead_ptr == '\t' ||
+             *lookahead_ptr == '\n' || *lookahead_ptr == '\r') {
+        lookahead_ptr++;
+      }
+      absl::string_view remaining(lookahead_ptr);
+      if (absl::StartsWith(remaining, "device_ids") &&
+          (remaining.size() == 10 || remaining[10] == '=' ||
+           remaining[10] == ' ' || remaining[10] == '\t')) {
+        is_device_ids = true;
+      }
+    }
+  }
+  if (is_device_ids && EatIfPresent(TokKind::kComma) &&
+      ParseAttributeName(&device_ids_str) && device_ids_str == "device_ids") {
     if (!ParseToken(TokKind::kLparen, "expected '(' for device_ids")) {
       return false;
     }
@@ -4385,12 +4415,54 @@ bool HloParserImpl::ParseSingleSharding(
     return ParseToken(TokKind::kRbrace,
                       "expected '}' to end sharding attribute");
   }
-  if (lexer_.GetKind() == TokKind::kw_unreduced) {
+  bool is_unreduced = false;
+  bool has_assign = false;
+  if (lexer_.GetKind() == TokKind::kAttributeName &&
+      lexer_.GetStrVal() == "unreduced") {
+    is_unreduced = true;
+    has_assign = true;
     lexer_.Lex();
+  } else if (lexer_.GetKind() == TokKind::kw_unreduced) {
+    is_unreduced = true;
+    lexer_.Lex();
+    has_assign = EatIfPresent(TokKind::kEqual);
+  }
+
+  if (is_unreduced) {
+    std::vector<AxisRef> unreduced_axes;
+    ReductionOp reduction_op = ReductionOp::kSum;
+    if (has_assign) {
+      if (lexer_.GetKind() != TokKind::kAttributeName &&
+          lexer_.GetKind() != TokKind::kIdent) {
+        return TokenError("expected sum, max, or min for unreduced op");
+      }
+      std::string op_str = lexer_.GetStrVal();
+      if (op_str == "sum") {
+        reduction_op = ReductionOp::kSum;
+      } else if (op_str == "max") {
+        reduction_op = ReductionOp::kMax;
+      } else if (op_str == "min") {
+        reduction_op = ReductionOp::kMin;
+      } else {
+        return TokenError("expected sum, max, or min for unreduced op");
+      }
+      lexer_.Lex();
+    }
+    if (lexer_.GetKind() == TokKind::kLbrace) {
+      if (!ParseAxisRefList(*mesh, unreduced_axes)) {
+        return false;
+      }
+    } else {
+      unreduced_axes.reserve(mesh->num_axes());
+      for (int64_t i = 0; i < mesh->num_axes(); ++i) {
+        unreduced_axes.push_back(AxisRef(i));
+      }
+    }
     if (!parse_metadata_if_present(metadata)) {
       return false;
     }
-    sharding = NamedSharding::Unreduced(*mesh, metadata);
+    sharding = NamedSharding(*mesh, {}, {}, unreduced_axes, {}, metadata,
+                             reduction_op);
     return ParseToken(TokKind::kRbrace,
                       "expected '}' to end sharding attribute");
   }
@@ -4411,7 +4483,7 @@ bool HloParserImpl::ParseSingleSharding(
 
   std::vector<AxisRef> replicated_axes;
   std::vector<AxisRef> unreduced_axes;
-  NamedSharding::ReductionOp reduction_op = NamedSharding::ReductionOp::kSum;
+  ReductionOp reduction_op = ReductionOp::kSum;
   std::vector<AxisRef> manual_axes;
 
   while (lexer_.GetKind() != TokKind::kRbrace) {
@@ -4431,11 +4503,11 @@ bool HloParserImpl::ParseSingleSharding(
           lexer_.GetKind() == TokKind::kIdent) {
         std::string op_str = lexer_.GetStrVal();
         if (op_str == "sum") {
-          reduction_op = NamedSharding::ReductionOp::kSum;
+          reduction_op = ReductionOp::kSum;
         } else if (op_str == "max") {
-          reduction_op = NamedSharding::ReductionOp::kMax;
+          reduction_op = ReductionOp::kMax;
         } else if (op_str == "min") {
-          reduction_op = NamedSharding::ReductionOp::kMin;
+          reduction_op = ReductionOp::kMin;
         } else {
           return TokenError("expected sum, max, or min for unreduced op");
         }
@@ -4771,6 +4843,9 @@ bool HloParserImpl::ParseSingleSharding(std::optional<HloSharding>& sharding,
                  : HloSharding::ShardLike(shard_group_id));
   }
 
+  if (sharding.has_value()) {
+    sharding->ExtractReductionOpFromMetadata();
+  }
   lexer_.Lex();
   return true;
 }
@@ -8633,7 +8708,9 @@ absl::StatusOr<std::unique_ptr<HloModule>> ParseAndReturnUnverifiedModule(
 
 absl::StatusOr<HloSharding> ParseSharding(absl::string_view str) {
   HloParserImpl parser(str);
-  return parser.ParseShardingOnly();
+  ASSIGN_OR_RETURN(HloSharding sharding, parser.ParseShardingOnly());
+  sharding.ExtractReductionOpFromMetadata();
+  return sharding;
 }
 
 absl::StatusOr<std::shared_ptr<OriginalValue>> ParseOriginalValue(
