@@ -1418,6 +1418,7 @@ cuda_py_strict_test(
         "//tensorflow/python/framework:dtypes",
         "//tensorflow/python/framework:ops",
         "//tensorflow/python/ops:math_ops",
+        "//tensorflow/python/ops:resource_variable_ops",
         "//tensorflow/python/ops:training_ops_gen",
         "//tensorflow/python/ops:variable_v1",
     ] + TRAINING_TEST_DEPS,
@@ -1461,11 +1462,10 @@ distribute_py_strict_test(
         "//tensorflow/python/framework:ops",
         "//tensorflow/python/framework:test_lib",
         "//tensorflow/python/ops:math_ops",
-        "//tensorflow/python/ops:resource_variable_ops",
         "//tensorflow/python/ops:training_ops_gen",
         "//tensorflow/python/ops:variable_v1",
         "//tensorflow/python/ops:variables",
-        "//tensorflow/python/platform:test",
+        "//tensorflow/python/platform:client_testlib",
     ],
 )
 

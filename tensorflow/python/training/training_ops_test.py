@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Tests for tensorflow.ops.gen_training_ops."""
 
 import itertools
 import threading
@@ -32,7 +31,7 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import resource_variable_ops  # pylint: disable=unused-import
 from tensorflow.python.ops import variable_v1
 from tensorflow.python.ops import variables
-from tensorflow.python.platform import googletest
+from tensorflow.python.platform import test
 
 
 class TrainingOpsTest(TensorFlowTestCase):
@@ -507,6 +506,165 @@ class TrainingOpsTest(TensorFlowTestCase):
     thread1.join()
     thread2.join()
 
+  @test_util.run_v2_only
+  def testApplyAdadeltaInvalidAccumUpdateShape(self):
+    var = variables.Variable([1.0, 2.0])
+    accum = variables.Variable([1.0, 2.0])
+    accum_update = variables.Variable([1.0, 2.0, 3.0])
+    lr = constant_op.constant(0.001)
+    rho = constant_op.constant(0.9)
+    epsilon = constant_op.constant(1e-8)
+    grad = constant_op.constant([0.1, 0.1])
+
+    with self.assertRaisesRegex(
+        (errors.InvalidArgumentError, ValueError),
+        r"var and accum_update do not have the same shape",
+    ):
+      gen_training_ops.resource_apply_adadelta(
+          var.handle, accum.handle, accum_update.handle, lr, rho, epsilon, grad
+      )
+
+  @test_util.run_v2_only
+  def testApplyAdamWithAmsgradInvalidVhatShape(self):
+    var = variables.Variable([1.0, 2.0])
+    m = variables.Variable([1.0, 2.0])
+    v = variables.Variable([1.0, 2.0])
+    vhat = variables.Variable([1.0, 2.0, 3.0])
+    beta1_power = constant_op.constant(0.9)
+    beta2_power = constant_op.constant(0.999)
+    lr = constant_op.constant(0.001)
+    beta1 = constant_op.constant(0.9)
+    beta2 = constant_op.constant(0.999)
+    epsilon = constant_op.constant(1e-8)
+    grad = constant_op.constant([0.1, 0.1])
+
+    with self.assertRaisesRegex(
+        (errors.InvalidArgumentError, ValueError),
+        r"var and vhat do not have the same shape",
+    ):
+      gen_training_ops.resource_apply_adam_with_amsgrad(
+          var.handle,
+          m.handle,
+          v.handle,
+          vhat.handle,
+          beta1_power,
+          beta2_power,
+          lr,
+          beta1,
+          beta2,
+          epsilon,
+          grad,
+      )
+
+  @test_util.run_in_graph_and_eager_modes
+  def testApplyAdadeltaSuccess(self):
+    var = variables.Variable([1.0, 2.0])
+    accum = variables.Variable([1.0, 2.0])
+    accum_update = variables.Variable([1.0, 2.0])
+    lr = constant_op.constant(0.001)
+    rho = constant_op.constant(0.9)
+    epsilon = constant_op.constant(1e-8)
+    grad = constant_op.constant([0.1, 0.1])
+    self.evaluate(variables.global_variables_initializer())
+    self.evaluate(
+        gen_training_ops.resource_apply_adadelta(
+            var.handle,
+            accum.handle,
+            accum_update.handle,
+            lr,
+            rho,
+            epsilon,
+            grad,
+        )
+    )
+
+  @test_util.run_in_graph_and_eager_modes
+  def testApplyAdamWithAmsgradSuccess(self):
+    var = variables.Variable([1.0, 2.0])
+    m = variables.Variable([1.0, 2.0])
+    v = variables.Variable([1.0, 2.0])
+    vhat = variables.Variable([1.0, 2.0])
+    beta1_power = constant_op.constant(0.9)
+    beta2_power = constant_op.constant(0.999)
+    lr = constant_op.constant(0.001)
+    beta1 = constant_op.constant(0.9)
+    beta2 = constant_op.constant(0.999)
+    epsilon = constant_op.constant(1e-8)
+    grad = constant_op.constant([0.1, 0.1])
+    self.evaluate(variables.global_variables_initializer())
+    self.evaluate(
+        gen_training_ops.resource_apply_adam_with_amsgrad(
+            var.handle,
+            m.handle,
+            v.handle,
+            vhat.handle,
+            beta1_power,
+            beta2_power,
+            lr,
+            beta1,
+            beta2,
+            epsilon,
+            grad,
+        )
+    )
+
+  @test_util.run_in_graph_and_eager_modes
+  def testSparseApplyRMSPropSuccess(self):
+    with ops.device("/cpu:0"):
+      var = variables.Variable([1.0, 2.0])
+      ms = variables.Variable([1.0, 2.0])
+      mom = variables.Variable([1.0, 2.0])
+      lr = constant_op.constant(0.1)
+      rho = constant_op.constant(0.1)
+      momentum = constant_op.constant(0.1)
+      epsilon = constant_op.constant(0.1)
+      grad = constant_op.constant([0.1, 0.1])
+      indices = constant_op.constant([0, 1], dtype=dtypes.int32)
+      self.evaluate(variables.global_variables_initializer())
+      self.evaluate(
+          gen_training_ops.resource_sparse_apply_rms_prop(
+              var.handle,
+              ms.handle,
+              mom.handle,
+              lr,
+              rho,
+              momentum,
+              epsilon,
+              grad,
+              indices,
+          )
+      )
+
+  @test_util.run_in_graph_and_eager_modes
+  def testSparseApplyCenteredRMSPropSuccess(self):
+    with ops.device("/cpu:0"):
+      var = variables.Variable([1.0, 2.0])
+      mg = variables.Variable([1.0, 2.0])
+      ms = variables.Variable([1.0, 2.0])
+      mom = variables.Variable([1.0, 2.0])
+      lr = constant_op.constant(0.1)
+      rho = constant_op.constant(0.1)
+      momentum = constant_op.constant(0.1)
+      epsilon = constant_op.constant(0.1)
+      grad = constant_op.constant([0.1, 0.1])
+      indices = constant_op.constant([0, 1], dtype=dtypes.int32)
+      self.evaluate(variables.global_variables_initializer())
+      self.evaluate(
+          gen_training_ops.resource_sparse_apply_centered_rms_prop(
+              var.handle,
+              mg.handle,
+              ms.handle,
+              mom.handle,
+              lr,
+              rho,
+              momentum,
+              epsilon,
+              grad,
+              indices,
+          )
+      )
+
+  @test_util.run_in_graph_and_eager_modes
   def testSparseApplyOpsRejectLowerRankGrad(self):
     # Regression test for #94131: a grad of lower rank than var made the
     # per-dimension shape check read past grad's rank and crash the process.
@@ -576,6 +734,54 @@ class TrainingOpsTest(TensorFlowTestCase):
       with self.assertRaises(errors.InvalidArgumentError):
         self.evaluate(apply_op())
 
+  @test_util.run_v2_only
+  def testApplyAddSignInvalidSignDecayShape(self):
+    var = variables.Variable([1.0, 2.0])
+    m = variables.Variable([1.0, 2.0])
+    lr = constant_op.constant(0.001)
+    alpha = constant_op.constant(0.1)
+    sign_decay = constant_op.constant([0.9, 0.9])
+    beta = constant_op.constant(0.9)
+    grad = constant_op.constant([0.1, 0.1])
 
-if __name__ == '__main__':
-  googletest.main()
+    with self.assertRaisesRegex(
+        (errors.InvalidArgumentError, ValueError),
+        r"sign_decay is not a scalar",
+    ):
+      gen_training_ops.resource_apply_add_sign(
+          var.handle,
+          m.handle,
+          lr,
+          alpha,
+          sign_decay,
+          beta,
+          grad,
+      )
+
+  @test_util.run_v2_only
+  def testApplyPowerSignInvalidSignDecayShape(self):
+    var = variables.Variable([1.0, 2.0])
+    m = variables.Variable([1.0, 2.0])
+    lr = constant_op.constant(0.001)
+    logbase = constant_op.constant(2.0)
+    sign_decay = constant_op.constant([0.9, 0.9])
+    beta = constant_op.constant(0.9)
+    grad = constant_op.constant([0.1, 0.1])
+
+    with self.assertRaisesRegex(
+        (errors.InvalidArgumentError, ValueError),
+        r"sign_decay is not a scalar",
+    ):
+      gen_training_ops.resource_apply_power_sign(
+          var.handle,
+          m.handle,
+          lr,
+          logbase,
+          sign_decay,
+          beta,
+          grad,
+      )
+
+
+if __name__ == "__main__":
+  test.main()
