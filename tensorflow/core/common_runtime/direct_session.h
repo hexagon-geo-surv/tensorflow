@@ -446,6 +446,12 @@ class DirectSession : public Session {
   // pool according to other specifications of RunOptions and ConfigProto.
   bool run_in_caller_thread_ = false;
 
+  struct RunScope;
+
+  mutex active_runs_mu_;
+  condition_variable active_runs_cv_;
+  int active_runs_ TF_GUARDED_BY(active_runs_mu_) = 0;
+
   DirectSession(const DirectSession&) = delete;
   void operator=(const DirectSession&) = delete;
 

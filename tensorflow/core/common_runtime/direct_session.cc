@@ -27,6 +27,7 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/notification.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "xla/tsl/platform/errors.h"
@@ -89,8 +90,25 @@ limitations under the License.
 #include "tensorflow/core/util/device_name_utils.h"
 #include "tensorflow/core/util/env_var.h"
 #include "tsl/platform/thread_annotations.h"
-
 namespace tensorflow {
+
+struct DirectSession::RunScope {
+  explicit RunScope(DirectSession* session) : session(session) {
+    mutex_lock l(session->active_runs_mu_);
+    session->active_runs_++;
+  }
+  ~RunScope() {
+    mutex_lock l(session->active_runs_mu_);
+    session->active_runs_--;
+    if (session->active_runs_ == 0) {
+      session->active_runs_cv_.notify_all();
+    }
+  }
+  RunScope(const RunScope&) = delete;
+  RunScope& operator=(const RunScope&) = delete;
+
+  DirectSession* const session;
+};
 
 namespace {
 
@@ -420,6 +438,22 @@ DirectSession::DirectSession(const SessionOptions& options,
 
 DirectSession::~DirectSession() {
   if (!closed_) Close().IgnoreError();
+  {
+    mutex_lock l(active_runs_mu_);
+    const absl::Time deadline = absl::Now() + absl::Seconds(5);
+    while (active_runs_ > 0) {
+      const absl::Duration remaining = deadline - absl::Now();
+      if (remaining <= absl::ZeroDuration()) {
+        LOG(ERROR)
+            << "DirectSession destructor timed out waiting for " << active_runs_
+            << " active Run() call(s) to finish after 5000ms. "
+            << "Proceeding with destruction; use-after-free or crash possible.";
+        break;
+      }
+      WaitForMilliseconds(&l, &active_runs_cv_,
+                          absl::ToInt64Milliseconds(remaining));
+    }
+  }
   for (auto& it : partial_runs_) {
     it.second.reset(nullptr);
   }
@@ -888,6 +922,7 @@ absl::Status DirectSession::Run(
     const std::vector<std::string>& target_nodes, std::vector<Tensor>* outputs,
     RunMetadata* run_metadata,
     const thread::ThreadPoolOptions& threadpool_options) {
+  RunScope run_scope(this);
   TF_RETURN_IF_ERROR(CheckNotClosed());
   TF_RETURN_IF_ERROR(CheckGraphCreated("Run()"));
   direct_session_runs->GetCell()->IncrementBy(1);
@@ -1975,6 +2010,7 @@ absl::Status DirectSession::RunCallable(
     CallableHandle handle, const std::vector<Tensor>& feed_tensors,
     std::vector<Tensor>* fetch_tensors, RunMetadata* run_metadata,
     const thread::ThreadPoolOptions& threadpool_options) {
+  RunScope run_scope(this);
   TF_RETURN_IF_ERROR(CheckNotClosed());
   TF_RETURN_IF_ERROR(CheckGraphCreated("RunCallable()"));
   direct_session_runs->GetCell()->IncrementBy(1);
