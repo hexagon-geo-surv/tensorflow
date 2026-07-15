@@ -56,7 +56,6 @@ py_library(
         "//tensorflow/python/ops:array_ops",
         "//tensorflow/python/ops:control_flow_ops_gen",
         "//tensorflow/python/ops:ref_variable",
-        "//tensorflow/python/ops:resource_variable_ops",
         "//tensorflow/python/ops:state_ops",
         "//tensorflow/python/ops:variables",
         "//tensorflow/python/platform:tf_logging",
