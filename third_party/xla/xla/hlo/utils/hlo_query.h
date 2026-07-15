@@ -222,10 +222,15 @@ HloInstruction* FindInstruction(const HloComputation* computation,
 // changes tiling. This is handled by the emitters and effectively are no-ops.
 bool IsChangeTilingCopyFusion(const HloInstruction* instr);
 
-// Returns whether the instruction is a standard forward associative scan:
-// single input and init, and a (output, carry) result tuple where all carry
-// users are dead (which implies that the scan op or its users aren't roots).
-bool IsStandardAssociativeScan(const HloInstruction* instruction);
+// Returns whether the instruction is a standard associative scan: single
+// input and init, and a (output, carry) result tuple whose users are
+// get-tuple-elements (which implies that the scan op isn't a root). Reverse
+// scans and live final carry users are only accepted when `allow_reverse`
+// and `allow_used_carry` are set; by default the scan must be forward and
+// all carry users must be dead.
+bool IsStandardAssociativeScan(const HloInstruction* instruction,
+                               bool allow_reverse = false,
+                               bool allow_used_carry = false);
 
 }  // namespace hlo_query
 }  // namespace xla

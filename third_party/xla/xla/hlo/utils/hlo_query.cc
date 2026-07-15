@@ -382,12 +382,14 @@ bool IsChangeTilingCopyFusion(const HloInstruction* instr) {
          operand_tiles != output_tiles;
 }
 
-bool IsStandardAssociativeScan(const HloInstruction* instruction) {
+bool IsStandardAssociativeScan(const HloInstruction* instruction,
+                               bool allow_reverse, bool allow_used_carry) {
   auto* scan = DynCast<HloScanInstruction>(instruction);
   if (scan == nullptr || scan->IsRoot() ||
-      scan->is_associative() != TRI_STATE_TRUE || scan->is_reverse() ||
-      scan->num_carries() != 1 || scan->operand_count() != 2 ||
-      !scan->shape().IsTuple() || scan->shape().tuple_shapes().size() != 2 ||
+      scan->is_associative() != TRI_STATE_TRUE ||
+      (scan->is_reverse() && !allow_reverse) || scan->num_carries() != 1 ||
+      scan->operand_count() != 2 || !scan->shape().IsTuple() ||
+      scan->shape().tuple_shapes().size() != 2 ||
       !scan->shape().tuple_shapes(0).IsArray()) {
     return false;
   }
@@ -397,7 +399,7 @@ bool IsStandardAssociativeScan(const HloInstruction* instruction) {
       continue;
     }
     if (user->opcode() != HloOpcode::kGetTupleElement ||
-        user->tuple_index() != 0) {
+        (user->tuple_index() != 0 && !allow_used_carry)) {
       return false;
     }
   }
