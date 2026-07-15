@@ -6,4 +6,8 @@ tf_class {
     name: "__init__"
     argspec: "args=[\'self\', \'table\', \'max_sequence_length\', \'validate_weights_and_indices\', \'output_shape\', \'name\'], varargs=None, keywords=None, defaults=[\'0\', \'True\', \'None\', \'None\'], "
   }
+  member_method {
+    name: "__repr__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
 }

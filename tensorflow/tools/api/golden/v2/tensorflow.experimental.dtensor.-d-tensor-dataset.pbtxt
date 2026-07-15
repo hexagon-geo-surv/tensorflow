@@ -14,6 +14,10 @@ tf_class {
     argspec: "args=[\'self\', \'dataset\', \'mesh\', \'layouts\', \'global_batch_size\', \'dataset_already_batched\', \'batch_dim\', \'prefetch\', \'tf_data_service_config\'], varargs=None, keywords=None, defaults=[\'False\', \'None\', \'None\', \'None\'], "
   }
   member_method {
+    name: "__iter__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "apply"
     argspec: "args=[\'self\', \'transformation_func\'], varargs=None, keywords=None, defaults=None"
   }

@@ -19,6 +19,10 @@ tf_class {
     argspec: "args=[\'self\', \'num_input_pipelines\', \'input_pipeline_id\', \'num_replicas_in_sync\'], varargs=None, keywords=None, defaults=[\'1\', \'0\', \'1\'], "
   }
   member_method {
+    name: "__str__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "get_per_replica_batch_size"
     argspec: "args=[\'self\', \'global_batch_size\'], varargs=None, keywords=None, defaults=None"
   }

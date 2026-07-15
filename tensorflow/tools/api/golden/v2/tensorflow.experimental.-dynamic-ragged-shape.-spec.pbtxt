@@ -34,6 +34,10 @@ tf_class {
     argspec: "args=[\'self\', \'row_partitions\', \'static_inner_shape\', \'dtype\'], varargs=None, keywords=None, defaults=None"
   }
   member_method {
+    name: "__repr__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "cast"
     argspec: "args=[\'self\', \'value\', \'casting_context\'], varargs=None, keywords=None, defaults=None"
   }

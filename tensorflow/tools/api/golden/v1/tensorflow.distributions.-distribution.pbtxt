@@ -40,6 +40,14 @@ tf_class {
     argspec: "args=[\'self\', \'dtype\', \'reparameterization_type\', \'validate_args\', \'allow_nan_stats\', \'parameters\', \'graph_parents\', \'name\'], varargs=None, keywords=None, defaults=[\'None\', \'None\', \'None\'], "
   }
   member_method {
+    name: "__repr__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
+    name: "__str__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "batch_shape_tensor"
     argspec: "args=[\'self\', \'name\'], varargs=None, keywords=None, defaults=[\'batch_shape_tensor\'], "
   }

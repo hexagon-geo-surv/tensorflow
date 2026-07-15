@@ -26,4 +26,12 @@ tf_class {
     name: "__init__"
     argspec: "args=[\'self\', \'node_def\', \'op\', \'message\', \'error_code\'], varargs=args, keywords=None, defaults=None"
   }
+  member_method {
+    name: "__reduce__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
+    name: "__str__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
 }

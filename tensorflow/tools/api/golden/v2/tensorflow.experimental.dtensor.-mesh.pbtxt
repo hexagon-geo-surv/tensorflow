@@ -24,8 +24,24 @@ tf_class {
     mtype: "<class \'property\'>"
   }
   member_method {
+    name: "__getitem__"
+    argspec: "args=[\'self\', \'dim_name\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
+    name: "__hash__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "__init__"
     argspec: "args=[\'self\', \'dim_names\', \'global_device_ids\', \'local_device_ids\', \'local_devices\', \'mesh_name\', \'global_devices\', \'use_xla_spmd\'], varargs=None, keywords=None, defaults=[\'\', \'None\', \'False\'], "
+  }
+  member_method {
+    name: "__reduce__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
+    name: "__repr__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
   }
   member_method {
     name: "as_proto"

@@ -88,6 +88,9 @@ _UNSTABLE_EXTERNAL_BASE_CLASSES = tuple(
 )
 _TENSORFLOW_FAMILY_MARKERS = ('tensorflow', 'tf_keras', 'keras')
 _OWNERSHIP_IDENTIFIER_RE = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
+_OBJECT_ONLY_DUNDERS = frozenset(vars(object)) - {
+    '__eq__', '__ne__', '__lt__', '__le__', '__gt__', '__ge__',
+}
 
 
 def _NormalizeType(ty):
@@ -334,8 +337,21 @@ class PythonObjectToProtoVisitor:
       ):
         return
       is_tuple_subclass = isinstance(parent, type) and issubclass(parent, tuple)
-      is_allowed_dunder = member_name == '__init__' or (
-          member_name == '__new__' and is_tuple_subclass
+      is_tf_defined_dunder_method = (
+          member_name.startswith('__')
+          and member_name.endswith('__')
+          # Exclude dunders that are only defined on object, e.g. __repr__,
+          # because they aren't really part of TensorFlow API.
+          and member_name not in _OBJECT_ONLY_DUNDERS
+          and isinstance(parent, type)
+          and _IsApiMethod(member_obj)
+          # Only include dunders which are overridden in the class.
+          and _OwnerClass(parent, member_name) is parent
+      )
+      is_allowed_dunder = (
+          member_name == '__init__'
+          or (member_name == '__new__' and is_tuple_subclass)
+          or is_tf_defined_dunder_method
       )
       if is_allowed_dunder or not member_name.startswith('_'):
         if _IsApiMethod(member_obj):

@@ -35,6 +35,14 @@ tf_class {
     argspec: "args=[\'self\', \'values\', \'row_splits\'], varargs=None, keywords=None, defaults=None"
   }
   member_method {
+    name: "__repr__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
+    name: "__str__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "to_list"
     argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
   }

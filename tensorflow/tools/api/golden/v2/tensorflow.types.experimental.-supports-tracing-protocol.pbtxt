@@ -6,4 +6,12 @@ tf_class {
     name: "__init__"
     argspec: "args=[\'self\'], varargs=args, keywords=kwargs, defaults=None"
   }
+  member_method {
+    name: "__subclasshook__"
+    argspec: "args=[\'cls\', \'other\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
+    name: "__tf_tracing_type__"
+    argspec: "args=[\'self\', \'context\'], varargs=None, keywords=None, defaults=None"
+  }
 }

@@ -6,4 +6,8 @@ tf_class {
     name: "__init__"
     argspec: "args=[\'self\', \'bytes_per_pack\', \'timeout_seconds\', \'implementation\'], varargs=None, keywords=None, defaults=[\'0\', \'None\', \'CommunicationImplementation.AUTO\'], "
   }
+  member_method {
+    name: "__new__"
+    argspec: "args=[\'cls\'], varargs=args, keywords=kwargs, defaults=None"
+  }
 }

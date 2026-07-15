@@ -46,6 +46,14 @@ tf_class {
     argspec: "args=[\'self\', \'values\', \'indices\', \'dense_shape\'], varargs=None, keywords=None, defaults=[\'None\'], "
   }
   member_method {
+    name: "__neg__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
+    name: "__str__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "consumers"
     argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
   }

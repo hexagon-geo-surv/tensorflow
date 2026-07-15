@@ -34,8 +34,16 @@ tf_class {
     mtype: "<class \'property\'>"
   }
   member_method {
+    name: "__getitem__"
+    argspec: "args=[\'self\', \'index\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "__init__"
     argspec: "args=[\'self\', \'row_partitions\', \'inner_shape\', \'dtype\', \'validate\', \'static_inner_shape\'], varargs=None, keywords=None, defaults=[\'None\', \'False\', \'None\'], "
+  }
+  member_method {
+    name: "__repr__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
   }
   member_method {
     name: "from_lengths"

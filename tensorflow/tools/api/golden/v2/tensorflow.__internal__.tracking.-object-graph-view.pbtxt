@@ -12,6 +12,10 @@ tf_class {
     mtype: "<class \'property\'>"
   }
   member_method {
+    name: "__deepcopy__"
+    argspec: "args=[\'self\', \'memo\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "__init__"
     argspec: "args=[\'self\', \'root\', \'attached_dependencies\'], varargs=None, keywords=None, defaults=[\'None\'], "
   }

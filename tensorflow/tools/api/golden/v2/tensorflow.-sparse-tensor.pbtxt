@@ -33,8 +33,24 @@ tf_class {
     mtype: "<class \'property\'>"
   }
   member_method {
+    name: "__div__"
+    argspec: "args=[\'sp_x\', \'y\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "__init__"
     argspec: "args=[\'self\', \'indices\', \'values\', \'dense_shape\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
+    name: "__mul__"
+    argspec: "args=[\'sp_x\', \'y\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
+    name: "__repr__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
+    name: "__truediv__"
+    argspec: "args=[\'sp_x\', \'y\'], varargs=None, keywords=None, defaults=None"
   }
   member_method {
     name: "consumers"

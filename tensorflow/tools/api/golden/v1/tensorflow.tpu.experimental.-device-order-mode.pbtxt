@@ -13,4 +13,11 @@ tf_class {
     name: "RING"
     mtype: "<enum \'DeviceOrderMode\'>"
   }
+  member_method {
+    name: "__format__"
+  }
+  member_method {
+    name: "__new__"
+    argspec: "args=[\'cls\', \'value\'], varargs=None, keywords=None, defaults=None"
+  }
 }

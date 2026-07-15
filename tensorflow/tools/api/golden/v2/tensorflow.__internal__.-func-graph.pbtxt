@@ -96,6 +96,10 @@ tf_class {
     argspec: "args=[\'self\', \'name\', \'collections\', \'capture_by_value\', \'structured_input_signature\', \'structured_outputs\'], varargs=None, keywords=None, defaults=[\'None\', \'None\', \'None\', \'None\'], "
   }
   member_method {
+    name: "__str__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "add_capture"
     argspec: "args=[\'self\', \'tensor\', \'placeholder\'], varargs=None, keywords=None, defaults=None"
   }

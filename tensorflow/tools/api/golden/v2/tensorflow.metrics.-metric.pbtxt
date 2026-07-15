@@ -128,8 +128,24 @@ tf_class {
     mtype: "<class \'property\'>"
   }
   member_method {
+    name: "__call__"
+    argspec: "args=[\'self\'], varargs=args, keywords=kwargs, defaults=None"
+  }
+  member_method {
+    name: "__deepcopy__"
+    argspec: "args=[\'self\', \'memo\'], varargs=None, keywords=None, defaults=[\'None\'], "
+  }
+  member_method {
     name: "__init__"
     argspec: "args=[\'self\', \'name\', \'dtype\'], varargs=None, keywords=kwargs, defaults=[\'None\', \'None\'], "
+  }
+  member_method {
+    name: "__new__"
+    argspec: "args=[\'cls\'], varargs=args, keywords=kwargs, defaults=None"
+  }
+  member_method {
+    name: "__str__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
   }
   member_method {
     name: "add_loss"

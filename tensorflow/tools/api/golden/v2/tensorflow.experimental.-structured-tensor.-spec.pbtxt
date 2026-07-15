@@ -26,6 +26,10 @@ tf_class {
     argspec: "args=[\'self\', \'_fields\', \'_ragged_shape\'], varargs=None, keywords=None, defaults=None"
   }
   member_method {
+    name: "__validate__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "cast"
     argspec: "args=[\'self\', \'value\', \'casting_context\'], varargs=None, keywords=None, defaults=None"
   }

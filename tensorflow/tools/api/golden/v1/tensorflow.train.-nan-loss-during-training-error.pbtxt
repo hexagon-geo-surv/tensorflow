@@ -2,4 +2,8 @@ path: "tensorflow.train.NanLossDuringTrainingError"
 tf_class {
   is_instance: "<class \'tensorflow.python.training.basic_session_run_hooks.NanLossDuringTrainingError\'>"
   is_instance: "<class \'RuntimeError\'>"
+  member_method {
+    name: "__str__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
 }

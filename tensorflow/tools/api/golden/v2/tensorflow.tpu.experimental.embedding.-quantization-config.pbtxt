@@ -6,4 +6,8 @@ tf_class {
     name: "__init__"
     argspec: "args=[\'self\', \'num_buckets\', \'lower\', \'upper\'], varargs=None, keywords=None, defaults=None"
   }
+  member_method {
+    name: "__repr__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
 }

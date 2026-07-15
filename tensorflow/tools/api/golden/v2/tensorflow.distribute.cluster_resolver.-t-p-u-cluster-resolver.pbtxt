@@ -20,8 +20,16 @@ tf_class {
     mtype: "<class \'property\'>"
   }
   member_method {
+    name: "__deepcopy__"
+    argspec: "args=[\'self\', \'memo\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "__init__"
     argspec: "args=[\'self\', \'tpu\', \'zone\', \'project\', \'job_name\', \'coordinator_name\', \'coordinator_address\', \'credentials\', \'service\', \'discovery_url\'], varargs=None, keywords=None, defaults=[\'None\', \'None\', \'None\', \'worker\', \'None\', \'None\', \'default\', \'None\', \'None\'], "
+  }
+  member_method {
+    name: "__new__"
+    argspec: "args=[\'cls\'], varargs=args, keywords=kwargs, defaults=None"
   }
   member_method {
     name: "cluster_spec"

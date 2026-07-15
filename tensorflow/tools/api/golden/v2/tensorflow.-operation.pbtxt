@@ -47,6 +47,18 @@ tf_class {
     name: "__init__"
   }
   member_method {
+    name: "__repr__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
+    name: "__str__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
+    name: "__tf_tensor__"
+    argspec: "args=[\'self\', \'dtype\', \'name\'], varargs=None, keywords=None, defaults=[\'None\', \'None\'], "
+  }
+  member_method {
     name: "colocation_groups"
     argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
   }

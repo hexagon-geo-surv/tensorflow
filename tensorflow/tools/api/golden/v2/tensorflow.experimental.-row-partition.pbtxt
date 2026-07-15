@@ -24,6 +24,10 @@ tf_class {
     argspec: "args=[\'self\', \'row_splits\', \'row_lengths\', \'value_rowids\', \'nrows\', \'uniform_row_length\', \'nvals\', \'internal\'], varargs=None, keywords=None, defaults=[\'None\', \'None\', \'None\', \'None\', \'None\', \'False\'], "
   }
   member_method {
+    name: "__repr__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "from_row_lengths"
     argspec: "args=[\'cls\', \'row_lengths\', \'validate\', \'dtype\', \'dtype_hint\'], varargs=None, keywords=None, defaults=[\'True\', \'None\', \'None\'], "
   }

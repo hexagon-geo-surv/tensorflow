@@ -4,6 +4,14 @@ tf_class {
   is_instance: "<class \'tensorflow.python.trackable.base.Trackable\'>"
   is_instance: "<class \'object\'>"
   member_method {
+    name: "__delattr__"
+    argspec: "args=[\'self\', \'name\'], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "__init__"
+  }
+  member_method {
+    name: "__setattr__"
+    argspec: "args=[\'self\', \'name\', \'value\'], varargs=None, keywords=None, defaults=None"
   }
 }

@@ -30,6 +30,10 @@ tf_class {
     mtype: "<class \'property\'>"
   }
   member_method {
+    name: "__call__"
+    argspec: "args=[\'self\', \'features\', \'weights\'], varargs=None, keywords=None, defaults=[\'None\'], "
+  }
+  member_method {
     name: "__init__"
     argspec: "args=[\'self\', \'feature_config\', \'optimizer\', \'pipeline_execution_with_tensor_core\', \'sparse_core_embedding_config\'], varargs=None, keywords=None, defaults=[\'None\', \'False\', \'None\'], "
   }

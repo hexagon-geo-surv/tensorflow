@@ -11,4 +11,8 @@ tf_class {
     name: "__init__"
     argspec: "args=[\'self\', \'combiner_computation\', \'max_valency\', \'num_weights\', \'initializer\', \'combiner_weights_learning_rate\'], varargs=None, keywords=None, defaults=[\'0\', \'None\', \'0.01\'], "
   }
+  member_method {
+    name: "__str__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
 }

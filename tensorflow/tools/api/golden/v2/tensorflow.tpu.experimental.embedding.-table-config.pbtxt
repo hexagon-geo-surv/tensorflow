@@ -6,4 +6,8 @@ tf_class {
     name: "__init__"
     argspec: "args=[\'self\', \'vocabulary_size\', \'dim\', \'initializer\', \'optimizer\', \'combiner\', \'name\', \'quantization_config\', \'layout\', \'dtype\'], varargs=None, keywords=None, defaults=[\'None\', \'None\', \'mean\', \'None\', \'None\', \'None\', \"<dtype: \'float32\'>\"], "
   }
+  member_method {
+    name: "__repr__"
+    argspec: "args=[\'self\'], varargs=None, keywords=None, defaults=None"
+  }
 }

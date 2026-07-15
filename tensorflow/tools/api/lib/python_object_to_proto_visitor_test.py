@@ -127,6 +127,37 @@ class PythonObjectToProtoVisitorTest(googletest.TestCase):
 
     self.assertEqual(['tf_owned_member'], [name for name, _ in children])
 
+  def test_dunders_included(self):
+    class Exported:
+      def __add__(self, other):
+        pass
+
+      def __eq__(self, other):
+        pass
+
+      def __repr__(self):
+        pass
+
+    children = [
+        ('__init__', Exported.__init__),
+        ('__add__', Exported.__add__),
+        ('__eq__', Exported.__eq__),
+        ('__repr__', Exported.__repr__),
+        ('__module__', Exported.__module__),
+    ]
+
+    visitor = visitor_lib.PythonObjectToProtoVisitor()
+    visitor('errors.Exported', Exported, children)
+
+    proto = visitor.GetProtos()['tensorflow.errors.Exported']
+    method_names = [method.name for method in proto.tf_class.member_method]
+    self.assertIn('__init__', method_names)
+    self.assertIn('__add__', method_names)
+    self.assertIn('__eq__', method_names)
+    self.assertNotIn('__repr__', method_names)  # Defined on object.
+    member_names = [member.name for member in proto.tf_class.member]
+    self.assertNotIn('__module__', member_names)  # Not callable.
+
 
 if __name__ == '__main__':
   googletest.main()
