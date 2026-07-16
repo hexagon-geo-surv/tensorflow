@@ -80,6 +80,14 @@ struct ConstantConversionPattern
       return rewriter.notifyMatchFailure(op, "expected a DenseElementsAttr");
     }
 
+    if (!mlir::isa<mlir::FloatType, mlir::IntegerType>(
+            dense_attr.getElementType())) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "only float and integer elements can be converted to scalar "
+          "arith.constant");
+    }
+
     if (dense_attr.size() != 1) {
       return rewriter.notifyMatchFailure(op, "expected a single element");
     }
@@ -99,7 +107,8 @@ struct ConvertElementwise0DTensorToScalarPass
     type_converter.addConversion([](mlir::Type type) { return type; });
 
     type_converter.addConversion([](mlir::RankedTensorType type) -> mlir::Type {
-      if (type.getRank() == 0) {
+      if (type.getRank() == 0 && mlir::isa<mlir::FloatType, mlir::IntegerType>(
+                                     type.getElementType())) {
         return type.getElementType();
       }
       return type;
