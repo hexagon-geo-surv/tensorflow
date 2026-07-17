@@ -52,6 +52,7 @@ def workspace():
         ),
     )
 
+    # TODO: update to latest version.
     # Toolchains for ML projects hermetic builds.
     # Details: https://github.com/google-ml-infra/rules_ml_toolchain
     tf_http_archive(
