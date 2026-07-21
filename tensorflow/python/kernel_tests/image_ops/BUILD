@@ -224,6 +224,7 @@ cuda_py_strict_test(
     name = "extract_volume_patches_op_test",
     size = "small",
     srcs = ["extract_volume_patches_op_test.py"],
+    xla_enable_strict_auto_jit = False,
     deps = [
         "//tensorflow/python/framework:constant_op",
         "//tensorflow/python/framework:for_generated_wrappers",
