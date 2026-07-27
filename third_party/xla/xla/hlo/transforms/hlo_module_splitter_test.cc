@@ -20,14 +20,14 @@ limitations under the License.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/platform/status_macros.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/testlib/filecheck.h"
 #include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
-#include "xla/service/hlo_verifier.h"
-#include "xla/tsl/platform/errors.h"
+#include "xla/service/spmd/shardy/constants.h"
 #include "xla/tsl/platform/test.h"
 #include "xla/util.h"
 
@@ -275,7 +275,30 @@ ENTRY entry {
   EXPECT_TRUE(splitter.submodules().empty());
 }
 
-TEST_F(HloModuleSplitterTest, IgnoreCallWithInlineableFalseOnly) {
+TEST_F(HloModuleSplitterTest, SplitsCallWithInlineableXlaLate) {
+  const char* hlo_string_late = R"(
+HloModule module
+callee {
+  p0 = f32[] parameter(0)
+  ROOT neg = f32[] negate(p0)
+}
+ENTRY entry {
+  p0 = f32[] parameter(0)
+  ROOT call = f32[] call(p0), to_apply=callee, frontend_attributes={inlineable="xla_late"}
+}
+)";
+
+  ASSERT_OK_AND_ASSIGN(auto module_late,
+                       ParseAndReturnVerifiedModule(hlo_string_late));
+
+  HloModuleSplitter splitter_late;
+  ASSERT_OK_AND_ASSIGN(bool changed_late, splitter_late.Run(module_late.get()));
+
+  EXPECT_TRUE(changed_late);
+  EXPECT_EQ(splitter_late.submodules().size(), 1);
+}
+
+TEST_F(HloModuleSplitterTest, IgnoreCallWithInlineableFalse) {
   const char* hlo_string = R"(
 HloModule module
 callee {
@@ -293,8 +316,57 @@ ENTRY entry {
   HloModuleSplitter splitter;
   ASSERT_OK_AND_ASSIGN(bool changed, splitter.Run(module.get()));
 
-  // Verify that the splitter ignored the call because it only has
-  // inlineable="false" (no compilation_unit)
+  // Verify inlineable="false" is ignored by HloModuleSplitter
+  EXPECT_FALSE(changed);
+  EXPECT_TRUE(splitter.submodules().empty());
+}
+
+TEST_F(HloModuleSplitterTest, IgnoreCallWithInlineableTrue) {
+  const char* hlo_string = R"(
+HloModule module
+callee {
+  p0 = f32[] parameter(0)
+  ROOT neg = f32[] negate(p0)
+}
+ENTRY entry {
+  p0 = f32[] parameter(0)
+  ROOT call = f32[] call(p0), to_apply=callee, frontend_attributes={inlineable="true"}
+}
+)";
+
+  ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(hlo_string));
+
+  HloModuleSplitter splitter;
+  ASSERT_OK_AND_ASSIGN(bool changed, splitter.Run(module.get()));
+
+  EXPECT_FALSE(changed);
+  EXPECT_TRUE(splitter.submodules().empty());
+}
+
+TEST_F(HloModuleSplitterTest, IgnoreShardyManualComputationWhenShardyEnabled) {
+  std::string hlo_string =
+      absl::StrCat(R"(
+HloModule module
+)",
+                   sdy::kManualComputationFuncName.data(),
+                   R"( {
+  p0 = f32[] parameter(0)
+  ROOT neg = f32[] negate(p0)
+}
+ENTRY entry {
+  p0 = f32[] parameter(0)
+  ROOT call = f32[] call(p0), to_apply=)",
+                   sdy::kManualComputationFuncName.data(),
+                   R"(, frontend_attributes={inlineable="xla_late"}
+}
+)");
+
+  ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(hlo_string));
+  module->mutable_config().set_use_shardy_partitioner(true);
+
+  HloModuleSplitter splitter;
+  ASSERT_OK_AND_ASSIGN(bool changed, splitter.Run(module.get()));
+
   EXPECT_FALSE(changed);
   EXPECT_TRUE(splitter.submodules().empty());
 }
