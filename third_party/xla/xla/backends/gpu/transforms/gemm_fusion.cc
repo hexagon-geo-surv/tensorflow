@@ -18,6 +18,7 @@ limitations under the License.
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <queue>
@@ -45,6 +46,7 @@ limitations under the License.
 #include "xla/codegen/tiling/experimental/tiled_hlo.h"
 #include "xla/codegen/tiling/experimental/tiling_space.h"
 #include "xla/codegen/tiling/symbolic_tile_analysis.h"
+#include "xla/hlo/analysis/shape_tracker.h"
 #include "xla/hlo/ir/dfs_hlo_visitor_with_default.h"
 #include "xla/hlo/ir/hlo_casting_utils.h"
 #include "xla/hlo/ir/hlo_computation.h"
@@ -64,6 +66,7 @@ limitations under the License.
 #include "xla/service/gpu/triton_tiling_propagation.h"
 #include "xla/service/hlo_module_config.h"
 #include "xla/service/instruction_fusion.h"
+#include "xla/service/matmul_indexing_utils.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/stream_executor/device_description.h"
@@ -1163,19 +1166,158 @@ FusionDecision ShouldFuseUser(mlir::MLIRContext& mlir_context,
   return FusionDecision::Forbid("Not obviously profitable to fuse as output.");
 }
 
-FusionDecision ShouldFuseOperand(mlir::MLIRContext& mlir_context,
-                                 HloInstruction* operand,
-                                 const HloInstruction& original_operand,
-                                 HloInstruction* fusion) {
+// Returns the operand index (LHS = 0, RHS = 1) of the dot instruction that is
+// the target of the given use chain. The chain is expected to end with the dot
+// instruction, so its second-to-last element is the dot operand.
+// Returns std::nullopt if the chain is invalid or the operand is not found.
+std::optional<int64_t> GetDotOpIndex(
+    absl::Span<const HloInstructionAdaptor> dot_operands,
+    absl::Span<const HloInstructionAdaptor> chain) {
+  if (chain.size() < 2) {
+    return std::nullopt;
+  }
+  const HloInstructionAdaptor& dot_operand_adaptor = chain[chain.size() - 2];
+  auto it = absl::c_find(dot_operands, dot_operand_adaptor);
+  if (it == dot_operands.end()) {
+    return std::nullopt;
+  }
+  return std::distance(dot_operands.begin(), it);
+}
+
+absl::StatusOr<ShapeTracker> GetInvertedShapeTracker(
+    const HloInstruction& transpose,
+    absl::Span<const HloInstructionAdaptor> chain) {
+  ShapeTracker tracker(transpose.operand(0)->shape());
+  for (const auto& node : chain) {
+    const HloInstruction& inst = node.instruction();
+    if (HloPredicateIsOp<HloOpcode::kTranspose, HloOpcode::kReshape,
+                         HloOpcode::kBitcast>(&inst)) {
+      RETURN_IF_ERROR(tracker.AppendInstruction(&inst));
+    }
+  }
+  return tracker.GetInverted();
+}
+
+// Verifies that the given dimensions of the dot operand map to a contiguous
+// and non-transposed region in the original transpose input.
+bool MemoryIsContiguous(const ShapeTracker& tracker,
+                        absl::Span<const int64_t> dims) {
+  for (int64_t dim : dims) {
+    auto mapped = tracker.MapInputDimensionsToOutputUnordered({dim});
+    if (!mapped.has_value()) {
+      return false;
+    }
+    if (mapped->size() > 1) {
+      // Check if the split dimensions are consecutive in the target shape.
+      bool is_consecutive =
+          absl::c_adjacent_find(*mapped, [](int64_t a, int64_t b) {
+            return a + 1 != b;
+          }) == mapped->end();
+      if (!is_consecutive) {
+        return false;
+      }
+    }
+
+    // Check if the dimension underwent a swap. Example not covered above:
+    // [2,3,4] -> [3,2,4] -> [6,4]. Above checks that 2 & 3 are consecutive, but
+    // the memory has still been swapped. We want to reject this case.
+    absl::StatusOr<ShapeTracker> narrowed = tracker.Narrow({dim});
+    if (!narrowed.ok()) {
+      return false;
+    }
+    bool has_swaps = absl::c_any_of(
+        narrowed->GetSteps(), [](const ShapeTracker::Step& step) {
+          return step.type == ShapeTracker::Step::Type::kTranspose;
+        });
+    if (has_swaps) {
+      return false;
+    }
+  }
+  return true;
+}
+
+FusionDecision ShouldFuseTranspose(mlir::MLIRContext& mlir_context,
+                                   const HloInstruction& transpose,
+                                   const HloInstruction& fusion) {
+  const HloInstruction* dot = hlo_query::FindInstruction(
+      fusion.fused_instructions_computation(), HloOpcode::kDot);
+  if (dot == nullptr) {
+    return FusionDecision::Forbid("Dot not found in fusion.");
+  }
+
+  auto adaptor = HloFusionAdaptor::ForProducerConsumer(&transpose, &fusion);
+  HloInstructionAdaptor transpose_adaptor = adaptor->GetInstruction(&transpose);
+  HloInstructionAdaptor dot_adaptor = adaptor->GetInstruction(dot);
+
+  std::vector<std::vector<HloInstructionAdaptor>> chains =
+      HloFindAllUseChains(transpose_adaptor, dot_adaptor);
+
+  for (const auto& chain : chains) {
+    std::optional<int64_t> operand_number =
+        GetDotOpIndex(dot_adaptor.GetOperands(), chain);
+    if (!operand_number.has_value()) {
+      continue;
+    }
+
+    auto dims = DotOperandDims::FromDotOperand(dot, *operand_number);
+    if (!dims.ok()) {
+      return FusionDecision::Forbid("Failed to get dot operand dims.");
+    }
+    auto tracker = GetInvertedShapeTracker(transpose, chain);
+    if (!tracker.ok()) {
+      return FusionDecision::Forbid(
+          absl::StrCat("Failed to get inverted shape tracker: ",
+                       tracker.status().message()));
+    }
+
+    const auto& contracting = dims->Indices(DotOperandDims::kContracting);
+    const auto& batch = dims->Indices(DotOperandDims::kBatch);
+    const auto& non_contracting =
+        dims->Indices(DotOperandDims::kNonContracting);
+
+    if (!MemoryIsContiguous(*tracker, contracting) ||
+        !MemoryIsContiguous(*tracker, batch)) {
+      return FusionDecision::Forbid(
+          "Contracting or batch dimension has non-contiguous section.");
+    }
+    if (*operand_number == 1 &&
+        !MemoryIsContiguous(*tracker, non_contracting)) {
+      return FusionDecision::Forbid(
+          "Non-contracting RHS dimension has non-contiguous section.");
+    }
+  }
+  return FusionDecision::Allow();
+}
+
+FusionDecision IsOperandProfitable(mlir::MLIRContext& mlir_context,
+                                   HloInstruction* operand,
+                                   const HloInstruction& original_operand,
+                                   HloInstruction* fusion) {
   int parameter_count = fusion->operand_count() + NumAddedParameters(*operand);
   if (parameter_count > TritonFusionAnalysis::kMaxParameterPerDotOperand * 2) {
     return FusionDecision::Forbid("Too many parameters.");
   }
-  if (IsBinaryElementwiseOfBroadcastParamOrConst(original_operand) ||
-      triton_fusion::IsInputWorthFusing(original_operand)) {
-    return CanFuse(mlir_context, operand, fusion);
+
+  switch (original_operand.opcode()) {
+    case HloOpcode::kTranspose:
+      return ShouldFuseTranspose(mlir_context, *operand, *fusion);
+    default:
+      break;
   }
-  return FusionDecision::Forbid("Not obviously profitable to fuse as input.");
+
+  if (!IsBinaryElementwiseOfBroadcastParamOrConst(original_operand) &&
+      !triton_fusion::IsInputWorthFusing(original_operand)) {
+    return FusionDecision::Forbid("Not obviously profitable to fuse as input.");
+  }
+  return FusionDecision::Allow();
+}
+
+FusionDecision ShouldFuseOperand(mlir::MLIRContext& mlir_context,
+                                 HloInstruction* operand,
+                                 const HloInstruction& original_operand,
+                                 HloInstruction* fusion) {
+  return IsOperandProfitable(mlir_context, operand, original_operand, fusion)
+      .And(CanFuse(mlir_context, operand, fusion));
 }
 
 // Attempts to fuse all candidates and their operands into the fusion.
