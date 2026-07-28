@@ -786,6 +786,8 @@ absl::Status RaggedAllToAllThunk::RunCollective(const ExecuteParams& params,
   auto* gpu_comm = tsl::down_cast<GpuCommunicator*>(&comm);
   if (UsesDeviceKernel() && gpu_comm->SupportsDeviceComm() &&
       params.collective_memory != nullptr) {
+    TF_RET_CHECK(peer_access_enabled)
+        << "RaggedAllToAllThunk: Peer access must be enabled.";
     auto [input_sym, input_offset] =
         params.collective_memory->FindSymmetricMemory(
             clique_key, device_buffers[0].source_buffer);

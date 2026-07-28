@@ -40,6 +40,7 @@ limitations under the License.
 #include "xla/literal.h"
 #include "xla/literal_util.h"
 #include "xla/service/hlo_module_config.h"
+#include "xla/service/platform_util.h"
 #include "xla/tests/literal_test_util.h"
 #include "xla/tsl/lib/core/status_test_util.h"
 #include "xla/tsl/platform/statusor.h"
@@ -80,6 +81,12 @@ class RaggedAllToAllTestBase : public CollectiveOpsWithFlagsBase {
 
   bool IsSymmetricNcclPath() const {
     return impl_type_ == RaggedAllToAllImplType::kNccl &&
+           collectives_mode_ == DebugOptions::COLLECTIVES_SYMMETRIC_MEMORY;
+  }
+
+  bool RequiresSymmetricMemory() const {
+    return IsSymmetricNcclPath() ||
+           impl_type_ == RaggedAllToAllImplType::kDeviceKernel ||
            collectives_mode_ == DebugOptions::COLLECTIVES_SYMMETRIC_MEMORY;
   }
 
@@ -242,10 +249,22 @@ class RaggedAllToAllTestBase : public CollectiveOpsWithFlagsBase {
     if (device_count() < 2) {
       GTEST_SKIP() << "Test requires at least 2 devices.";
     }
-    if (IsSymmetricNcclPath() &&
-        !Capability().cuda_compute_capability()->IsAtLeastHopper()) {
-      GTEST_SKIP() << "NCCL backend is only supported on Hopper architecture "
-                      "and above.";
+    if (RequiresSymmetricMemory()) {
+      if (!IsHopperAndHigher()) {
+        GTEST_SKIP() << "Symmetric memory is only supported on Hopper "
+                        "architecture and above.";
+      }
+      auto status_or_platform = PlatformUtil::GetPlatform("gpu");
+      if (status_or_platform.ok()) {
+        auto status_or_exec0 = status_or_platform.value()->ExecutorForDevice(0);
+        auto status_or_exec1 = status_or_platform.value()->ExecutorForDevice(1);
+        if (status_or_exec0.ok() && status_or_exec1.ok() &&
+            !status_or_exec0.value()->CanEnablePeerAccessTo(
+                status_or_exec1.value())) {
+          GTEST_SKIP() << "Test requires peer access between devices for "
+                          "symmetric memory.";
+        }
+      }
     }
   }
 
