@@ -6295,16 +6295,23 @@ int64_t MsaAlgorithm::GetCorrectedUseTime(
     // uses within the while loop body.
     return schedule.at(while_body->parameter_instruction(0));
   }
-  if (instruction->opcode() == HloOpcode::kConditional) {
+  if (GetInstructionCallContext(instruction->opcode()) ==
+          CallContext::kControlFlow &&
+      instruction->opcode() != HloOpcode::kWhile) {
     // The corrected use time is the earliest parameter of the called
     // computations.
     int64_t use_time = std::numeric_limits<int64_t>::max();
     for (const HloComputation* called_computation :
          instruction->called_computations()) {
-      use_time = std::min(
-          use_time, schedule.at(called_computation->parameter_instruction(0)));
+      if (called_computation->num_parameters() > 0) {
+        use_time =
+            std::min(use_time,
+                     schedule.at(called_computation->parameter_instruction(0)));
+      }
     }
-    return use_time;
+    if (use_time != std::numeric_limits<int64_t>::max()) {
+      return use_time;
+    }
   }
   // Otherwise, just return the time of the use instruction.
   return hlo_live_range_.instruction_schedule().at(instruction);

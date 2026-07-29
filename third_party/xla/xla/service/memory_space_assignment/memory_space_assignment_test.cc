@@ -3930,6 +3930,41 @@ TEST_F(MemorySpaceAssignmentTest, ConditionalShouldBeAllocatedInAlternateMem) {
             kAlternateMemorySpace);
 }
 
+TEST_F(MemorySpaceAssignmentTest,
+       AsyncStartOperandShouldBeAllocatedInAlternateMem) {
+  // Checks that operands of async-start get alternate memory allocations
+  // without colliding with the called computation's parameter allocations.
+  absl::string_view hlo_string = R"hlo(
+  HloModule AsyncAllocation, is_scheduled=true
+
+  async_computation {
+    p0 = f32[3]{0} parameter(0)
+    ROOT neg = f32[3]{0} negate(p0)
+  }
+
+  ENTRY entry {
+    p0 = f32[3]{0} parameter(0)
+    copy = f32[3]{0} copy(p0)
+    async-start = ((f32[3]{0}), f32[3]{0}, s32[]) async-start(copy), calls=async_computation
+    async-done = f32[3]{0} async-done(async-start), calls=async_computation
+    ROOT add = f32[3]{0} add(copy, async-done)
+  }
+  )hlo";
+  TF_ASSERT_OK_AND_ASSIGN(auto module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+  AssignMemorySpace(module.get());
+
+  // Check that copy got an alternate memory allocation.
+  auto copy =
+      module->GetComputationWithName("entry")->GetInstructionWithName("copy");
+  EXPECT_EQ(copy->shape().layout().memory_space(), kAlternateMemorySpace);
+  auto neg = module->GetComputationWithName("async_computation")
+                 ->GetInstructionWithName("neg");
+  auto neg_operand = neg->operand(0);
+  EXPECT_EQ(neg_operand->shape().layout().memory_space(),
+            kAlternateMemorySpace);
+}
+
 TEST_F(MemorySpaceAssignmentTest, ConditionalAvoidsUnnecessaryPrefetch) {
   // Checks if we avoid unnecessary allocation in alternate memory if the input
   // won't be used in the computation for a long time.

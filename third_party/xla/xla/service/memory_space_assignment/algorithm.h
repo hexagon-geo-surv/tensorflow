@@ -1199,8 +1199,9 @@ class MsaAlgorithm : public GlobalDecreasingSizeBestFitHeap<HloValue> {
 
   // Returns the corrected schedule time of an HloUse. The corrected time is
   // equivalent to the actual time of the use instructions for all instructions
-  // except for while and conditional instructions. For while instructions, the
-  // corrected time is the time of the body parameter, and for conditional, the
+  // except for while and control-flow call instructions (e.g., conditional,
+  // call, async-start). For while instructions, the corrected time is the time
+  // of the body parameter, and for control-flow call instructions, the
   // corrected time is the time of the parameter of the earliest-scheduled
   // called computation.
   int64_t GetCorrectedUseTime(const HloUse& use) const;
