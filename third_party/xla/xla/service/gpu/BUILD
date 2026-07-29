@@ -526,7 +526,6 @@ cc_library(
         "//xla/backends/gpu/runtime:conditional_thunk",
         "//xla/backends/gpu/runtime:convolution_reorder_thunk",
         "//xla/backends/gpu/runtime:convolution_thunk",
-        "//xla/backends/gpu/runtime:copy_thunk",
         "//xla/backends/gpu/runtime:cudnn_thunk",
         "//xla/backends/gpu/runtime:custom_call_thunk",
         "//xla/backends/gpu/runtime:custom_kernel_thunk",
