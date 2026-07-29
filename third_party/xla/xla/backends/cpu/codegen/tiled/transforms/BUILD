@@ -73,6 +73,7 @@ cc_library(
         "tensor_ops_to_bufferizable.cc",
         "unpack_sub_byte_vector_write_pass.cc",
         "vector_to_scalar_pass.cc",
+        "vectorize_xtile.cc",
     ],
     hdrs = ["passes.h"],
     deps = [
@@ -82,6 +83,8 @@ cc_library(
         "//xla/backends/cpu/codegen/emitters/ir:xla_cpu",
         "//xla/codegen/emitters/ir:xla",
         "//xla/codegen/xtile/ir:xtile",
+        "//xla/hlo/analysis:indexing_analysis",
+        "//xla/hlo/analysis:symbolic_map",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/numeric:bits",
