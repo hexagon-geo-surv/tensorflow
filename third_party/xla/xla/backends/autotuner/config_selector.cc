@@ -38,9 +38,15 @@ absl::StatusOr<ConfigRunner::ConfigProfile> PickBestConfig(
   ConfigRunner::ConfigProfile* best_result = nullptr;
   std::vector<std::string> failures;
   for (ConfigRunner::ConfigProfile& result : results) {
+    LOG(ERROR) << result.config.codegen_backend->name();
+    if (result.config.codegen_backend->name() == "HOST_OFFLOAD") {
+      LOG(ERROR) << result.ToString();
+    }
     if (result.failure.has_value()) {
       failures.push_back(result.failure->ToString());
-    } else if (result.duration < min_duration) {
+      continue;
+    }
+    if (result.duration < min_duration) {
       min_duration = result.duration;
       best_result = &result;
     }

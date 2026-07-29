@@ -366,6 +366,8 @@ AutotunerPass::GetGpuAutotunerBackends(
        debug_options.xla_gpu_experimental_autotune_backends()) {
     autotune_backends.push_back(static_cast<autotuner::Backend>(backend));
   }
+  // FIXME
+  autotune_backends.push_back(autotuner::Backend::HOST_OFFLOAD);
 
   std::vector<autotuner::Backend> disabled_autotune_backends;
   if (debug_options.xla_gpu_experimental_disable_binary_libraries()) {

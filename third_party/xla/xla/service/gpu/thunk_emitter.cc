@@ -183,6 +183,15 @@ limitations under the License.
 namespace xla::gpu {
 namespace {
 
+void RemoveLayoutFromComputation(xla::HloComputation* computation) {
+  for (xla::HloInstruction* instruction : computation->instructions()) {
+    // Clear layout from the instruction's shape.
+    // If the shape is a tuple, LayoutUtil::ClearLayout clears all subshapes
+    // recursively.
+    xla::LayoutUtil::ClearLayout(instruction->mutable_shape());
+  }
+}
+
 absl::StatusOr<TritonKernelSource> EmitTritonFrom(
     const TritonCall& call, const std::string& kernel_name,
     mlir::MLIRContext& mlir_context) {
@@ -1774,6 +1783,29 @@ Future<ThunkSequence> ThunkEmitter::EmitStaticSliceCopyFusion(
 
 Future<ThunkSequence> ThunkEmitter::EmitFusion(
     const HloFusionInstruction* instr) {
+  if (auto gpu_config = instr->backend_config<GpuBackendConfig>();
+      gpu_config.ok() && gpu_config->has_fusion_backend_config() &&
+      gpu_config->fusion_backend_config().kind() == "host_offload") {
+    HloModule* module = instr->GetModule();
+    std::unique_ptr<HloComputation> cloned =
+        instr->fused_instructions_computation()->Clone();
+    HloComputation* cloned_comp = cloned.get();
+    // RemoveLayoutFromComputation(cloned.get());
+    module->AddEmbeddedComputation(std::move(cloned));
+    ASSIGN_OR_RETURN(ThunkSequence seq,
+                     EmitAsHostExecute(instr, instr, cloned_comp));
+
+    auto it = GetInstructionToHostExecuteAsyncEvents().find(instr);
+    TF_RET_CHECK(it != GetInstructionToHostExecuteAsyncEvents().end())
+        << "could not find async events for host execute operation";
+    seq.push_back(std::make_unique<HostExecuteDoneThunk>(
+        Thunk::ThunkInfo::WithProfileAnnotation(
+            instr, ir_emitter_context_->GetNextThunkId()),
+        it->second));
+
+    LOG(ERROR) << "GEN HOST OFFLOAD";
+    return seq;
+  }
   ASSIGN_OR_RETURN(std::optional<StaticSliceCopyFusion> static_copy,
                    AnalyzeStaticSliceCopyFusion(instr));
   if (static_copy.has_value()) {
@@ -2644,13 +2676,17 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitHostRecvDone(
       DeviceConstraint(host_transfer));
 }
 
-absl::StatusOr<ThunkSequence> ThunkEmitter::EmitHostExecuteStart(
-    const HloInstruction* async_start,
-    const HloCustomCallInstruction* host_execute) {
-  TF_RET_CHECK(IsHostExecuteCustomCall(*host_execute));
-
+absl::StatusOr<ThunkSequence> ThunkEmitter::EmitAsHostExecute(
+    const HloInstruction* top_instr, const HloInstruction* to_execute,
+    const HloComputation* called_computation) {
   std::unique_ptr<HloModule> hlo_module =
-      ExtractComputationIntoNewModule(*host_execute->called_computation());
+      ExtractComputationIntoNewModule(*called_computation);
+
+  for (HloComputation* module_computation : hlo_module->computations()) {
+    for (HloInstruction* instruction : module_computation->instructions()) {
+      instruction->clear_backend_config();
+    }
+  }
 
   // All offloaded computations are marked as host computations from the
   // perspective of the GPU backend. Since these will execute on the main
@@ -2660,7 +2696,7 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitHostExecuteStart(
   }
 
   absl::InlinedVector<HostExecuteStartThunk::SliceAndShape, 4> operand_slices;
-  for (HloInstruction* operand : host_execute->operands()) {
+  for (HloInstruction* operand : to_execute->operands()) {
     for (auto& indexed : ShapeUtil::GetLeafShapes(operand->shape())) {
       ASSIGN_OR_RETURN(auto slice,
                        ir_emitter_context_->buffer_assignment().GetUniqueSlice(
@@ -2670,10 +2706,10 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitHostExecuteStart(
   }
 
   absl::InlinedVector<HostExecuteStartThunk::SliceAndShape, 4> result_slices;
-  for (auto& indexed : ShapeUtil::GetLeafShapes(host_execute->shape())) {
+  for (auto& indexed : ShapeUtil::GetLeafShapes(to_execute->shape())) {
     ASSIGN_OR_RETURN(auto slice,
                      ir_emitter_context_->buffer_assignment().GetUniqueSlice(
-                         host_execute, indexed.index));
+                         to_execute, indexed.index));
     result_slices.push_back({slice, indexed.shape});
   }
 
@@ -2686,18 +2722,27 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitHostExecuteStart(
   ASSIGN_OR_RETURN(auto thunk,
                    HostExecuteStartThunk::Create(
                        Thunk::ThunkInfo::WithProfileAnnotation(
-                           async_start, ir_emitter_context_->GetNextThunkId()),
+                           top_instr, ir_emitter_context_->GetNextThunkId()),
                        std::move(host_offloading_executable_proto),
                        std::move(operand_slices), std::move(result_slices)));
 
   auto [it, inserted] = GetInstructionToHostExecuteAsyncEvents().emplace(
-      host_execute, thunk->async_events());
+      to_execute, thunk->async_events());
   if (!inserted) {
     return Internal(
         "Async events already exist for host offloading custom call %s.",
-        host_execute->ToString());
+        to_execute->ToString());
   }
   return ThunkSequence::Of(std::move(thunk));
+}
+
+absl::StatusOr<ThunkSequence> ThunkEmitter::EmitHostExecuteStart(
+    const HloInstruction* async_start,
+    const HloCustomCallInstruction* host_execute) {
+  TF_RET_CHECK(IsHostExecuteCustomCall(*host_execute));
+
+  return EmitAsHostExecute(async_start, host_execute,
+                           host_execute->called_computation());
 }
 
 absl::StatusOr<ThunkSequence> ThunkEmitter::EmitHostExecuteDone(
