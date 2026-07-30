@@ -176,6 +176,7 @@ cc_library(
         "@llvm-project//mlir:AffineToStandard",
         "@llvm-project//mlir:ArithToLLVM",
         "@llvm-project//mlir:ControlFlowToLLVM",
+        "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IndexToLLVM",
         "@llvm-project//mlir:LLVMDialect",
         "@llvm-project//mlir:NVVMToLLVM",

@@ -23,6 +23,7 @@ limitations under the License.
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
@@ -435,6 +436,29 @@ struct RefineConstraints : public OpRewritePattern<ApplyIndexingOp> {
   }
 };
 
+struct SimplifyAtan2Pattern
+    : public mlir::OpRewritePattern<mlir::math::Atan2Op> {
+  using OpRewritePattern::OpRewritePattern;
+
+  mlir::LogicalResult matchAndRewrite(
+      mlir::math::Atan2Op op, mlir::PatternRewriter& rewriter) const override {
+    mlir::Value rhs = op.getRhs();
+
+    mlir::APFloat const_val(0.0);
+    if (!mlir::matchPattern(rhs, mlir::m_ConstantFloat(&const_val))) {
+      return rewriter.notifyMatchFailure(op, "RHS is not a constant float");
+    }
+
+    if (!const_val.isExactlyValue(1.0)) {
+      return rewriter.notifyMatchFailure(op, "RHS is not 1.0");
+    }
+
+    rewriter.replaceOpWithNewOp<mlir::math::AtanOp>(op, op.getType(),
+                                                    op.getLhs());
+    return mlir::success();
+  }
+};
+
 class SimplifyArithPass
     : public impl::SimplifyArithPassBase<SimplifyArithPass> {
  public:
@@ -453,7 +477,8 @@ class SimplifyArithPass
       RewriteMinSi,
       RewriteTruncBitExt<mlir::arith::AndIOp>,
       RewriteTruncBitExt<mlir::arith::OrIOp>,
-      RewriteTruncExtShuffle
+      RewriteTruncExtShuffle,
+      SimplifyAtan2Pattern
     >(ctx);
 
     if (fast_min_max_) {
