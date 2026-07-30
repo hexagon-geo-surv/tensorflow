@@ -658,6 +658,71 @@ TEST_F(MemorySpaceAssignmentTest, SyncSliceReplacementAfterPrefetch) {
   EXPECT_THAT(concat->operand(1), op::AsyncDone(op::AsyncStart(p0)));
 }
 
+TEST_F(MemorySpaceAssignmentTest, WhileLoopPreferredOffsetExceedsHeapLimit) {
+  // Test that when an aliased preferred_offset is present across a while loop,
+  // attempting to allocate/prefetch a parameter whose preferred offset plus
+  // size exceeds max_size_in_bytes does not overflow alternate memory and
+  // safely defaults to HBM.
+  absl::string_view hlo_string = R"hlo(
+  HloModule module, is_scheduled=true
+
+  WhileBody {
+    body_param = (f32[4,3], f32[4,2], f32[], f32[]) parameter(0)
+    v0 = f32[4,3] get-tuple-element(body_param), index=0
+    v1 = f32[4,2] get-tuple-element(body_param), index=1
+    i = f32[] get-tuple-element(body_param), index=2
+    limit = f32[] get-tuple-element(body_param), index=3
+    one = f32[] constant(1)
+
+    new_i = f32[] add(i, one)
+    new_v0 = f32[4,3] add(v0, v0)
+    new_v1 = f32[4,2] add(v1, v1)
+
+    ROOT while_result = (f32[4,3], f32[4,2], f32[], f32[]) tuple(new_v0, new_v1, new_i, limit)
+  }
+
+  WhileCond {
+    cond_param = (f32[4,3], f32[4,2], f32[], f32[]) parameter(0)
+    i = f32[] get-tuple-element(cond_param), index=2
+    limit = f32[] get-tuple-element(cond_param), index=3
+
+    ROOT cond_result = pred[] compare(i, limit), direction=LT
+  }
+
+  ENTRY main {
+    p0 = f32[4,3] parameter(0)
+    p1 = f32[4,2] parameter(1)
+    iterations = f32[] parameter(2)
+    initial = f32[] constant(0)
+
+    t = (f32[4,3], f32[4,2], f32[], f32[]) tuple(p0, p1, initial, iterations)
+    w = (f32[4,3], f32[4,2], f32[], f32[]) while(t), condition=WhileCond, body=WhileBody
+    d0 = f32[4,3] get-tuple-element(w), index=0
+    d1 = f32[4,2] get-tuple-element(w), index=1
+
+    ROOT r = (f32[4,3], f32[4,2]) tuple(d0, d1)
+  }
+  )hlo";
+  auto module_or = ParseAndReturnVerifiedModule(hlo_string);
+  CHECK_OK(module_or.status());
+  std::unique_ptr<VerifiedHloModule> module = *std::move(module_or);
+  Options options = DefaultMemorySpaceOptions();
+  // f32[4,3] is 48 bytes. f32[4,2] is 32 bytes.
+  // Set max_size_in_bytes = 64 so that each tensor individually fits (< 64),
+  // but together (48 + 32 = 80) they exceed max_size_in_bytes.
+  options.max_size_in_bytes = 64;
+  options.enable_sync_copy_replacement = false;
+  options.enable_sync_slice_replacement = true;
+  options.is_async_slice_implemented_fn =
+      [](const HloInstruction* instruction) { return true; };
+  InstructionCountPrefetchIntervalPicker prefetch_interval_picker(2, 10);
+  TF_EXPECT_OK(
+      AssignMemorySpaceAndReturnStatus(module.get(), std::move(options),
+                                       /*buffer_interval_compare=*/std::nullopt,
+                                       &prefetch_interval_picker)
+          .status());
+}
+
 TEST_F(MemorySpaceAssignmentTest, ViewExtendedUseTimeWalksTransitiveReaders) {
   // A view (dus_view_color colored custom call) aliases its operand's storage
   // without owning any, and the read side rewrite reattaches a view colored
