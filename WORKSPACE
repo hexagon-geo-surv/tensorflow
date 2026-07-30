@@ -30,6 +30,15 @@ tf_http_archive(
     ),
 )
 
+tf_http_archive(
+    name = "rules_ml_toolchain",
+    sha256 = "26e7efb7784bbbcde0308a45003056e14fb9fc3b6e383966041d827ce8c7e16b",
+    strip_prefix = "rules_ml_toolchain-e05066565d33dd503f1464b720223db39fd974ca",
+    urls = tf_mirror_urls(
+        "https://github.com/yuriivcs/rules_ml_toolchain/archive/e05066565d33dd503f1464b720223db39fd974ca.tar.gz",
+    ),
+)
+
 # Initialize the TensorFlow repository and all dependencies.
 #
 # The cascade of load() statements and tf_workspace?() calls works around the

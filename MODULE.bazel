@@ -86,9 +86,9 @@ bazel_dep(name = "libprotobuf-mutator", version = "1.3", repo_name = "libprotobu
 bazel_dep(name = "rules_ml_toolchain")
 archive_override(
     module_name = "rules_ml_toolchain",
-    integrity = "sha256-OwVoeEJCcEHGXRvC9K7aOjB5VXEg9b6MNGkAh6iMXeU=",
-    strip_prefix = "rules_ml_toolchain-2eddbc595cc0bbe650c2640204f66b14f015f1a8",
-    urls = ["https://github.com/google-ml-infra/rules_ml_toolchain/archive/2eddbc595cc0bbe650c2640204f66b14f015f1a8.tar.gz"],
+    integrity = "sha256-Jufvt3hLu83gMIpFADBW4U+5/DtuODlmBB2CfOjH4Ws=",
+    strip_prefix = "rules_ml_toolchain-e05066565d33dd503f1464b720223db39fd974ca",
+    urls = ["https://github.com/yuriivcs/rules_ml_toolchain/archive/e05066565d33dd503f1464b720223db39fd974ca.tar.gz"],
 )
 
 bazel_dep(name = "xla", repo_name = "xla")

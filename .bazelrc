@@ -68,6 +68,19 @@
 # LINT.IfChange
 # Default build options. These are applied first and unconditionally.
 
+# Disable unsupported C++ toolchain features.
+common --features=-cpp_modules
+common --features=-cpp20_module_compile_flags
+common --features=-cpp_module_modmap_file
+common --features=-layering_check
+common --features=-external_include_paths
+
+common --host_features=-cpp_modules
+common --host_features=-cpp20_module_compile_flags
+common --host_features=-cpp_module_modmap_file
+common --host_features=-layering_check
+common --host_features=-external_include_paths
+
 # These are used to generate the ML wheel version string.
 # See the explanation in the file comment of
 # @xla//third_party/py/python_wheel.bzl.
