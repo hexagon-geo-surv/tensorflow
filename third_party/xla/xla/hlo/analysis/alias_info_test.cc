@@ -129,6 +129,9 @@ ENTRY main {
                               HloOperandIndex{0, {0, 0}}, {}}));
 }
 
+// Tests that GetInPlaceInputOutputPairs on an async-update instruction whose
+// async chain start crosses a computation boundary (e.g., via a while loop
+// parameter where async_chain_start() returns nullptr) returns empty pairs
 // Verifies that a dynamic-update-slice instruction can compute in-place
 // with its first operand (the array being updated).
 TEST_F(GetInPlaceInputOutputPairsTest, DUS) {

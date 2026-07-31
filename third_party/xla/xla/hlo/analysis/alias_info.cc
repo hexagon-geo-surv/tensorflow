@@ -317,17 +317,30 @@ AliasInfo::GetInPlaceInputOutputPairs(const HloInstruction* user) const {
 
     // Retrieve the aliasing pairs from the async-start.
     const HloInstruction* start = user->async_chain_start();
-    CHECK_EQ(start->opcode(), HloOpcode::kAsyncStart);
-    const auto& aliasing_pairs =
-        Cast<HloAsyncStartInstruction>(start)->output_to_operand_aliasing();
+    if (start == nullptr || start->opcode() != HloOpcode::kAsyncStart) {
+      return in_place_pairs;
+    }
+    const HloAsyncStartInstruction* async_start_inst =
+        DynCast<HloAsyncStartInstruction>(start);
+    if (async_start_inst == nullptr) {
+      return in_place_pairs;
+    }
+    const auto& aliasing_pairs = async_start_inst->output_to_operand_aliasing();
 
     if (user->operand_count() == 1 || aliasing_pairs.empty()) {
       return in_place_pairs;
     }
 
+    const HloInstruction* op0 = user->operand(0);
+    const HloAsyncInstruction* prev_async =
+        (op0 != nullptr) ? DynCast<HloAsyncInstruction>(op0) : nullptr;
+    if (prev_async == nullptr || prev_async->async_chain_start() == nullptr ||
+        DynCast<HloAsyncStartInstruction>(prev_async->async_chain_start()) ==
+            nullptr) {
+      return in_place_pairs;
+    }
     std::vector<const HloInstruction*> prev_bound_operands =
-        hlo_instruction_utils::async::GetAsyncBoundOperands(
-            Cast<HloAsyncInstruction>(user->operand(0)));
+        hlo_instruction_utils::async::GetAsyncBoundOperands(prev_async);
 
     for (const auto& pair : aliasing_pairs) {
       ShapeIndex output_shape_index = pair.first;
