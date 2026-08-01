@@ -27,6 +27,9 @@ bool IsRuntimeBmm(const TfLiteRegistration* registration,
                   const TfLiteNode* node);
 bool IsRuntimeBmm(TfLiteContext* context, int node_index);
 
+bool IsSdpa(const TfLiteRegistration* registration, const TfLiteNode* node);
+bool IsSdpa(TfLiteContext* context, int node_index);
+
 TfLiteStatus IsBatchMatMulSupported(const TfLiteRegistration* registration,
                                     const TfLiteNode* node,
                                     TfLiteContext* context,
@@ -35,6 +38,9 @@ TfLiteStatus IsBatchMatMulSupported(const TfLiteRegistration* registration,
 TfLiteStatus IsRuntimeBatchedMatMulSupported(
     const TfLiteRegistration* registration, const TfLiteNode* node,
     TfLiteContext* context);
+
+TfLiteStatus IsSdpaSupported(const TfLiteRegistration* registration,
+                             const TfLiteNode* node, TfLiteContext* context);
 
 TfLiteStatus IsFullyConnectedSupported(const TfLiteRegistration* registration,
                                        const TfLiteNode* node,
@@ -49,6 +55,12 @@ TfLiteStatus DefineRuntimeBatchedMatMulNode(
     TfLiteContext* context, ynn_subgraph_t subgraph,
     TensorToValueIdMap& tensor_to_value_id, uint32_t& next_external_id,
     std::vector<DummyInputInfo>& dummy_inputs, const NodeInfo& node);
+
+TfLiteStatus DefineSdpaNode(TfLiteContext* context, ynn_subgraph_t subgraph,
+                            TensorToValueIdMap& tensor_to_value_id,
+                            uint32_t& next_external_id,
+                            std::vector<DummyInputInfo>& dummy_inputs,
+                            const NodeInfo& node);
 
 TfLiteStatus DefineFullyConnectedNode(TfLiteContext* context,
                                       ynn_subgraph_t subgraph,

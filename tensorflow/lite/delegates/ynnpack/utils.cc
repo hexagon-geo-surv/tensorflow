@@ -100,6 +100,8 @@ ynn_type GetYnnType(TfLiteType type) {
       return ynn_type_uint4;
     case kTfLiteInt2:
       return ynn_type_int2;
+    case kTfLiteBool:
+      return ynn_type_uint8;
     default:
       return ynn_type_invalid;
   }
