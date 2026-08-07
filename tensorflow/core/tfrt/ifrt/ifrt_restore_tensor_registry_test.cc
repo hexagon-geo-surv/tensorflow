@@ -182,13 +182,13 @@ TEST(IfrtRestoreTensorRegistryTest, FeezeTensorRegistry) {
   promise1.Set(input_tensor);
   promise2.Set(input_tensor);
   registry.Freeze();
-  // Tensor with `used_by_host` set to false will be freed after freeze.
+  // Non-host-used tensor futures will be freed after freeze.
   EXPECT_THAT(registry.GetRestoredTensor("input_tensor_1").Await(),
               absl_testing::StatusIs(absl::StatusCode::kUnavailable));
-  // Tensor with `used_by_host` set to true will be kept after freeze.
-  TF_ASSERT_OK_AND_ASSIGN(tensorflow::Tensor retrieved,
-                          registry.GetRestoredTensor("input_tensor_2").Await());
-  test::ExpectEqual(retrieved, input_tensor);
+  // Host-used tensor futures are preserved after freeze.
+  EXPECT_TRUE(registry.GetRestoredTensor("input_tensor_2").Await().ok());
+  EXPECT_TRUE(registry.GetUsedByHostNames().contains("input_tensor_2"));
+  EXPECT_FALSE(registry.GetUsedByHostNames().contains("input_tensor_1"));
 }
 }  // namespace
 }  // namespace ifrt_serving

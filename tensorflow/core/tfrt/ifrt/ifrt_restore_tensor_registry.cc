@@ -73,14 +73,28 @@ absl::Status IfrtRestoreTensorRegistry::SetUsedByHost(absl::string_view name) {
 void IfrtRestoreTensorRegistry::Freeze() {
   absl::MutexLock lock(mutex_);
   tsl::Future<tensorflow::Tensor> release_tensor_future(
-      absl::UnavailableError("Tensor is already release."));
+      absl::UnavailableError("Tensor is already released."));
+  int released_count = 0;
   for (auto& [name, info] : restored_tensors_) {
     if (!info.used_by_host) {
-      // Release the tensor by replacing the future containing the tensor with
-      // an future containing a status.
       info.tensor_future = release_tensor_future;
+      released_count++;
     }
   }
+  LOG(INFO) << "IfrtRestoreTensorRegistry::Freeze: Released " << released_count
+            << " of " << restored_tensors_.size() << " tensor futures.";
+}
+
+absl::flat_hash_set<std::string> IfrtRestoreTensorRegistry::GetUsedByHostNames()
+    const {
+  absl::MutexLock lock(mutex_);
+  absl::flat_hash_set<std::string> result;
+  for (const auto& [name, info] : restored_tensors_) {
+    if (info.used_by_host) {
+      result.insert(name);
+    }
+  }
+  return result;
 }
 
 absl::StatusOr<DtypeAndShape> IfrtRestoreTensorRegistry::GetDtypeAndShape(
