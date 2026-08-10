@@ -1063,7 +1063,8 @@ ENTRY main {
   Compiler::CompileOptions compile_options;
   compile_options.gpu_topology =
       GetSingleDeviceGpuTopology(/*platform_version=*/"", gpu_target_config());
-  compile_options.early_exit_with_layouts = false;
+  compile_options.early_exit_point =
+      Compiler::CompileOptions::EarlyExitPoint::kNone;
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<Executable> executable,
       compiler()->RunBackend(std::move(module), /*executor=*/nullptr,
@@ -1123,7 +1124,8 @@ ENTRY main {
   Compiler::CompileOptions compile_options;
   compile_options.gpu_topology =
       GetSingleDeviceGpuTopology(/*platform_version=*/"", gpu_target_config());
-  compile_options.early_exit_with_layouts = false;
+  compile_options.early_exit_point =
+      Compiler::CompileOptions::EarlyExitPoint::kNone;
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<Executable> executable,
       compiler()->RunBackend(std::move(module), /*executor=*/nullptr,
@@ -1629,7 +1631,8 @@ ENTRY main {
   Compiler::CompileOptions compile_options;
   compile_options.gpu_topology =
       GetSingleDeviceGpuTopology(/*platform_version=*/"", gpu_target_config());
-  compile_options.early_exit_with_layouts = false;
+  compile_options.early_exit_point =
+      Compiler::CompileOptions::EarlyExitPoint::kNone;
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<Executable> executable,
       compiler()->RunBackend(std::move(hlo_module), /*executor=*/nullptr,
@@ -1764,7 +1767,8 @@ ENTRY main {
   Compiler::CompileOptions compile_options;
   compile_options.gpu_topology =
       GetSingleDeviceGpuTopology(/*platform_version=*/"", gpu_target_config());
-  compile_options.early_exit_with_layouts = false;
+  compile_options.early_exit_point =
+      Compiler::CompileOptions::EarlyExitPoint::kNone;
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<HloModule> compiled_module,
       compiler()->RunHloPasses(module->Clone(), /*executor=*/nullptr,
@@ -3175,7 +3179,8 @@ ENTRY main {
   Compiler::CompileOptions compile_options;
   compile_options.gpu_topology =
       GetSingleDeviceGpuTopology(/*platform_version=*/"", gpu_target_config());
-  compile_options.early_exit_with_layouts = false;
+  compile_options.early_exit_point =
+      Compiler::CompileOptions::EarlyExitPoint::kNone;
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<Executable> executable,
       compiler()->RunBackend(std::move(module), /*executor=*/nullptr,
@@ -3206,6 +3211,43 @@ ENTRY main {
   auto it = extra_options.find("xla_is_host_offload");
   ASSERT_NE(it, extra_options.end());
   EXPECT_EQ(it->second, "true");
+}
+
+TEST_F(GpuCompilerTest, EarlyExitBeforeAutotuning) {
+  absl::string_view hlo_text = R"hlo(
+    HloModule gemm
+
+    ENTRY main {
+      p0 = f32[32,32]{1,0} parameter(0)
+      p1 = f32[32,32]{1,0} parameter(1)
+      ROOT dot = f32[32,32] dot(p0, p1),
+        lhs_contracting_dims={1}, rhs_contracting_dims={0}
+    }
+)hlo";
+
+  AotCompilationOptions aot_options(compiler()->PlatformId());
+  aot_options.set_gpu_topology(
+      GetSingleDeviceGpuTopology(/*platform_version=*/"", gpu_target_config()));
+  aot_options.set_early_exit_point(
+      AotCompilationOptions::EarlyExitPoint::kBeforeAutotuning);
+
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                       ParseAndReturnVerifiedModule(hlo_text));
+  ASSERT_OK_AND_ASSIGN(
+      std::vector<std::unique_ptr<CompiledModule>> aot_results,
+      compiler()->CompileAheadOfTime(std::move(module), aot_options));
+
+  ASSERT_EQ(aot_results.size(), 1);
+  const HloModule* optimized_module = aot_results[0]->optimized_module();
+  ASSERT_NE(optimized_module, nullptr);
+
+  // Make sure the the pre-autotune passes are run, but it stops before
+  // autotuning.
+  EXPECT_THAT(optimized_module,
+              HasExpectedPasses(std::vector<std::string>{
+                  "layout-assignment", "cublas-gemm-rewriter"}));
+  EXPECT_THAT(optimized_module,
+              Not(HasExpectedPasses(std::vector<std::string>{"autotuner"})));
 }
 
 }  // namespace gpu

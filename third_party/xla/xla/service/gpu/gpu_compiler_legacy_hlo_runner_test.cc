@@ -155,7 +155,8 @@ TEST_P(AotCompilationTest, ExportAndImportAotResult) {
 
   Compiler::CompileOptions compile_options;
   compile_options.gpu_topology = aot_options_->gpu_topology();
-  compile_options.early_exit_with_layouts = false;
+  compile_options.early_exit_point =
+      Compiler::CompileOptions::EarlyExitPoint::kNone;
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<Executable> executable,
       compiler()->RunBackend(std::move(add_1_hlo), /*executor=*/nullptr,

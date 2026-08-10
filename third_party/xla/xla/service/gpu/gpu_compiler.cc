@@ -771,7 +771,8 @@ absl::Status RunOptimizationPasses(
     const GpuCompiler& compiler, HloModule* hlo_module,
     const GpuTargetConfig& gpu_target_config,
     const AlgebraicSimplifierOptions& layout_insensitive_algsimp_opts,
-    bool is_deviceless, bool is_early_exit_with_layouts,
+    bool is_deviceless,
+    Compiler::CompileOptions::EarlyExitPoint early_exit_point,
     CompilationStats* compilation_stats) {
   const DebugOptions& debug_options = hlo_module->config().debug_options();
   se::GpuComputeCapability gpu_version =
@@ -832,8 +833,10 @@ absl::Status RunOptimizationPasses(
   pipeline.AddPass<PermutationSortExpander>();
 
   if (debug_options.xla_gpu_enable_cub_radix_sort()) {
-    pipeline.AddPass<SortRewriter>(gpu_target_config.device_description,
-                                   is_deviceless, is_early_exit_with_layouts);
+    pipeline.AddPass<SortRewriter>(
+        gpu_target_config.device_description, is_deviceless,
+        early_exit_point ==
+            Compiler::CompileOptions::EarlyExitPoint::kAfterLayoutAssignment);
   }
   // Comparison total order expander
   std::vector<std::pair<PrimitiveType, PrimitiveType>>
@@ -941,8 +944,10 @@ absl::Status RunOptimizationPasses(
   pipeline.AddPass<DynamicPadder>(dynamic_padder_options);
   // SortRewriter needs to run before StableSortExpander.
   if (debug_options.xla_gpu_enable_cub_radix_sort()) {
-    pipeline.AddPass<SortRewriter>(gpu_target_config.device_description,
-                                   is_deviceless, is_early_exit_with_layouts);
+    pipeline.AddPass<SortRewriter>(
+        gpu_target_config.device_description, is_deviceless,
+        early_exit_point ==
+            Compiler::CompileOptions::EarlyExitPoint::kAfterLayoutAssignment);
   }
   // Expand the sort op to support stable sorting if required.
   pipeline.AddPass<StableSortExpander>();
@@ -1864,11 +1869,11 @@ absl::Status GpuCompiler::OptimizeHloModule(
   // callbacks at this point.
   DumpHloModuleIfEnabled(*hlo_module, "after_spmd_partitioner");
 
-  ABSL_RETURN_IF_ERROR(RunOptimizationPasses(
-      *this, hlo_module, gpu_topology.gpu_target_config(),
-      layout_insensitive_algsimp_opts,
-      /*is_deviceless=*/stream_exec == nullptr, options.early_exit_with_layouts,
-      compilation_stats));
+  ABSL_RETURN_IF_ERROR(
+      RunOptimizationPasses(*this, hlo_module, gpu_topology.gpu_target_config(),
+                            layout_insensitive_algsimp_opts,
+                            /*is_deviceless=*/stream_exec == nullptr,
+                            options.early_exit_point, compilation_stats));
   se::GpuComputeCapability gpu_version =
       device_description.gpu_compute_capability();
   ABSL_RETURN_IF_ERROR(RunCollectiveOptimizationPasses(
@@ -1884,7 +1889,8 @@ absl::Status GpuCompiler::OptimizeHloModule(
 
   ABSL_RETURN_IF_ERROR(RunLayoutAssignmentPasses(
       hlo_module, gpu_version, device_description, compilation_stats));
-  if (options.early_exit_with_layouts) {
+  if (options.early_exit_point ==
+      CompileOptions::EarlyExitPoint::kAfterLayoutAssignment) {
     return absl::OkStatus();
   }
 
@@ -1941,6 +1947,11 @@ absl::Status GpuCompiler::OptimizeHloModule(
   ABSL_RETURN_IF_ERROR(RunAsyncDotPasses(hlo_module, compilation_stats));
 
   DumpHloModuleIfEnabled(*hlo_module, "before_config_assignment");
+
+  if (options.early_exit_point ==
+      CompileOptions::EarlyExitPoint::kBeforeAutotuning) {
+    return absl::OkStatus();
+  }
 
   {
     HloPassPipeline pipeline("autotuner", compilation_stats);
@@ -2328,7 +2339,7 @@ absl::StatusOr<std::unique_ptr<HloModule>> GpuCompiler::RunHloPasses(
   ABSL_RETURN_IF_ERROR(OptimizeHloModule(module.get(), stream_exec, options,
                                     gpu_topology, alias_info.get(),
                                     compilation_stats.get()));
-  if (options.early_exit_with_layouts) {
+  if (options.early_exit_point != CompileOptions::EarlyExitPoint::kNone) {
     return std::move(module);
   }
 
@@ -3071,9 +3082,18 @@ GpuCompiler::CompileAheadOfTime(std::unique_ptr<HloModule> hlo_module,
     compile_options.cpu_target_config.emplace(
         *options.gpu_topology()->host_target_machine_options());
   }
-  compile_options.early_exit_with_layouts =
-      options.early_exit_point() ==
-      AotCompilationOptions::EarlyExitPoint::kAfterLayoutAssignment;
+  switch (options.early_exit_point()) {
+    case AotCompilationOptions::EarlyExitPoint::kAfterLayoutAssignment:
+      compile_options.early_exit_point =
+          CompileOptions::EarlyExitPoint::kAfterLayoutAssignment;
+      break;
+    case AotCompilationOptions::EarlyExitPoint::kBeforeAutotuning:
+      compile_options.early_exit_point =
+          CompileOptions::EarlyExitPoint::kBeforeAutotuning;
+      break;
+    default:
+      break;  // kNone and kAfterBufferAssignment (TPU-only)
+  }
 
   ABSL_ASSIGN_OR_RETURN(std::unique_ptr<HloModule> optimized_hlo_module,
                    RunHloPassesIfNeeded(std::move(hlo_module),

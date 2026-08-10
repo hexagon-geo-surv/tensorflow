@@ -148,8 +148,13 @@ class Compiler {
     // Embed HLO module in the executable. Only used on GPU at the moment.
     bool embed_hlo_module = true;
 
-    // If true, the compiler will exit after the layout assignment pass.
-    bool early_exit_with_layouts = false;
+    // Provides a way to end compilation early and get partial outputs.
+    enum class EarlyExitPoint {
+      kNone,
+      kAfterLayoutAssignment,
+      kBeforeAutotuning,
+    };
+    EarlyExitPoint early_exit_point = EarlyExitPoint::kNone;
   };
 
   virtual ~Compiler() = default;
@@ -459,6 +464,7 @@ class AotCompilationOptions {
   enum class EarlyExitPoint {
     kNone,
     kAfterLayoutAssignment,
+    kBeforeAutotuning,
     kAfterBufferAssignment,
   };
 

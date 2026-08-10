@@ -46,7 +46,8 @@ class GpuPjRtCodegenTest : public HloPjRtGpuTestBase {
     }
     compile_options_.gpu_topology = GetSingleDeviceGpuTopology(
         /*platform_version=*/"", gpu_target_config());
-    compile_options_.early_exit_with_layouts = false;
+    compile_options_.early_exit_point =
+        Compiler::CompileOptions::EarlyExitPoint::kNone;
   }
 
  protected:
