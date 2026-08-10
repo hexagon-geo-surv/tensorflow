@@ -221,6 +221,7 @@ cc_library(
         "//xla:util",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/utils:hlo_live_range",
+        "//xla/hlo/utils:hlo_query",
         "//xla/service:hlo_value",
         "//xla/service/heap_simulator",
         "@com_google_absl//absl/algorithm:container",
@@ -280,6 +281,7 @@ cc_library(
     deps = [
         ":memory_space_assignment_proto_cc",
         ":slice",
+        ":utils",
         "//xla:shape_util",
         "//xla:status_macros",
         "//xla:util",

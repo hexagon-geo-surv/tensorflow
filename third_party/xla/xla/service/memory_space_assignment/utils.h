@@ -115,6 +115,11 @@ class MemorySpaceAssignmentUtils {
       const MsaBufferInterval& buffer_interval,
       bool is_cross_program_prefetch = false);
 
+  // Returns true if the custom fusion represents a slice or cross-buffer slice
+  // operation suitable for async conversion (and does not contain unsupported
+  // ops).
+  static bool IsAsyncConvertibleCustomFusion(const HloInstruction* instruction);
+
  private:
   static bool DoesBufferIntervalMatchHloUseFilter(
       const HloPositionMatcher& filter,

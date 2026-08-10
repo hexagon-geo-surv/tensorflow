@@ -1583,6 +1583,9 @@ void MsaAlgorithm::IdentifyAndOptimizeMemoryBoundLoops() {
 
 bool MsaAlgorithm::IsAsyncConversionCandidate(
     const HloInstruction* instruction) const {
+  if (MemorySpaceAssignmentUtils::IsAsyncConvertibleCustomFusion(instruction)) {
+    return true;
+  }
   bool meets_special_preconditions =
       IsAsyncConversionCopyCandidate(instruction) ||
       IsAsyncConversionSliceCandidate(instruction) ==
@@ -1739,6 +1742,9 @@ MsaAlgorithm::IsAsyncConversionSliceCandidate(
   }
   if (failed_async_conversions_.contains(instruction)) {
     return failed_async_conversions_.at(instruction);
+  }
+  if (MemorySpaceAssignmentUtils::IsAsyncConvertibleCustomFusion(instruction)) {
+    return AsyncConversionResult::kSuccess;
   }
   if (!IsSliceLikeInstruction(instruction)) {
     return AsyncConversionResult::kFailedPrecondition;
@@ -2242,7 +2248,8 @@ MsaAlgorithm::GetAltMemoryColoredIntervalsForBuffer(
 
   auto disallow_async_conversion_if_conversion_candidate =
       [&](const HloInstruction* inst) {
-        if (IsAsyncConversionCandidate(inst)) {
+        if (IsAsyncConversionCandidate(inst) &&
+            !MemorySpaceAssignmentUtils::IsAsyncConvertibleCustomFusion(inst)) {
           failed_async_conversions_[inst] =
               AsyncConversionResult::kAsyncConversionNotAllowedForColoredBuffer;
         }

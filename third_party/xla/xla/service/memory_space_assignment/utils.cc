@@ -27,6 +27,7 @@ limitations under the License.
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/status/status_macros.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "highwayhash/arch_specific.h"
@@ -39,6 +40,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/hlo/ir/hlo_print_options.h"
 #include "xla/hlo/utils/hlo_live_range.h"
+#include "xla/hlo/utils/hlo_query.h"
 #include "xla/service/heap_simulator/heap_simulator.h"
 #include "xla/service/hlo_value.h"
 #include "xla/service/memory_space_assignment/memory_space_assignment.pb.h"
@@ -52,6 +54,7 @@ namespace {
 
 // The default seed used by HloRandomFilter when no seed is given.
 const int64_t kRandomFilterDefaultSeed = 1234;
+constexpr absl::string_view kCrossBufferSlice = "cross_buffer_slice";
 
 }  // namespace
 
@@ -433,6 +436,38 @@ int64_t MemorySpaceAssignmentUtils::GetBufferIntervalOverridePriority(
     }
   }
   return 0;
+}
+
+bool MemorySpaceAssignmentUtils::IsAsyncConvertibleCustomFusion(
+    const HloInstruction* instruction) {
+  if (!instruction->IsCustomFusion()) {
+    return false;
+  }
+  const HloComputation* fused_comp =
+      instruction->fused_instructions_computation();
+  if (fused_comp == nullptr) {
+    return false;
+  }
+  if (absl::StrContains(instruction->name(), kCrossBufferSlice) ||
+      absl::StrContains(fused_comp->name(), kCrossBufferSlice)) {
+    return true;
+  }
+  bool has_slice_op = false;
+  for (const HloInstruction* fused_inst : fused_comp->instructions()) {
+    if (fused_inst->opcode() == HloOpcode::kGather ||
+        fused_inst->opcode() == HloOpcode::kScatter ||
+        fused_inst->opcode() == HloOpcode::kDot ||
+        fused_inst->opcode() == HloOpcode::kConvolution ||
+        hlo_query::IsCollectiveCommunicationOp(fused_inst->opcode())) {
+      return false;
+    }
+    if (fused_inst->opcode() == HloOpcode::kSlice ||
+        fused_inst->opcode() == HloOpcode::kDynamicSlice ||
+        fused_inst->opcode() == HloOpcode::kDynamicUpdateSlice) {
+      has_slice_op = true;
+    }
+  }
+  return has_slice_op;
 }
 }  // namespace memory_space_assignment
 }  // namespace xla
