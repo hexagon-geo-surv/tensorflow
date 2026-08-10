@@ -137,6 +137,12 @@ struct Environment {
   // Policy that controls how `ExecuteOptions.fill_status` is passed to
   // `Execute()` calls.
   ProgramFillStatus program_fill_status;
+  // Execution stream id of the program execution. When non-zero, it is
+  // forwarded to every atom program execution so that executions of the same
+  // IFRT IR program on different streams may run concurrently (the atom-level
+  // ExecuteOptions otherwise pin every fragment of every program execution to
+  // stream 0, serializing them in dispatch order).
+  int64_t execution_stream_id = 0;
   // Contains a future for each ifrt.CallOp that is a leaf (i.e., has no outputs
   // or all its outputs are returned from the program).
   std::vector<tsl::Future<>> leaf_call_op_futures;
@@ -200,6 +206,7 @@ struct ProgramInterpreterState {
     Environment env;
     env.set_op_user_contexts = set_op_user_contexts;
     env.client = client;
+    env.execution_stream_id = options.execution_stream_id;
     // TODO(icgog): Set default fill status to kFillLeafOps instead of kFillNone
     // when  options.fill_status is set.
     env.program_fill_status = options.fill_status
@@ -363,6 +370,12 @@ struct CallLoadedExecutableOpState {
         (env.program_fill_status == ProgramFillStatus::kFillLeafOps &&
          is_leaf_op)) {
       options.fill_status = true;
+    }
+    if (env.execution_stream_id != 0) {
+      // Forward the program-level execution stream so distinct program
+      // executions (e.g. pipelined MPMD steps) are not all serialized on the
+      // default stream.
+      options.execution_stream_id = env.execution_stream_id;
     }
 
     std::vector<ArrayHandle> arrays_to_remove;
