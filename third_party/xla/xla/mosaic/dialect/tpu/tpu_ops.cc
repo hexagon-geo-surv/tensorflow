@@ -876,9 +876,11 @@ LogicalResult VectorStoreIdxOp::verify() {
                "memref with dimension: ")
            << ref_ty.getRank() << ". Got: " << llvm::size(getIndices()) << ".";
   }
-  if (value_ty.getRank() != 1) {
-    return emitOpError("Expected value to have rank 1. Got: ")
-           << value_ty.getRank() << ".";
+  if (value_ty.getRank() > ref_ty.getRank()) {
+    return emitOpError(
+               "Expected value rank to be less than or equal to base memref "
+               "rank: ")
+           << ref_ty.getRank() << ". Got: " << value_ty.getRank() << ".";
   }
   for (const auto [i, index] : llvm::enumerate(getIndices())) {
     VectorType index_ty = llvm::cast<VectorType>(index.getType());
