@@ -55,7 +55,24 @@ jobs:
       job_name: 'build-only'
 
   build-windows-x86:
-    uses: ./.github/workflows/build-reusable.yml
-    with:
-      runner: 'windows-x86-n2-16'
-      tfci: 'py313,windows_x86_ml_actions,rbe'
+    name: build-windows-cpu-noavx
+    runs-on: windows-x86-n2-16
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        env:
+          GIT_CONFIG_PARAMETERS: "'checkout.workers=12' 'core.featureManyFiles=true'"
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Build TensorFlow Windows CPU No-AVX Wheel
+        run: ./tensorflow/tools/ci_build/windows/build_tf_windows_noavx.sh
+
+      - name: Test Windows CPU No-AVX Wheel in Python
+        run: ./tensorflow/tools/ci_build/windows/test_tf_windows_noavx.sh
