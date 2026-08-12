@@ -45,6 +45,7 @@ class ConfigAssigner {
   // readability.
   struct Options {
     bool select_first_config = false;
+    bool prefer_estimated_configs = false;
     bool expect_all_instructions_in_cache = false;
     // If true, the config-assigner will dump HLO modules before and after
     // applying the best config.
@@ -97,8 +98,9 @@ class ConfigAssigner {
   // instruction. The config could be one of the following depending on the
   // options:
   // 1. Check the cache.
-  // 2. Check the default config.
-  // 3. Check the first supported config.
+  // 2. Check the first compilable estimated config (if cost model is enabled).
+  // 3. Check the default config or first supported config (if
+  //    select_first_config is enabled).
   // 4. Tune the instruction.
   // Tuned config is updated in the cache if it is provided.
   tsl::Future<Config> GetConfig(const HloInstruction* instr);
