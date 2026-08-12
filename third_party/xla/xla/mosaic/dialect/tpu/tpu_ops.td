@@ -149,7 +149,36 @@ def TPU_ReduceIndexOp : TPU_Op<"reduce_index", [Pure]> {
   let hasVerifier = 1;
 }
 
-// tpu.scan performs a scan across a vector.
+def TPU_ReduceOp : TPU_Op<"reduce", [Pure, SameOperandsAndResultRank]> {
+  let summary = "Multi-dimensional reduction operation";
+  let description = [{
+    Reduces an n-D vector into an n-D vector with reduced dimensions set to 1.
+
+    This operation is similar to MLIR's `vector.multi_reduction` operation, but
+    the reduced dimensions are kept and set to 1, instead of being removed.
+    There is also no accumulator operand.
+
+    For example, the following operation
+
+    ```
+    %output = tpu.reduce <sum>, %input [0] : vector<2x2xi32> -> vector<1x2xi32>
+    ```
+
+    might reduce `%input` = [[1, 2], [3, 4]] to `%output` = [[4, 6]].
+  }];
+  let arguments = (ins
+    AnyVectorOfNonZeroRank:$input,
+    DenseI64ArrayAttr:$dimensions,
+    TPU_ReductionKindAttr:$kind
+  );
+  let results = (outs AnyVectorOfNonZeroRank:$output);
+  let assemblyFormat = [{
+    $kind `,` $input $dimensions attr-dict `:` type($input) `->` type($output)
+  }];
+  let hasVerifier = 1;
+}
+
+// tpu.scan performs a scan across a vector along the specified dimension.
 //
 // If a mask is provided, all output elements before the first unmasked input
 // element is undefined. Subsequent masked elements will hold the result
@@ -170,7 +199,8 @@ def TPU_ScanOp : TPU_Op<"scan"> {
   let arguments = (ins
     VectorOfNonZeroRankOf<[I1, I16, I32, BF16, F32]>:$input,
     TPU_ReductionKindAttr:$kind,
-    Optional<VectorOfNonZeroRankOf<[I1]>>:$mask
+    Optional<VectorOfRankAndType<[1], [I1]>>:$mask,
+    I64Attr:$dimension
   );
   let results = (outs VectorOfNonZeroRankOf<[I16, I32, BF16, F32]>:$output);
   let assemblyFormat = [{

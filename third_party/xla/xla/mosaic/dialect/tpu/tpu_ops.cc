@@ -1235,13 +1235,13 @@ LogicalResult MaskCastOp::verify() {
 }
 
 LogicalResult ScanOp::verify() {
-  CoreType issuing_core = GetCoreTypeOfParentOp(**this);
-  if (issuing_core != CoreType::kScVectorSubcore) {
-    return emitOpError("Scan is supported only on the SC vector subcore");
-  }
-
   VectorType input_ty = getInput().getType();
   VectorType output_ty = getOutput().getType();
+
+  const int64_t dimension = getDimension();
+  if (dimension < 0 || dimension >= input_ty.getRank()) {
+    return emitOpError("Dimension must be in [0, rank).");
+  }
 
   if (input_ty.getElementType().isInteger(1)) {
     if (!output_ty.getElementType().isInteger(32)) {
@@ -1260,10 +1260,6 @@ LogicalResult ScanOp::verify() {
            << output_ty.getShape() << ").";
   }
 
-  if (input_ty.getRank() > 2) {
-    return emitOpError("Input must be a rank 1 or 2 vector.");
-  }
-
   if (input_ty.getElementType().isInteger(1) &&
       getKind() != ReductionKind::kSum) {
     return emitOpError("Only sum reduction is supported for i1 vector inputs.");
@@ -1280,13 +1276,12 @@ LogicalResult ScanOp::verify() {
   }
 
   VectorType mask_ty = getMask().getType();
-  if (mask_ty.getRank() != 1) {
-    return emitOpError("Mask must be a rank 1 vector.");
-  }
-  if (mask_ty.getShape()[0] != input_ty.getShape()[input_ty.getRank() - 1]) {
+  // Enforced via VectorOfRankAndType in .td declaration:
+  CHECK_EQ(mask_ty.getRank(), 1);
+  if (mask_ty.getDimSize(0) != input_ty.getDimSize(dimension)) {
     return emitOpError("Mask and input mismatch. Expected mask of length: ")
-           << input_ty.getShape()[input_ty.getRank() - 1] << ", but got "
-           << mask_ty.getShape()[0] << ".";
+           << input_ty.getDimSize(dimension) << ", but got "
+           << mask_ty.getDimSize(0) << ".";
   }
 
   return success();
@@ -2168,6 +2163,60 @@ LogicalResult ReduceIndexOp::verify() {
     }
     out_dim++;
   }
+  return success();
+}
+
+LogicalResult ReduceOp::verify() {
+  VectorType input_type = getInput().getType();
+  VectorType output_type = getOutput().getType();
+
+  // SameOperandsAndResultRank checks the following:
+  CHECK_EQ(input_type.getRank(), output_type.getRank());
+  const int64_t rank = input_type.getRank();
+
+  SmallVector<bool> is_reduced(rank, false);
+  for (int64_t dim : getDimensions()) {
+    if (dim < 0 || dim >= rank) {
+      return emitOpError("Reduced dimension ")
+             << dim << " is out of bounds [0, " << rank << ")";
+    }
+    if (is_reduced[dim]) {
+      return emitOpError("Reduced dimension ")
+             << dim << " is present more than once";
+    }
+    is_reduced[dim] = true;
+  }
+
+  const ArrayRef<int64_t> input_shape = input_type.getShape();
+  const ArrayRef<int64_t> output_shape = output_type.getShape();
+  for (int64_t i = 0; i < rank; ++i) {
+    const int64_t expected_output_size = is_reduced[i] ? 1 : input_shape[i];
+    if (output_shape[i] != expected_output_size) {
+      return emitOpError("Expected output dimension ")
+             << i << " to have size " << expected_output_size << ", but got "
+             << output_shape[i];
+    }
+  }
+
+  switch (getKind()) {
+    case ReductionKind::kArgMax:
+    case ReductionKind::kArgMin:
+      return emitOpError(
+          "arg_max/arg_min not supported - use tpu.reduce_index instead");
+    case ReductionKind::kFindFirstSet:
+      return emitOpError("find_first_set not supported");
+    case ReductionKind::kSum:
+    case ReductionKind::kMax:
+    case ReductionKind::kMin:
+      // TODO(tlongeri): Might be worth allowing things like bf16 -> f32.
+      if (input_type.getElementType() != output_type.getElementType()) {
+        return emitOpError(
+            "Input and output must have the same element type for "
+            "non-arg reductions");
+      }
+      break;
+  }
+
   return success();
 }
 
