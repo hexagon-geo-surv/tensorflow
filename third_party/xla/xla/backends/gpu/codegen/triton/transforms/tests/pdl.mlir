@@ -19,17 +19,17 @@
 // RUN:   -xla-lower-pdl-wait \
 // RUN:   | FileCheck %s --check-prefix=LOWER
 // RUN: xla-opt %s -split-input-file -xla-gpu-insert-pdl \
-// RUN:   -triton-xla-extract-insert-to-triton="allow_tma=1 num_stages=3" \
+// RUN:   -triton-xla-extract-insert-to-triton="allow_tma=1" \
 // RUN:   -xla-lower-pdl-wait \
 // RUN:   | FileCheck %s --check-prefix=LOWER-TMA
 
 func.func @basic(%arg0: !tt.ptr<bf16>, %arg1: !tt.ptr<bf16>) {
   %extracted_tensor = triton_xla.extract from %arg0
       as memref<128xbf16, #xtile.layout<[0]>>
-      [0] [16] [1] : tensor<16xbf16>
+      [0] [64] [1] : tensor<64xbf16>
   triton_xla.insert %extracted_tensor into %arg1
       as memref<256xbf16, #xtile.layout<[0]>>
-      [0] [16] [1] : tensor<16xbf16>
+      [0] [64] [1] : tensor<64xbf16>
   func.return
 }
 
@@ -47,8 +47,8 @@ func.func @basic(%arg0: !tt.ptr<bf16>, %arg1: !tt.ptr<bf16>) {
 // LOWER:         tt.return
 
 // LOWER-TMA-LABEL:   tt.func @basic(
-// LOWER-TMA-SAME:    %arg0: !tt.tensordesc<16xbf16>
-// LOWER-TMA-SAME:    %arg1: !tt.tensordesc<16xbf16>
+// LOWER-TMA-SAME:    %arg0: !tt.tensordesc<64xbf16>
+// LOWER-TMA-SAME:    %arg1: !tt.tensordesc<64xbf16>
 // LOWER-TMA:         nvvm.griddepcontrol wait
 // LOWER-TMA-NOT:     nvvm.griddepcontrol wait
 // LOWER-TMA:         %[[LOAD:.*]] = tt.descriptor_load %arg0
