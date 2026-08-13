@@ -13,12 +13,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <utility>
 
 #include <gtest/gtest.h>
+#include "absl/strings/str_cat.h"
 #include "absl/types/span.h"
 #include "xla/executable_run_options.h"
 #include "xla/literal.h"
@@ -42,9 +43,12 @@ namespace xla::gpu {
 namespace {
 
 TEST(XlaFfiAotCustomCallTest, LoadAndRunAotCustomCall) {
+  const char* test_device = std::getenv("XLA_TEST_DEVICE");
+  std::string device_suffix = test_device != nullptr ? test_device : "h100";
   std::string path = tsl::GetDataDependencyFilepath(
-      "tensorflow/compiler/xla/backends/gpu/ffi/"
-      "xla_ffi_aot_custom_call_executable_h100");
+      absl::StrCat("tensorflow/compiler/xla/backends/gpu/ffi/"
+                   "xla_ffi_aot_custom_call_executable_",
+                   device_suffix));
 
   std::string serialized_aot_result;
   ASSERT_OK(
