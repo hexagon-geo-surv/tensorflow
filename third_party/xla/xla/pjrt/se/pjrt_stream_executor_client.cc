@@ -107,6 +107,7 @@ limitations under the License.
 #include "xla/executable_run_options.h"
 #include "xla/future.h"
 #include "xla/hlo/builder/xla_computation.h"
+#include "xla/hlo/ir/hlo_input_output_alias_config.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/layout.h"
 #include "xla/layout_util.h"
@@ -1322,12 +1323,14 @@ static absl::StatusOr<PjRtStreamExecutorExecutionOutput> RunAsync(
     LocalDeviceState* local_device_state,
     absl::Span<const PjRtRawBufferRef> flat_arguments,
     absl::Span<const PjRtRawBufferRef> results,
+    absl::Span<PjRtDeviceEventPromiseRef> result_definition_event_promises,
     ExecutableRunOptions run_options, bool parameter_is_tupled_arguments) {
   if (exec.executable() != nullptr) {
     auto handler =
         GetRunAsyncHandler(std::type_index(typeid(*exec.executable())));
     if (handler != nullptr) {
-      return handler(exec, local_device_state, flat_arguments, results,
+      return handler(exec, raw_client, local_device_state, flat_arguments,
+                     results, result_definition_event_promises,
                      std::move(run_options), parameter_is_tupled_arguments);
     }
   }
@@ -1536,21 +1539,41 @@ PjRtStreamExecutorRawLoadedExecutable::Execute(
     gpu_run_options->set_incarnations(std::move(device_incarnations));
   }
 
+  // Keep these vectors empty when all outputs use the primary execute event.
+  std::vector<PjRtDeviceEventPromiseRef> result_definition_event_promises;
+  std::vector<PjRtDeviceEventRef> result_definition_events;
+  if (!options.individually_defined_output_indices.empty()) {
+    result_definition_event_promises.resize(results.size());
+    result_definition_events.resize(results.size());
+    for (int result_index : options.individually_defined_output_indices) {
+      if (result_index < 0 ||
+          static_cast<uint64_t>(result_index) >= results.size()) {
+        continue;
+      }
+      auto promise = tsl::MakeRef<PjRtStreamExecutorDeviceEventPromise>(
+          raw_client_, device_state, raw_client_->async_work_runner());
+      result_definition_events[result_index] = promise->event().CopyRef();
+      result_definition_event_promises[result_index] =
+          PjRtDeviceEventPromiseRef(std::move(promise));
+    }
+  }
+
   auto launch_on_device =
       [device_state, gpu_run_options = gpu_run_options,
        launch_id = options.launch_id, run_id = run_id_, seed = options.seed,
        context = options.context, raw_client = raw_client_, device = device_,
-       device_assignment = device_assignment_,
+       device_assignment = device_assignment_, is_predetermined_error,
        compute_reservation = std::move(compute_reservation),
        send_device_memory = std::move(send_device_memory),
        recv_device_memory = std::move(recv_device_memory),
        inputs = std::vector<PjRtRawBufferRef>(inputs.begin(), inputs.end()),
        results = std::vector<PjRtRawBufferRef>(results.begin(), results.end()),
-       device_ordinal, executable = executable_,
-       execution_profile = options.execution_profile, is_predetermined_error,
+       executable = executable_, execution_profile = options.execution_profile,
        parameter_is_tupled_arguments = parameter_is_tupled_arguments_,
        replica = replica_, partition = partition_,
        extra_deps = std::move(extra_deps),
+       result_definition_event_promises =
+           std::move(result_definition_event_promises),
        control_deps = std::move(control_deps)]() mutable -> PjRtDeviceEventRef {
     ExecutableRunOptions run_options;
     run_options.set_stream(device_state->compute_stream());
@@ -1669,6 +1692,7 @@ PjRtStreamExecutorRawLoadedExecutable::Execute(
     if (predetermined_error.ok()) {
       result_buffer_or_status =
           RunAsync(*executable, raw_client, device_state, inputs, results,
+                   absl::MakeSpan(result_definition_event_promises),
                    run_options, parameter_is_tupled_arguments);
     } else {
       result_buffer_or_status = predetermined_error;
@@ -1758,6 +1782,12 @@ PjRtStreamExecutorRawLoadedExecutable::Execute(
           kExecutableName, std::string(executable->executable()->name()));
       return PjRtDeviceEventRef(*std::move(definition_event_or));
     }();
+    for (PjRtDeviceEventPromiseRef& promise_ref :
+         result_definition_event_promises) {
+      if (PjRtDeviceEventPromiseRef promise = std::move(promise_ref)) {
+        promise.Set(definition_event);
+      }
+    }
     if (device_state->allocation_model() == LocalDeviceState::kSynchronous &&
         result_buffer_or_status.ok()) {
       // If we used a transient tuple for the arguments we donated its root
@@ -1832,6 +1862,8 @@ PjRtStreamExecutorRawLoadedExecutable::Execute(
 
   PjRtRawLoadedExecutable::RawExecuteResult execute_results;
   execute_results.future = std::move(maybe_future);
+  execute_results.result_definition_events =
+      std::move(result_definition_events);
   execute_results.primary_execute_event = std::move(definition_event);
   return execute_results;
 }
