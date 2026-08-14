@@ -832,6 +832,43 @@ TEST_F(ConvKindAssignmentTest, TestInvalidTypes) {
                                        "convolutions are f8e5m2 and f8e4m3")));
 }
 
+TEST_F(ConvKindAssignmentTest, F64ConvolutionKindSkipped) {
+  constexpr absl::string_view kHlo = R"(
+HloModule TestModule
+
+ENTRY main {
+  %input = f64[1,2,2,1] parameter(0)
+  %filter = f64[1,1,1,1] parameter(1)
+  ROOT %conv = f64[1,2,2,1] convolution(%input, %filter),
+    dim_labels=b01f_01io->b01f,
+    window={size=1x1}
+})";
+
+  TF_ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(kHlo));
+  TF_ASSERT_OK_AND_ASSIGN(bool changed,
+                          ConvKindAssignment(kDefaultCC).Run(module.get()));
+  EXPECT_FALSE(changed);
+}
+
+TEST_F(ConvKindAssignmentTest, FP32ConvolutionHighestPrecisionKindSkipped) {
+  constexpr absl::string_view kHlo = R"(
+HloModule TestModule
+
+ENTRY main {
+  %input = f32[1,2,2,1] parameter(0)
+  %filter = f32[1,1,1,1] parameter(1)
+  ROOT %conv = f32[1,2,2,1] convolution(%input, %filter),
+    dim_labels=b01f_01io->b01f,
+    window={size=1x1},
+    operand_precision={highest,highest}
+})";
+
+  TF_ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(kHlo));
+  TF_ASSERT_OK_AND_ASSIGN(bool changed,
+                          ConvKindAssignment(kDefaultCC).Run(module.get()));
+  EXPECT_FALSE(changed);
+}
+
 }  // anonymous namespace
 }  // namespace gpu
 }  // namespace xla
