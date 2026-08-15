@@ -180,7 +180,8 @@ absl::StatusOr<std::pair<ProcessId, int>> StreamExecutorGpuTopologyDescription::
     ProcessIdAndIndexOnProcessForLogicalDeviceOfDefaultType(
         GlobalDeviceId device_id) const {
   if (device_id.value() < 0 ||
-      device_id.value() >= gpu_topology_->number_of_devices()) {
+      (gpu_topology_->number_of_devices() >= 0 &&
+       device_id.value() >= gpu_topology_->number_of_devices())) {
     return absl::InvalidArgumentError(
         absl::StrCat("Device id ", device_id.value(), " is out of range [0, ",
                      gpu_topology_->number_of_devices(), ")"));
@@ -201,7 +202,8 @@ StreamExecutorGpuTopologyDescription::
     ChipCoordAndCoreIndexForLogicalDeviceOfDefaultType(
         GlobalDeviceId device_id) const {
   if (device_id.value() < 0 ||
-      device_id.value() >= gpu_topology_->number_of_devices()) {
+      (gpu_topology_->number_of_devices() >= 0 &&
+       device_id.value() >= gpu_topology_->number_of_devices())) {
     return absl::InvalidArgumentError(
         absl::StrCat("Chip id ", device_id.value(), " is out of range [0, ",
                      gpu_topology_->number_of_devices(), ")"));

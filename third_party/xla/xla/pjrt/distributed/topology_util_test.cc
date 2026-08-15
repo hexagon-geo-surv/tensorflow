@@ -512,5 +512,47 @@ TEST(TopologyTest, BuildGpuTopologyWithDifferentNumDevicesPerHost) {
   EXPECT_THAT(gpu_topology.host_target_machine_options(),
               EqualsProto(cpu::TargetMachineOptions().ToProto()));
 }
+
+TEST(TopologyTest, BuildGpuTopologyWithNonDeviceHosts) {
+  std::string partition_0_boot_id = "foo";
+  std::string partition_1_boot_id = "bar";
+  std::vector<LocalTopologyProto> locals(3);
+  // Host 0 has no devices (e.g. client/coordinator).
+  locals[0].set_boot_id("client_host");
+  locals[0].set_process_id(0);
+
+  // Host 1 has 1 device in partition 0.
+  locals[1].set_boot_id(partition_0_boot_id);
+  locals[1].set_process_id(1);
+  DeviceProto* d1 = locals[1].add_devices();
+  d1->set_local_device_ordinal(0);
+
+  // Host 2 has 1 device in partition 1.
+  locals[2].set_boot_id(partition_1_boot_id);
+  locals[2].set_process_id(2);
+  DeviceProto* d2 = locals[2].add_devices();
+  d2->set_local_device_ordinal(0);
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      GlobalTopologyProto global,
+      BuildGlobalTopology(absl::Span<LocalTopologyProto>(locals),
+                          /*assign_global_device_ids=*/true));
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      stream_executor::GpuTargetConfigProto target_config_proto,
+      gpu::GetGpuTargetConfig(gpu::GpuModel::H100_PCIE));
+  TF_ASSERT_OK_AND_ASSIGN(gpu::GpuTargetConfig target_config,
+                          gpu::GpuTargetConfig::FromProto(target_config_proto));
+  TF_ASSERT_OK_AND_ASSIGN(
+      auto gpu_topology,
+      BuildGpuTopology(global, target_config, cpu::TargetMachineOptions()));
+  EXPECT_EQ(gpu_topology.num_partitions(), 2);
+  EXPECT_EQ(gpu_topology.num_hosts_per_partition(), 1);
+  EXPECT_EQ(gpu_topology.num_devices_per_host(), 1);
+  EXPECT_THAT(gpu_topology.gpu_target_config(),
+              EqualsProto(target_config.ToProto()));
+  EXPECT_THAT(gpu_topology.host_target_machine_options(),
+              EqualsProto(cpu::TargetMachineOptions().ToProto()));
+}
 }  // namespace
 }  // namespace xla

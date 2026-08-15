@@ -394,6 +394,9 @@ absl::StatusOr<GpuTopologyProto> BuildGpuTopology(
   std::map<int, int> process_id_to_device_count;
   for (int i = 0; i < global_topology.processes_size(); ++i) {
     const LocalTopologyProto& local_topology = global_topology.processes(i);
+    if (local_topology.devices().empty()) {
+      continue;
+    }
 
     process_id_to_device_count[local_topology.process_id()] =
         local_topology.devices_size();
@@ -406,7 +409,9 @@ absl::StatusOr<GpuTopologyProto> BuildGpuTopology(
     }
   }
 
-  if (IsGpuTopologySymmetric(partition_id_to_node_ids,
+  if (!partition_id_to_node_ids.empty() &&
+      !process_id_to_device_count.empty() &&
+      IsGpuTopologySymmetric(partition_id_to_node_ids,
                              process_id_to_device_count)) {
     gpu_topology.set_num_partitions(partition_id_to_node_ids.size());
     gpu_topology.set_num_hosts_per_partition(
