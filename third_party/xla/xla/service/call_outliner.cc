@@ -232,6 +232,9 @@ absl::StatusOr<HloComputation*> CallOutliner::BuildOutlinedComputation(
 
   original_to_outlined_map_.clear();
   for (HloInstruction* instruction : block.body) {
+    if (instruction->IsDead() || instruction->parent() == nullptr) {
+      continue;
+    }
     ProcessInstruction(instruction, block, builder, new_parameters,
                        old_operands);
   }
@@ -417,6 +420,9 @@ absl::StatusOr<bool> CallOutliner::OutlineComputation(
 
   bool mutated = false;
   for (HloInstruction* instruction : instructions) {
+    if (instruction->IsDead() || instruction->parent() == nullptr) {
+      continue;
+    }
     if (IsBeforeMarker(instruction)) {
       HandleBeforeMarker(instruction);
     } else if (IsAfterMarker(instruction)) {
