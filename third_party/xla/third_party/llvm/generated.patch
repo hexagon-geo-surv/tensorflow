@@ -1,1 +1,154 @@
 Auto generated patch. Do not edit or delete it, even if empty.
+diff -ruN --strip-trailing-cr a/compiler-rt/lib/scudo/standalone/combined.h b/compiler-rt/lib/scudo/standalone/combined.h
+--- a/compiler-rt/lib/scudo/standalone/combined.h
++++ b/compiler-rt/lib/scudo/standalone/combined.h
+@@ -751,15 +751,20 @@
+     const uptr From = Base;
+     const uptr To = Base + Size;
+     const Options Options = Primary.Options.load();
+-    bool MemoryTaggingEnabled = useMemoryTagging<AllocatorConfig>(Options);
+-    auto Lambda = [this, From, To, MemoryTaggingEnabled, Callback,
++    bool MayHaveTaggedPrimary = useMemoryTagging<AllocatorConfig>(Options);
++    auto Lambda = [this, From, To, MayHaveTaggedPrimary, Callback,
+                    Arg](uptr Block) {
+       if (Block < From || Block >= To)
+         return;
+       uptr Chunk;
+       Chunk::UnpackedHeader Header;
+-      if (UNLIKELY(MemoryTaggingEnabled)) {
+-        if (!getChunkFromBlock(loadTag(Block), &Chunk, &Header))
++      if (UNLIKELY(MayHaveTaggedPrimary)) {
++        // A chunk header can either have a zero tag (tagged primary) or the
++        // header tag (secondary, or untagged primary). We don't know which so
++        // try both.
++        ScopedDisableMemoryTagChecks x;
++        if (!getChunkFromBlock(Block, &Chunk, &Header) &&
++            !getChunkFromBlock(addHeaderTag(Block), &Chunk, &Header))
+           return;
+       } else if (!getChunkFromBlock(addHeaderTag(Block), &Chunk, &Header)) {
+         return;
+@@ -772,7 +777,7 @@
+       if (allocatorSupportsMemoryTagging<AllocatorConfig>())
+         TaggedChunk = untagPointer(TaggedChunk);
+       uptr Size;
+-      if (UNLIKELY(MemoryTaggingEnabled)) {
++      if (UNLIKELY(useMemoryTagging<AllocatorConfig>(Primary.Options.load()))) {
+         TaggedChunk = loadTag(Chunk);
+         Size = getSize(reinterpret_cast<void *>(Chunk), &Header);
+       } else if (AllocatorConfig::getExactUsableSize()) {
+@@ -894,10 +899,10 @@
+   // Returns true if the pointer provided was allocated by the current
+   // allocator instance, which is compliant with tcmalloc's ownership concept.
+   // A corrupted chunk will not be reported as owned, which is WAI.
+-  bool isOwnedTestOnly(const void *Ptr) {
++  bool isOwned(const void *Ptr) {
+     initThreadMaybe();
+     // If the allocation is not owned, the tags could be wrong.
+-    ScopedTestOnlyDisableMemoryTagChecks x(
++    ScopedDisableMemoryTagChecks x(
+         useMemoryTagging<AllocatorConfig>(Primary.Options.load()));
+ #ifdef GWP_ASAN_HOOKS
+     if (GuardedAlloc.pointerIsMine(Ptr))
+diff -ruN --strip-trailing-cr a/compiler-rt/lib/scudo/standalone/memtag.h b/compiler-rt/lib/scudo/standalone/memtag.h
+--- a/compiler-rt/lib/scudo/standalone/memtag.h
++++ b/compiler-rt/lib/scudo/standalone/memtag.h
+@@ -121,12 +121,12 @@
+ 
+ #endif // SCUDO_CAN_USE_MTE
+ 
+-class ScopedTestOnlyDisableMemoryTagChecks {
++class ScopedDisableMemoryTagChecks {
+   uptr PrevTCO;
+   bool active;
+ 
+ public:
+-  ScopedTestOnlyDisableMemoryTagChecks(bool cond = true) : active(cond) {
++  ScopedDisableMemoryTagChecks(bool cond = true) : active(cond) {
+     if (!active)
+       return;
+     __asm__ __volatile__(
+@@ -138,7 +138,7 @@
+         : "=r"(PrevTCO));
+   }
+ 
+-  ~ScopedTestOnlyDisableMemoryTagChecks() {
++  ~ScopedDisableMemoryTagChecks() {
+     if (!active)
+       return;
+     __asm__ __volatile__(
+@@ -277,8 +277,8 @@
+   UNREACHABLE("memory tagging not supported");
+ }
+ 
+-struct ScopedTestOnlyDisableMemoryTagChecks {
+-  ScopedTestOnlyDisableMemoryTagChecks(UNUSED bool cond = true) {}
++struct ScopedDisableMemoryTagChecks {
++  ScopedDisableMemoryTagChecks(UNUSED bool cond = true) {}
+ };
+ 
+ inline NORETURN uptr selectRandomTag(uptr Ptr, uptr ExcludeMask) {
+diff -ruN --strip-trailing-cr a/compiler-rt/lib/scudo/standalone/tests/combined_test.cpp b/compiler-rt/lib/scudo/standalone/tests/combined_test.cpp
+--- a/compiler-rt/lib/scudo/standalone/tests/combined_test.cpp
++++ b/compiler-rt/lib/scudo/standalone/tests/combined_test.cpp
+@@ -307,13 +307,12 @@
+   auto *Allocator = this->Allocator.get();
+   static scudo::u8 StaticBuffer[scudo::Chunk::getHeaderSize() + 1];
+   EXPECT_FALSE(
+-      Allocator->isOwnedTestOnly(&StaticBuffer[scudo::Chunk::getHeaderSize()]));
++      Allocator->isOwned(&StaticBuffer[scudo::Chunk::getHeaderSize()]));
+ 
+   scudo::u8 StackBuffer[scudo::Chunk::getHeaderSize() + 1];
+   for (scudo::uptr I = 0; I < sizeof(StackBuffer); I++)
+     StackBuffer[I] = 0x42U;
+-  EXPECT_FALSE(
+-      Allocator->isOwnedTestOnly(&StackBuffer[scudo::Chunk::getHeaderSize()]));
++  EXPECT_FALSE(Allocator->isOwned(&StackBuffer[scudo::Chunk::getHeaderSize()]));
+   for (scudo::uptr I = 0; I < sizeof(StackBuffer); I++)
+     EXPECT_EQ(StackBuffer[I], 0x42U);
+ }
+@@ -334,7 +333,7 @@
+           static_cast<scudo::uptr>((1LL << SizeLog) + Delta);
+       void *P = Allocator->allocate(Size, Origin, Align);
+       EXPECT_NE(P, nullptr);
+-      EXPECT_TRUE(Allocator->isOwnedTestOnly(P));
++      EXPECT_TRUE(Allocator->isOwned(P));
+       EXPECT_TRUE(scudo::isAligned(reinterpret_cast<scudo::uptr>(P), Align));
+       EXPECT_LE(Size, Allocator->getUsableSize(P));
+       memset(P, 0xaa, Size);
+@@ -640,7 +639,7 @@
+     // Check that disabling memory tagging works correctly.
+     void *P = Allocator->allocate(2048, Origin);
+     SCUDO_EXPECT_DEATH(reinterpret_cast<char *>(P)[2048] = 'A', "");
+-    scudo::ScopedTestOnlyDisableMemoryTagChecks NoTagChecks;
++    scudo::ScopedDisableMemoryTagChecks NoTagChecks;
+     Allocator->disableMemoryTagging();
+     reinterpret_cast<char *>(P)[2048] = 'A';
+     Allocator->deallocate(P, Origin);
+diff -ruN --strip-trailing-cr a/compiler-rt/lib/scudo/standalone/tests/memtag_test.cpp b/compiler-rt/lib/scudo/standalone/tests/memtag_test.cpp
+--- a/compiler-rt/lib/scudo/standalone/tests/memtag_test.cpp
++++ b/compiler-rt/lib/scudo/standalone/tests/memtag_test.cpp
+@@ -115,7 +115,7 @@
+   EXPECT_NE(P, Buffer);
+ 
+   SCUDO_EXPECT_DEATH(*P = 20, "");
+-  ScopedTestOnlyDisableMemoryTagChecks Disable;
++  ScopedDisableMemoryTagChecks Disable;
+   *P = 10;
+ }
+ 
+diff -ruN --strip-trailing-cr a/compiler-rt/lib/scudo/standalone/tests/wrappers_cpp_test.cpp b/compiler-rt/lib/scudo/standalone/tests/wrappers_cpp_test.cpp
+--- a/compiler-rt/lib/scudo/standalone/tests/wrappers_cpp_test.cpp
++++ b/compiler-rt/lib/scudo/standalone/tests/wrappers_cpp_test.cpp
+@@ -186,10 +186,10 @@
+ TEST_F(ScudoWrappersCppTest, ThreadedNew) {
+   // TODO: Investigate why libc sometimes crashes with tag mismatch in
+   // __pthread_clockjoin_ex.
+-  std::unique_ptr<scudo::ScopedTestOnlyDisableMemoryTagChecks> NoTags;
++  std::unique_ptr<scudo::ScopedDisableMemoryTagChecks> NoTags;
+   if (!SCUDO_ANDROID && scudo::archSupportsMemoryTagging() &&
+       scudo::systemSupportsMemoryTagging())
+-    NoTags = std::make_unique<scudo::ScopedTestOnlyDisableMemoryTagChecks>();
++    NoTags = std::make_unique<scudo::ScopedDisableMemoryTagChecks>();
+ 
+   Ready = false;
+   std::thread Threads[32];

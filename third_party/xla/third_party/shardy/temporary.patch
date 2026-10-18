@@ -1,15 +1,208 @@
+diff --git a/shardy/dialect/sdy/transforms/export/export_named_computations.cc b/shardy/dialect/sdy/transforms/export/export_named_computations.cc
+index eb441310..3285797b 100644
+--- a/shardy/dialect/sdy/transforms/export/export_named_computations.cc
++++ b/shardy/dialect/sdy/transforms/export/export_named_computations.cc
+@@ -74,9 +74,8 @@ StringAttr createFuncOp(
+   FuncOp funcOp = FuncOp::create(
+       rewriter, namedComputationOp.getLoc(), namedComputationOp.getName(),
+       rewriter.getFunctionType(namedComputationOp.getBody().getArgumentTypes(),
+-                               namedComputationOp.getResultTypes()),
+-      rewriter.getStringAttr("private"),
+-      /*argAttrs=*/ArrayAttr(), /*resultAttrs=*/ArrayAttr());
++                               namedComputationOp.getResultTypes()));
++  funcOp.setPrivate();
+   funcOp->setAttr(kOriginalFuncName, namedComputationOp.getNameAttr());
+ 
+   rewriter.setInsertionPointToStart(funcOp->getBlock());
+diff --git a/shardy/dialect/sdy/transforms/export/per_instruction_partitioning.cc b/shardy/dialect/sdy/transforms/export/per_instruction_partitioning.cc
+index dc0aad60..f4a6fb51 100644
+--- a/shardy/dialect/sdy/transforms/export/per_instruction_partitioning.cc
++++ b/shardy/dialect/sdy/transforms/export/per_instruction_partitioning.cc
+@@ -503,10 +503,9 @@ LogicalResult outlineInstruction(Operation* op,
+   FunctionType funcType =
+       FunctionType::get(ctx, paddedArgTypes, paddedResultTypes);
+ 
+-  outlinedFunc = func::FuncOp::create(
+-      tempRewriter, op->getLoc(), "outlined_op", funcType,
+-      tempRewriter.getStringAttr("private"),
+-      /*argAttrs=*/ArrayAttr(), /*resultAttrs=*/ArrayAttr());
++  outlinedFunc =
++      func::FuncOp::create(tempRewriter, op->getLoc(), "outlined_op", funcType);
++  outlinedFunc.setPrivate();
+ 
+   for (size_t i = 0; i < shardingInfo.inShardings.size(); ++i) {
+     if (shardingInfo.inShardings[i]) {
+diff --git a/third_party/llvm/generated.patch b/third_party/llvm/generated.patch
+index 509398da..84b6c773 100644
+--- a/third_party/llvm/generated.patch
++++ b/third_party/llvm/generated.patch
+@@ -1 +1,154 @@
+ Auto generated patch. Do not edit or delete it, even if empty.
++diff -ruN --strip-trailing-cr a/compiler-rt/lib/scudo/standalone/combined.h b/compiler-rt/lib/scudo/standalone/combined.h
++--- a/compiler-rt/lib/scudo/standalone/combined.h
+++++ b/compiler-rt/lib/scudo/standalone/combined.h
++@@ -751,15 +751,20 @@
++     const uptr From = Base;
++     const uptr To = Base + Size;
++     const Options Options = Primary.Options.load();
++-    bool MemoryTaggingEnabled = useMemoryTagging<AllocatorConfig>(Options);
++-    auto Lambda = [this, From, To, MemoryTaggingEnabled, Callback,
+++    bool MayHaveTaggedPrimary = useMemoryTagging<AllocatorConfig>(Options);
+++    auto Lambda = [this, From, To, MayHaveTaggedPrimary, Callback,
++                    Arg](uptr Block) {
++       if (Block < From || Block >= To)
++         return;
++       uptr Chunk;
++       Chunk::UnpackedHeader Header;
++-      if (UNLIKELY(MemoryTaggingEnabled)) {
++-        if (!getChunkFromBlock(loadTag(Block), &Chunk, &Header))
+++      if (UNLIKELY(MayHaveTaggedPrimary)) {
+++        // A chunk header can either have a zero tag (tagged primary) or the
+++        // header tag (secondary, or untagged primary). We don't know which so
+++        // try both.
+++        ScopedDisableMemoryTagChecks x;
+++        if (!getChunkFromBlock(Block, &Chunk, &Header) &&
+++            !getChunkFromBlock(addHeaderTag(Block), &Chunk, &Header))
++           return;
++       } else if (!getChunkFromBlock(addHeaderTag(Block), &Chunk, &Header)) {
++         return;
++@@ -772,7 +777,7 @@
++       if (allocatorSupportsMemoryTagging<AllocatorConfig>())
++         TaggedChunk = untagPointer(TaggedChunk);
++       uptr Size;
++-      if (UNLIKELY(MemoryTaggingEnabled)) {
+++      if (UNLIKELY(useMemoryTagging<AllocatorConfig>(Primary.Options.load()))) {
++         TaggedChunk = loadTag(Chunk);
++         Size = getSize(reinterpret_cast<void *>(Chunk), &Header);
++       } else if (AllocatorConfig::getExactUsableSize()) {
++@@ -894,10 +899,10 @@
++   // Returns true if the pointer provided was allocated by the current
++   // allocator instance, which is compliant with tcmalloc's ownership concept.
++   // A corrupted chunk will not be reported as owned, which is WAI.
++-  bool isOwnedTestOnly(const void *Ptr) {
+++  bool isOwned(const void *Ptr) {
++     initThreadMaybe();
++     // If the allocation is not owned, the tags could be wrong.
++-    ScopedTestOnlyDisableMemoryTagChecks x(
+++    ScopedDisableMemoryTagChecks x(
++         useMemoryTagging<AllocatorConfig>(Primary.Options.load()));
++ #ifdef GWP_ASAN_HOOKS
++     if (GuardedAlloc.pointerIsMine(Ptr))
++diff -ruN --strip-trailing-cr a/compiler-rt/lib/scudo/standalone/memtag.h b/compiler-rt/lib/scudo/standalone/memtag.h
++--- a/compiler-rt/lib/scudo/standalone/memtag.h
+++++ b/compiler-rt/lib/scudo/standalone/memtag.h
++@@ -121,12 +121,12 @@
++ 
++ #endif // SCUDO_CAN_USE_MTE
++ 
++-class ScopedTestOnlyDisableMemoryTagChecks {
+++class ScopedDisableMemoryTagChecks {
++   uptr PrevTCO;
++   bool active;
++ 
++ public:
++-  ScopedTestOnlyDisableMemoryTagChecks(bool cond = true) : active(cond) {
+++  ScopedDisableMemoryTagChecks(bool cond = true) : active(cond) {
++     if (!active)
++       return;
++     __asm__ __volatile__(
++@@ -138,7 +138,7 @@
++         : "=r"(PrevTCO));
++   }
++ 
++-  ~ScopedTestOnlyDisableMemoryTagChecks() {
+++  ~ScopedDisableMemoryTagChecks() {
++     if (!active)
++       return;
++     __asm__ __volatile__(
++@@ -277,8 +277,8 @@
++   UNREACHABLE("memory tagging not supported");
++ }
++ 
++-struct ScopedTestOnlyDisableMemoryTagChecks {
++-  ScopedTestOnlyDisableMemoryTagChecks(UNUSED bool cond = true) {}
+++struct ScopedDisableMemoryTagChecks {
+++  ScopedDisableMemoryTagChecks(UNUSED bool cond = true) {}
++ };
++ 
++ inline NORETURN uptr selectRandomTag(uptr Ptr, uptr ExcludeMask) {
++diff -ruN --strip-trailing-cr a/compiler-rt/lib/scudo/standalone/tests/combined_test.cpp b/compiler-rt/lib/scudo/standalone/tests/combined_test.cpp
++--- a/compiler-rt/lib/scudo/standalone/tests/combined_test.cpp
+++++ b/compiler-rt/lib/scudo/standalone/tests/combined_test.cpp
++@@ -307,13 +307,12 @@
++   auto *Allocator = this->Allocator.get();
++   static scudo::u8 StaticBuffer[scudo::Chunk::getHeaderSize() + 1];
++   EXPECT_FALSE(
++-      Allocator->isOwnedTestOnly(&StaticBuffer[scudo::Chunk::getHeaderSize()]));
+++      Allocator->isOwned(&StaticBuffer[scudo::Chunk::getHeaderSize()]));
++ 
++   scudo::u8 StackBuffer[scudo::Chunk::getHeaderSize() + 1];
++   for (scudo::uptr I = 0; I < sizeof(StackBuffer); I++)
++     StackBuffer[I] = 0x42U;
++-  EXPECT_FALSE(
++-      Allocator->isOwnedTestOnly(&StackBuffer[scudo::Chunk::getHeaderSize()]));
+++  EXPECT_FALSE(Allocator->isOwned(&StackBuffer[scudo::Chunk::getHeaderSize()]));
++   for (scudo::uptr I = 0; I < sizeof(StackBuffer); I++)
++     EXPECT_EQ(StackBuffer[I], 0x42U);
++ }
++@@ -334,7 +333,7 @@
++           static_cast<scudo::uptr>((1LL << SizeLog) + Delta);
++       void *P = Allocator->allocate(Size, Origin, Align);
++       EXPECT_NE(P, nullptr);
++-      EXPECT_TRUE(Allocator->isOwnedTestOnly(P));
+++      EXPECT_TRUE(Allocator->isOwned(P));
++       EXPECT_TRUE(scudo::isAligned(reinterpret_cast<scudo::uptr>(P), Align));
++       EXPECT_LE(Size, Allocator->getUsableSize(P));
++       memset(P, 0xaa, Size);
++@@ -640,7 +639,7 @@
++     // Check that disabling memory tagging works correctly.
++     void *P = Allocator->allocate(2048, Origin);
++     SCUDO_EXPECT_DEATH(reinterpret_cast<char *>(P)[2048] = 'A', "");
++-    scudo::ScopedTestOnlyDisableMemoryTagChecks NoTagChecks;
+++    scudo::ScopedDisableMemoryTagChecks NoTagChecks;
++     Allocator->disableMemoryTagging();
++     reinterpret_cast<char *>(P)[2048] = 'A';
++     Allocator->deallocate(P, Origin);
++diff -ruN --strip-trailing-cr a/compiler-rt/lib/scudo/standalone/tests/memtag_test.cpp b/compiler-rt/lib/scudo/standalone/tests/memtag_test.cpp
++--- a/compiler-rt/lib/scudo/standalone/tests/memtag_test.cpp
+++++ b/compiler-rt/lib/scudo/standalone/tests/memtag_test.cpp
++@@ -115,7 +115,7 @@
++   EXPECT_NE(P, Buffer);
++ 
++   SCUDO_EXPECT_DEATH(*P = 20, "");
++-  ScopedTestOnlyDisableMemoryTagChecks Disable;
+++  ScopedDisableMemoryTagChecks Disable;
++   *P = 10;
++ }
++ 
++diff -ruN --strip-trailing-cr a/compiler-rt/lib/scudo/standalone/tests/wrappers_cpp_test.cpp b/compiler-rt/lib/scudo/standalone/tests/wrappers_cpp_test.cpp
++--- a/compiler-rt/lib/scudo/standalone/tests/wrappers_cpp_test.cpp
+++++ b/compiler-rt/lib/scudo/standalone/tests/wrappers_cpp_test.cpp
++@@ -186,10 +186,10 @@
++ TEST_F(ScudoWrappersCppTest, ThreadedNew) {
++   // TODO: Investigate why libc sometimes crashes with tag mismatch in
++   // __pthread_clockjoin_ex.
++-  std::unique_ptr<scudo::ScopedTestOnlyDisableMemoryTagChecks> NoTags;
+++  std::unique_ptr<scudo::ScopedDisableMemoryTagChecks> NoTags;
++   if (!SCUDO_ANDROID && scudo::archSupportsMemoryTagging() &&
++       scudo::systemSupportsMemoryTagging())
++-    NoTags = std::make_unique<scudo::ScopedTestOnlyDisableMemoryTagChecks>();
+++    NoTags = std::make_unique<scudo::ScopedDisableMemoryTagChecks>();
++ 
++   Ready = false;
++   std::thread Threads[32];
 diff --git a/third_party/llvm/workspace.bzl b/third_party/llvm/workspace.bzl
-index caf6ccb5..8bde547d 100644
+index 8bde547d..e494cfdf 100644
 --- a/third_party/llvm/workspace.bzl
 +++ b/third_party/llvm/workspace.bzl
 @@ -19,8 +19,8 @@ load("//third_party:repo.bzl", "tf_http_archive")
  
  def repo(name):
      """Imports LLVM."""
--    LLVM_COMMIT = "1ee8805f01a663b7f2b09215a8eab5ab2d15ce35"
--    LLVM_SHA256 = "273fa5e9618fa8085aea51d6eb40129677fea8cf4c8825a2c4ff6ea582706a55"
-+    LLVM_COMMIT = "4fa92e8e51e6833f8d70ab9fa136d899e497f135"
-+    LLVM_SHA256 = "3e33d6506a6d9e779dda03c355310e58269b3c90aa70bb2de9a1203c449aedff"
+-    LLVM_COMMIT = "4fa92e8e51e6833f8d70ab9fa136d899e497f135"
+-    LLVM_SHA256 = "3e33d6506a6d9e779dda03c355310e58269b3c90aa70bb2de9a1203c449aedff"
++    LLVM_COMMIT = "f9cea2f24b6713cc344a875e674d45728c19d24e"
++    LLVM_SHA256 = "38df2ccdfa07f3d88aec4f9f9293c01695fa1d5d354e1d84e0dc8a6492b6cd4f"
  
      tf_http_archive(
          name = name,
