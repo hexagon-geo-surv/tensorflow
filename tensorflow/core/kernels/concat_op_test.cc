@@ -59,22 +59,21 @@ void FillTensorWithRandomValues<tstring>(Tensor* t, int string_length,
   }
 }
 
-// For the benchmark, we set up two 2-dimensional tensors, each kDim1 x 'dim'
+// For the benchmark, we set up two 2-dimensional tensors, each 'dim1' x 'dim2'
 // in size, and concat them together along "concat_dimension".  If T is
 // std::string, then the length of individual strings in the tensors will be
 // of length "string_length".
 template <typename T>
 static void ConcatHelper(::testing::benchmark::State& state,
-                         int concat_dimension, int dim2,
-                         int string_length = 0) {
+                         int concat_dimension, int dim2, int string_length = 0,
+                         int dim1 = 100) {
   Graph* g = new Graph(OpRegistry::Global());
 
   DataType dt = DataTypeToEnum<T>::v();
-  const int kDim1 = 100;
   Tensor concat_dim(DT_INT32, TensorShape({}));
   concat_dim.scalar<int32_t>()() = concat_dimension;
-  Tensor in0(dt, TensorShape({kDim1, dim2}));
-  Tensor in1(dt, TensorShape({kDim1, dim2}));
+  Tensor in0(dt, TensorShape({dim1, dim2}));
+  Tensor in1(dt, TensorShape({dim1, dim2}));
   int64_t in0_bytes, in1_bytes;
   FillTensorWithRandomValues<T>(&in0, string_length, &in0_bytes);
   FillTensorWithRandomValues<T>(&in1, string_length, &in1_bytes);
@@ -99,6 +98,12 @@ void BM_ConcatDim0Float(::testing::benchmark::State& state) {
   ConcatHelper<float>(state, 0, dim2);
 }
 
+void BM_ConcatBatchDim0Float(::testing::benchmark::State& state) {
+  const int dim2 = state.range(0);
+
+  ConcatHelper<float>(state, 0, dim2, /*string_length=*/0, /*dim1=*/1);
+}
+
 void BM_ConcatDim1Float(::testing::benchmark::State& state) {
   const int dim2 = state.range(0);
 
@@ -110,6 +115,15 @@ BENCHMARK(BM_ConcatDim0Float)
     ->Arg(1000)
     ->Arg(100000)
     ->Arg(1000000);
+BENCHMARK(BM_ConcatBatchDim0Float)
+    ->UseRealTime()
+    ->Arg(1024)
+    ->Arg(2048)
+    ->Arg(3072)
+    ->Arg(4096)
+    ->Arg(8192)
+    ->Arg(16384)
+    ->Arg(32768);
 BENCHMARK(BM_ConcatDim1Float)
     ->UseRealTime()
     ->Arg(1000)

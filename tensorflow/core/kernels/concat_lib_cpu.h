@@ -18,12 +18,24 @@ limitations under the License.
 
 #define EIGEN_USE_THREADS
 
+#include <algorithm>
+#include <cstddef>
+#include <memory>
 #include <vector>
+
+#include "absl/log/check.h"
+#include "tensorflow/core/framework/device_base.h"
 #include "tensorflow/core/framework/register_types.h"
-#include "tensorflow/core/kernels/concat_lib.h"
+#include "tensorflow/core/framework/tensor_types.h"
 #include "tensorflow/core/util/work_sharder.h"
 
 namespace tensorflow {
+
+// Minimum estimated cost (roughly bytes copied, see `cost_per_unit` below) that
+// each thread must handle for `ConcatCPUImpl` to use it. Concats cheaper than
+// this per thread use fewer threads, down to a single-threaded copy, because
+// the overhead of sharding the work would outweigh the speedup.
+inline constexpr int64_t kMinCostPerConcatThread = 65536;
 
 // ElementCopier must be a struct with a single Copy function, which is passed
 // the output pointer, input pointer, input index, and number of elements to
@@ -52,11 +64,11 @@ void ConcatCPUImpl(
 
   auto worker_threads = d->tensorflow_cpu_worker_threads();
   int num_threads = std::min(4, worker_threads->num_threads);
-  num_threads = static_cast<int>(
-      std::min<int64_t>(num_threads, estimated_total_cost / 16384));
+  num_threads = static_cast<int>(std::min<int64_t>(
+      num_threads, estimated_total_cost / kMinCostPerConcatThread));
   // Single threaded mode.
   // TODO(dga):  Deduplicate this code w.r.t. sharded code below.
-  if (num_threads == 0) {
+  if (num_threads <= 1) {
     T* out = &(*output)(0, 0);
     std::vector<const T*> inp;
     inp.reserve(num_inputs);
