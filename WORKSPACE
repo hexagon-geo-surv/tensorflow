@@ -30,6 +30,15 @@ tf_http_archive(
     ),
 )
 
+tf_http_archive(
+    name = "rules_ml_toolchain",
+    sha256 = "f4cbf25d4ab2f9f6ad13ef830f516099cb8ae8ce9a30a85342718ac98f44b97c",
+    strip_prefix = "rules_ml_toolchain-04cec5340d42216e378a92e42b9fa3507f3ff541",
+    urls = tf_mirror_urls(
+        "https://github.com/yuriivcs/rules_ml_toolchain/archive/04cec5340d42216e378a92e42b9fa3507f3ff541.tar.gz",
+    ),
+)
+
 # Initialize the TensorFlow repository and all dependencies.
 #
 # The cascade of load() statements and tf_workspace?() calls works around the
@@ -65,6 +74,8 @@ cc_toolchain_deps()
 register_toolchains("@rules_ml_toolchain//cc:linux_x86_64_linux_x86_64")
 
 register_toolchains("@rules_ml_toolchain//cc:linux_x86_64_linux_x86_64_cuda")
+
+register_toolchains("@rules_ml_toolchain//cc:linux_x86_64_linux_aarch64")
 
 register_toolchains("@rules_ml_toolchain//cc:linux_aarch64_linux_aarch64")
 
@@ -157,6 +168,15 @@ load(
 load("@xla//third_party/cccl:workspace.bzl", "CCCL_2_8_5_DIST_DICT", "CCCL_GITHUB_VERSIONS_TO_BUILD_TEMPLATES")
 
 cuda_redist_init_repositories(
+    cuda_redist_patches = {
+        "cuda_nvcc": {
+            "12.5.1": {
+                "22": [
+                    "@//third_party/cuda:cuda_nvcc12.5.1_llvm22_libcxx.patch",
+                ],
+            },
+        },
+    },
     cuda_redistributions = CUDA_REDISTRIBUTIONS | CCCL_2_8_5_DIST_DICT,
     redist_versions_to_build_templates = REDIST_VERSIONS_TO_BUILD_TEMPLATES | CCCL_GITHUB_VERSIONS_TO_BUILD_TEMPLATES,
 )
