@@ -1919,3 +1919,153 @@ func.func @NotFoldBatchMatMulTooExpensive() -> tensor<2x1024x1024xf32> {
   // CHECK: %[[BMM:.*]] = "tfl.batch_matmul"
   // CHECK: return %[[BMM]]
 }
+
+// A detection-head anchor grid: meshgrid of a constant arange.
+// CHECK-LABEL: @ConstFoldBroadcastTo
+func.func @ConstFoldBroadcastTo() -> tensor<2x3xf32> {
+  %input = arith.constant dense<[[1.0], [2.0]]> : tensor<2x1xf32>
+  %shape = arith.constant dense<[2, 3]> : tensor<2xi32>
+  %0 = "tfl.broadcast_to"(%input, %shape) : (tensor<2x1xf32>, tensor<2xi32>) -> tensor<2x3xf32>
+  func.return %0 : tensor<2x3xf32>
+  // CHECK: %[[CST:.*]] = arith.constant dense<{{\[\[}}1.000000e+00, 1.000000e+00, 1.000000e+00], [2.000000e+00, 2.000000e+00, 2.000000e+00]]> : tensor<2x3xf32>
+  // CHECK-NOT: tfl.broadcast_to
+  // CHECK: return %[[CST]]
+}
+
+// Rank-expanding broadcast of an i32 row.
+// CHECK-LABEL: @ConstFoldBroadcastToRankExpand
+func.func @ConstFoldBroadcastToRankExpand() -> tensor<2x1x3xi32> {
+  %input = arith.constant dense<[7, 8, 9]> : tensor<3xi32>
+  %shape = arith.constant dense<[2, 1, 3]> : tensor<3xi32>
+  %0 = "tfl.broadcast_to"(%input, %shape) : (tensor<3xi32>, tensor<3xi32>) -> tensor<2x1x3xi32>
+  func.return %0 : tensor<2x1x3xi32>
+  // CHECK: %[[CST:.*]] = arith.constant dense<{{\[\[\[}}7, 8, 9]], {{\[\[}}7, 8, 9]]]> : tensor<2x1x3xi32>
+  // CHECK-NOT: tfl.broadcast_to
+  // CHECK: return %[[CST]]
+}
+
+// A splat broadcast at exactly the 1 MiB fold limit is folded.
+// CHECK-LABEL: @ConstFoldBroadcastToSplatAtLimit
+func.func @ConstFoldBroadcastToSplatAtLimit() -> tensor<256x1024xf32> {
+  %input = arith.constant dense<1.0> : tensor<f32>
+  %shape = arith.constant dense<[256, 1024]> : tensor<2xi32>
+  %0 = "tfl.broadcast_to"(%input, %shape) : (tensor<f32>, tensor<2xi32>) -> tensor<256x1024xf32>
+  func.return %0 : tensor<256x1024xf32>
+  // CHECK: %[[CST:.*]] = arith.constant dense<1.000000e+00> : tensor<256x1024xf32>
+  // CHECK-NOT: tfl.broadcast_to
+  // CHECK: return %[[CST]]
+}
+
+// A splat broadcast past the fold limit is not folded: the flatbuffer exporter
+// would write out every element.
+// CHECK-LABEL: @NotFoldBroadcastToSplatTooLarge
+func.func @NotFoldBroadcastToSplatTooLarge() -> tensor<256x1025xf32> {
+  %input = arith.constant dense<1.0> : tensor<f32>
+  %shape = arith.constant dense<[256, 1025]> : tensor<2xi32>
+  %0 = "tfl.broadcast_to"(%input, %shape) : (tensor<f32>, tensor<2xi32>) -> tensor<256x1025xf32>
+  func.return %0 : tensor<256x1025xf32>
+  // CHECK: %[[BC:.*]] = "tfl.broadcast_to"
+  // CHECK: return %[[BC]]
+}
+
+// A non-splat constant broadcast past the fold limit into an elementwise op is
+// not folded; the consumer can broadcast implicitly.
+// CHECK-LABEL: @NotFoldBroadcastToTooLarge
+func.func @NotFoldBroadcastToTooLarge(%arg0: tensor<65537x4xf32>) -> tensor<65537x4xf32> {
+  %input = arith.constant dense<[[1.0, 2.0, 3.0, 4.0]]> : tensor<1x4xf32>
+  %shape = arith.constant dense<[65537, 4]> : tensor<2xi32>
+  %0 = "tfl.broadcast_to"(%input, %shape) : (tensor<1x4xf32>, tensor<2xi32>) -> tensor<65537x4xf32>
+  %1 = tfl.add %arg0, %0 {fused_activation_function = "NONE"} : tensor<65537x4xf32>
+  func.return %1 : tensor<65537x4xf32>
+  // CHECK: %[[BC:.*]] = "tfl.broadcast_to"
+  // CHECK: tfl.add %arg0, %[[BC]]
+}
+
+// When every user broadcasts implicitly, the BROADCAST_TO is left for
+// optimize_broadcast_like to drop, so that EQUAL against the 0..N-1 sequence
+// can still become ONE_HOT.
+// CHECK-LABEL: @NotFoldBroadcastToIntoImplicitBroadcastUser
+func.func @NotFoldBroadcastToIntoImplicitBroadcastUser(%arg0: tensor<4x1xi32>) -> tensor<4x3xi1> {
+  %input = arith.constant dense<[[0, 1, 2]]> : tensor<1x3xi32>
+  %shape = arith.constant dense<[4, 3]> : tensor<2xi32>
+  %0 = "tfl.broadcast_to"(%input, %shape) : (tensor<1x3xi32>, tensor<2xi32>) -> tensor<4x3xi32>
+  %1 = "tfl.equal"(%arg0, %0) : (tensor<4x1xi32>, tensor<4x3xi32>) -> tensor<4x3xi1>
+  func.return %1 : tensor<4x3xi1>
+  // CHECK: %[[BC:.*]] = "tfl.broadcast_to"
+  // CHECK: "tfl.equal"(%arg0, %[[BC]])
+}
+
+// If any user needs the broadcast value itself, it is folded.
+// CHECK-LABEL: @ConstFoldBroadcastToMixedUsers
+func.func @ConstFoldBroadcastToMixedUsers(%arg0: tensor<4x1xi32>) -> (tensor<4x3xi1>, tensor<4x3xi32>) {
+  %input = arith.constant dense<[[0, 1, 2]]> : tensor<1x3xi32>
+  %shape = arith.constant dense<[4, 3]> : tensor<2xi32>
+  %0 = "tfl.broadcast_to"(%input, %shape) : (tensor<1x3xi32>, tensor<2xi32>) -> tensor<4x3xi32>
+  %1 = "tfl.equal"(%arg0, %0) : (tensor<4x1xi32>, tensor<4x3xi32>) -> tensor<4x3xi1>
+  func.return %1, %0 : tensor<4x3xi1>, tensor<4x3xi32>
+  // CHECK: %[[CST:.*]] = arith.constant dense<{{\[\[}}0, 1, 2], [0, 1, 2], [0, 1, 2], [0, 1, 2]]> : tensor<4x3xi32>
+  // CHECK-NOT: tfl.broadcast_to
+  // CHECK: "tfl.equal"(%arg0, %[[CST]])
+}
+
+// CHECK-LABEL: @NotFoldBroadcastToRuntimeInput
+func.func @NotFoldBroadcastToRuntimeInput(%arg0: tensor<2x1xf32>) -> tensor<2x3xf32> {
+  %shape = arith.constant dense<[2, 3]> : tensor<2xi32>
+  %0 = "tfl.broadcast_to"(%arg0, %shape) : (tensor<2x1xf32>, tensor<2xi32>) -> tensor<2x3xf32>
+  func.return %0 : tensor<2x3xf32>
+  // CHECK: %[[BC:.*]] = "tfl.broadcast_to"(%arg0
+  // CHECK: return %[[BC]]
+}
+
+// CHECK-LABEL: @ConstFoldResizeNearestNeighbor
+func.func @ConstFoldResizeNearestNeighbor() -> tensor<1x2x4x1xf32> {
+  %input = arith.constant dense<[[[[1.0], [2.0]]]]> : tensor<1x1x2x1xf32>
+  %size = arith.constant dense<[2, 4]> : tensor<2xi32>
+  %0 = "tfl.resize_nearest_neighbor"(%input, %size) {align_corners = false, half_pixel_centers = false} : (tensor<1x1x2x1xf32>, tensor<2xi32>) -> tensor<1x2x4x1xf32>
+  func.return %0 : tensor<1x2x4x1xf32>
+  // CHECK: %[[CST:.*]] = arith.constant dense<{{\[\[\[\[}}1.000000e+00], [1.000000e+00], [2.000000e+00], [2.000000e+00]], {{\[\[}}1.000000e+00], [1.000000e+00], [2.000000e+00], [2.000000e+00]]]]> : tensor<1x2x4x1xf32>
+  // CHECK-NOT: tfl.resize_nearest_neighbor
+  // CHECK: return %[[CST]]
+}
+
+// align_corners: corners map exactly; the midpoint rounds half away from zero.
+// CHECK-LABEL: @ConstFoldResizeNearestNeighborAlignCorners
+func.func @ConstFoldResizeNearestNeighborAlignCorners() -> tensor<1x1x3x1xf32> {
+  %input = arith.constant dense<[[[[1.0], [2.0]]]]> : tensor<1x1x2x1xf32>
+  %size = arith.constant dense<[1, 3]> : tensor<2xi32>
+  %0 = "tfl.resize_nearest_neighbor"(%input, %size) {align_corners = true, half_pixel_centers = false} : (tensor<1x1x2x1xf32>, tensor<2xi32>) -> tensor<1x1x3x1xf32>
+  func.return %0 : tensor<1x1x3x1xf32>
+  // CHECK: %[[CST:.*]] = arith.constant dense<{{\[\[\[\[}}1.000000e+00], [2.000000e+00], [2.000000e+00]]]]> : tensor<1x1x3x1xf32>
+  // CHECK: return %[[CST]]
+}
+
+// CHECK-LABEL: @ConstFoldResizeBilinear
+func.func @ConstFoldResizeBilinear() -> tensor<1x1x4x1xf32> {
+  %input = arith.constant dense<[[[[0.0], [4.0]]]]> : tensor<1x1x2x1xf32>
+  %size = arith.constant dense<[1, 4]> : tensor<2xi32>
+  %0 = "tfl.resize_bilinear"(%input, %size) {align_corners = false, half_pixel_centers = false} : (tensor<1x1x2x1xf32>, tensor<2xi32>) -> tensor<1x1x4x1xf32>
+  func.return %0 : tensor<1x1x4x1xf32>
+  // scale = 0.5: sources 0, 0.5, 1, 1.5 (clamped to 1).
+  // CHECK: %[[CST:.*]] = arith.constant dense<{{\[\[\[\[}}0.000000e+00], [2.000000e+00], [4.000000e+00], [4.000000e+00]]]]> : tensor<1x1x4x1xf32>
+  // CHECK-NOT: tfl.resize_bilinear
+  // CHECK: return %[[CST]]
+}
+
+// half_pixel_centers: sources -0.25 (clamped), 0.25, 0.75, 1.25 (clamped).
+// CHECK-LABEL: @ConstFoldResizeBilinearHalfPixel
+func.func @ConstFoldResizeBilinearHalfPixel() -> tensor<1x1x4x1xf32> {
+  %input = arith.constant dense<[[[[0.0], [4.0]]]]> : tensor<1x1x2x1xf32>
+  %size = arith.constant dense<[1, 4]> : tensor<2xi32>
+  %0 = "tfl.resize_bilinear"(%input, %size) {align_corners = false, half_pixel_centers = true} : (tensor<1x1x2x1xf32>, tensor<2xi32>) -> tensor<1x1x4x1xf32>
+  func.return %0 : tensor<1x1x4x1xf32>
+  // CHECK: %[[CST:.*]] = arith.constant dense<{{\[\[\[\[}}0.000000e+00], [1.000000e+00], [3.000000e+00], [4.000000e+00]]]]> : tensor<1x1x4x1xf32>
+  // CHECK: return %[[CST]]
+}
+
+// CHECK-LABEL: @NotFoldResizeBilinearRuntimeInput
+func.func @NotFoldResizeBilinearRuntimeInput(%arg0: tensor<1x1x2x1xf32>) -> tensor<1x1x4x1xf32> {
+  %size = arith.constant dense<[1, 4]> : tensor<2xi32>
+  %0 = "tfl.resize_bilinear"(%arg0, %size) {align_corners = false, half_pixel_centers = false} : (tensor<1x1x2x1xf32>, tensor<2xi32>) -> tensor<1x1x4x1xf32>
+  func.return %0 : tensor<1x1x4x1xf32>
+  // CHECK: "tfl.resize_bilinear"(%arg0
+}
