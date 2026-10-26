@@ -137,6 +137,33 @@ class CSRSparseMatrixTest(test.TestCase):
       a_sm_t_dense = self.evaluate(a_sm_t_dense)
       self.assertAllClose(expected, a_sm_t_dense)
 
+  @test_util.run_in_graph_and_eager_modes
+  def testSparseMatrixAddComplex(self):
+    if not self._gpu_available:
+      return
+    indices = np.array([[0, 0], [1, 1]], dtype=np.int64)
+    for dtype in (np.complex64, np.complex128):
+      a_dense = np.array([[1 + 1j, 0], [0, 3 - 2j]], dtype=dtype)
+      b_dense = np.array([[2 - 1j, 0], [0, 4 + 5j]], dtype=dtype)
+      alpha = dtype(2 + 1j)
+      beta = dtype(3 - 1j)
+      a = sparse_csr_matrix_ops.dense_to_csr_sparse_matrix(
+          dense_input=a_dense, indices=indices
+      )
+      b = sparse_csr_matrix_ops.dense_to_csr_sparse_matrix(
+          dense_input=b_dense, indices=indices
+      )
+      c = sparse_csr_matrix_ops.sparse_matrix_add(
+          a=a, b=b, alpha=alpha, beta=beta
+      )
+      result = sparse_csr_matrix_ops.csr_sparse_matrix_to_dense(
+          sparse_input=c, type=dtypes.as_dtype(dtype)
+      )
+      self.assertAllClose(
+          alpha * a_dense + beta * b_dense,
+          self.evaluate(result),
+      )
+
 
 class SparseMatrixMatmulTest(test.TestCase):
 

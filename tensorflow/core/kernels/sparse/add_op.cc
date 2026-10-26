@@ -379,8 +379,12 @@ struct CSRSparseMatrixAdd<GPUDevice, T>
   GpuSparseMatrixDescriptor descrA_;
   GpuSparseMatrixDescriptor descrB_;
   GpuSparseMatrixDescriptor descrC_;
-  const T alpha_;
-  const T beta_;
+  // Passed by address to cuSPARSE, which reinterpret_casts them to
+  // cuComplex / cuDoubleComplex (see AsCudaComplex in cuda_sparse.cc).
+  // Those need alignof == sizeof(T), but std::complex only guarantees
+  // alignof(value_type), so over-align to sizeof(T).
+  alignas(sizeof(T)) const T alpha_;
+  alignas(sizeof(T)) const T beta_;
   bool initialized_;
 
   CSRSparseMatrixAdd(const CSRSparseMatrixAdd&) = delete;
