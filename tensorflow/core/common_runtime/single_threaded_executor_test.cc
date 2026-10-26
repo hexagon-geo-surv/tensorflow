@@ -14,9 +14,12 @@ limitations under the License.
 ==============================================================================*/
 
 #include <algorithm>
+#include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/status/status.h"
 #include "tensorflow/core/common_runtime/device.h"
@@ -355,6 +358,45 @@ TEST_F(ExecutorTest, ControlDependenciesFromSpecialNodes) {
   std::vector<Tensor> retvals;
   TF_ASSERT_OK(call_frame.ConsumeRetvals(&retvals, false));
   EXPECT_EQ(3.0, V(retvals[0]));  // out = 1.0 + 2.0 = 3.0
+}
+
+TEST_F(ExecutorTest, HostMemoryInputAllocAttrs) {
+  auto g = std::make_unique<Graph>(OpRegistry::Global());
+  Node* in = test::graph::Arg(g.get(), 0, DT_FLOAT);
+  Node* c = test::graph::Constant(g.get(), V(2.0));
+  c->AddAttr("_output_hostmem", std::vector<int32_t>{0});
+  Node* mock_arg;
+  TF_ASSERT_OK(NodeBuilder(g->NewName("mock_arg"), "Mock")
+                   .Input(in)
+                   .Attr("_input_hostmem", std::vector<int32_t>{0})
+                   .Finalize(g.get(), &mock_arg));
+  Node* mock_const;
+  TF_ASSERT_OK(NodeBuilder(g->NewName("mock_const"), "Mock")
+                   .Input(c)
+                   .Finalize(g.get(), &mock_const));
+  Node* mock_dev;
+  TF_ASSERT_OK(
+      NodeBuilder("mock_dev", "Mock").Input(in).Finalize(g.get(), &mock_dev));
+  auto add = test::graph::Add(g.get(), mock_arg, mock_const);
+  auto sum = test::graph::Add(g.get(), add, mock_dev);
+  test::graph::Retval(g.get(), 0, sum);
+  FixupSourceAndSinkEdges(g.get());
+
+  int mock_calls = 0;
+  Create(std::move(g), [&](OpKernelContext* ctx) {
+    ++mock_calls;
+    const bool want_host = ctx->op_kernel().name() != "mock_dev";
+    EXPECT_EQ(want_host, ctx->input_alloc_attr(0).on_host())
+        << ctx->op_kernel().name();
+    ctx->set_output(0, ctx->input(0));
+  });
+  FunctionCallFrame call_frame({DT_FLOAT}, {DT_FLOAT});
+  TF_ASSERT_OK(call_frame.SetArgs({V(1.0)}));
+  TF_ASSERT_OK(Run(&call_frame));
+  EXPECT_EQ(3, mock_calls);
+  std::vector<Tensor> retvals;
+  TF_ASSERT_OK(call_frame.ConsumeRetvals(&retvals, false));
+  EXPECT_EQ(4.0, V(retvals[0]));
 }
 
 void BM_executor(::testing::benchmark::State& state) {

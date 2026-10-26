@@ -29,6 +29,7 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import errors
 from tensorflow.python.framework import function
 from tensorflow.python.framework import ops
+from tensorflow.python.framework import tensor_spec
 from tensorflow.python.framework import test_util
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import collective_ops
@@ -873,6 +874,43 @@ class FunctionalOpsTest(test.TestCase):
   def testFor(self):
     for use_gpu in (True, False):
       self._tfSum(use_gpu, False)
+
+  def testForEager(self):
+    with context.eager_mode():
+      @eager_def_function.function
+      def body(i, x):
+        step = math_ops.cast(i, dtypes.float32)
+        return x + step * 0.25
+
+      body_fn = body.get_concrete_function(
+          tensor_spec.TensorSpec(shape=(), dtype=dtypes.int32),
+          tensor_spec.TensorSpec(shape=(3,), dtype=dtypes.float32),
+      )
+
+      initial = constant_op.constant([0.5, 1.5, -2.0], dtype=dtypes.float32)
+      start = constant_op.constant(0, dtype=dtypes.int32)
+      limit = constant_op.constant(4, dtype=dtypes.int32)
+      delta = constant_op.constant(1, dtype=dtypes.int32)
+
+      with ops.device("/CPU:0"):
+        cpu_out = gen_functional_ops._for(
+            start=start,
+            limit=limit,
+            delta=delta,
+            input=[initial],
+            body=body_fn,
+        )[0]
+
+      with ops.device(test_util.gpu_device_name()):
+        gpu_out = gen_functional_ops._for(
+            start=start,
+            limit=limit,
+            delta=delta,
+            input=[initial],
+            body=body_fn,
+        )[0]
+      self.assertAllClose([2.0, 3.0, -0.5], cpu_out)
+      self.assertAllClose([2.0, 3.0, -0.5], gpu_out)
 
   def testForWithWhile(self):
     for use_gpu in (True, False):
