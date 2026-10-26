@@ -42,7 +42,7 @@ namespace {
 // A subclass of a XlaBinaryOp must build the computation that
 // describes the (tensor,tensor)->tensor function to apply to each element of
 // the input.
-#define XLA_MAKE_BINARY(NAME, HLO)                                         \
+#define XLA_DEFINE_BINARY_OP(NAME, HLO)                                    \
   class NAME##Op : public XlaBinaryOp {                                    \
    public:                                                                 \
     explicit NAME##Op(OpKernelConstruction* ctx) : XlaBinaryOp(ctx) {}     \
@@ -59,7 +59,10 @@ namespace {
       (void)extend_dimensions;                                             \
       return HLO;                                                          \
     }                                                                      \
-  };                                                                       \
+  }
+
+#define XLA_MAKE_BINARY(NAME, HLO) \
+  XLA_DEFINE_BINARY_OP(NAME, HLO); \
   REGISTER_XLA_OP(Name(#NAME), NAME##Op)
 
 XLA_MAKE_BINARY(Add, xla::Add(lhs, rhs, extend_dimensions));
@@ -206,7 +209,11 @@ XLA_MAKE_BINARY(LogicalOr, xla::Or(lhs, rhs, extend_dimensions));
 XLA_MAKE_BINARY(Mod, xla::Rem(lhs, rhs, extend_dimensions));
 XLA_MAKE_BINARY(Maximum, xla::Max(lhs, rhs, extend_dimensions));
 XLA_MAKE_BINARY(Minimum, xla::Min(lhs, rhs, extend_dimensions));
-XLA_MAKE_BINARY(RealDiv, xla::Div(lhs, rhs, extend_dimensions));
+// RealDiv is float/complex only, matching the TF CPU/GPU kernels; integer
+// division must go through Div, FloorDiv or TruncateDiv.
+XLA_DEFINE_BINARY_OP(RealDiv, xla::Div(lhs, rhs, extend_dimensions));
+REGISTER_XLA_OP(Name("RealDiv").TypeConstraint("T", kFloatAndComplexTypes),
+                RealDivOp);
 XLA_MAKE_BINARY(ReciprocalGrad, xla::Neg(xla::Mul(rhs, xla::Mul(lhs, lhs))));
 XLA_MAKE_BINARY(
     RsqrtGrad,
@@ -328,6 +335,7 @@ xla::XlaOp ZetaImpl(xla::XlaOp x, xla::XlaOp q, const BCast& broadcast_helper) {
 XLA_MAKE_BINARY(Zeta, ZetaImpl(lhs, rhs, broadcast_helper));
 
 #undef XLA_MAKE_BINARY
+#undef XLA_DEFINE_BINARY_OP
 
 class ApproximateEqualOp : public XlaOpKernel {
  public:
