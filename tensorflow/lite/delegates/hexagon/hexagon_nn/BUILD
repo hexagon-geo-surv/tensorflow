@@ -13,6 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 
+load("@build_bazel_rules_android//android:rules.bzl", "android_library")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("//tensorflow/lite:build_def.bzl", "tflite_cc_shared_object")
 
 package(default_visibility = [
