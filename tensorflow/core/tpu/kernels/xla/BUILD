@@ -85,7 +85,6 @@ cc_library(
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
         "//tensorflow/core/platform:errors",
-        "//tensorflow/core/platform:status",
         "//tensorflow/core/tpu:tpu_defs",
         "//tensorflow/core/tpu/kernels:cross_replica_ops",
         "@com_google_absl//absl/status",
