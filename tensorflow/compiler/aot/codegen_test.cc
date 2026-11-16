@@ -217,6 +217,30 @@ TEST(ThunkProtoExecutionDeserializerTest, EmitsDirectSharedRngStateCalls) {
   EXPECT_FALSE(absl::StrContains(*run_impl, "rng_states[")) << *run_impl;
 }
 
+TEST(ThunkProtoExecutionDeserializerTest,
+     EmitsDirectComparatorLambdaForSortThunk) {
+  xla::cpu::ThunkSequenceProto sequence;
+  xla::cpu::SortThunkProto* sort = sequence.add_thunks()->mutable_sort_thunk();
+  sort->set_dimension(0);
+  sort->set_is_stable(false);
+  sort->set_comparator_name("compare_fn");
+  xla::cpu::ShapeBufferAllocationSliceProto* input = sort->add_inputs_shapes();
+  *input->mutable_shape() = xla::ShapeUtil::MakeShape(xla::F32, {4}).ToProto();
+  input->mutable_slice()->set_buffer_allocation_index(1);
+  input->mutable_slice()->set_offset(0);
+  input->mutable_slice()->set_size(16);
+
+  ThunkProtoExecutionDeserializer deserializer;
+  absl::StatusOr<std::string> run_impl =
+      deserializer.ThunkSpecificRunImplFromThunkSequence(sequence);
+  TF_ASSERT_OK(run_impl.status());
+  EXPECT_TRUE(absl::StrContains(
+      *run_impl, "[](const void** data) { return compare_fn(data); };"))
+      << *run_impl;
+  EXPECT_FALSE(absl::StrContains(*run_impl, "reinterpret_cast<Comparator*>"))
+      << *run_impl;
+}
+
 }  // namespace
 }  // namespace tfcompile
 }  // namespace tensorflow
